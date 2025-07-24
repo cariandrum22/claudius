@@ -1,0 +1,32 @@
+# Example Codex settings file for testing
+model = "openai/gpt-4"
+model_provider = "openai"
+approval_policy = "none"
+disable_response_storage = false
+notify = ["desktop"]
+
+[model_providers.openai]
+base_url = "https://api.openai.com"
+api_key_env = "OPENAI_API_KEY"
+
+[model_providers.anthropic]
+base_url = "https://api.anthropic.com"
+api_key_env = "ANTHROPIC_API_KEY"
+headers = { "X-Custom-Header" = "value" }
+
+[shell_environment_policy]
+inherit = "all"
+ignore_default_excludes = false
+exclude = ["SECRET_*", "PASSWORD_*"]
+set = { TERM = "xterm-256color", LANG = "en_US.UTF-8" }
+
+[sandbox]
+mode = "docker"
+writable_roots = ["/tmp", "/var/tmp"]
+network_access = true
+
+[history]
+persistence = "disk"
+
+# Extra unknown field for testing
+unknown_field = "should trigger warning"

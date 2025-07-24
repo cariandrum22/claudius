@@ -1,0 +1,32 @@
+# Rust Formatting Configuration for Stable Rust
+# Promotes functional programming style and consistency
+
+# Basic formatting
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# Use consistent style
+use_small_heuristics = "Max"
+reorder_imports = true
+reorder_modules = true
+
+# Function and match formatting
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+merge_derives = true
+remove_nested_parens = true
+
+# Chain formatting
+chain_width = 80
+single_line_if_else_max_width = 80
+
+# Misc
+force_explicit_abi = true
+newline_style = "Unix"
+
+# Note: Many advanced formatting options require nightly Rust.
+# See rustfmt.nightly.toml for full configuration with:
+#   cargo +nightly fmt

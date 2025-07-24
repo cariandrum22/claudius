@@ -1,0 +1,10 @@
+[files]
+extend-exclude = ["target/", "*.lock"]
+
+[default.extend-words]
+# HashiCorp is a company name, not a typo
+Hashi = "Hashi"
+HashiCorp = "HashiCorp"
+
+[default.extend-identifiers]
+HashiCorp = "HashiCorp"

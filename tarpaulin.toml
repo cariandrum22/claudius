@@ -1,0 +1,11 @@
+[default]
+workspace = true
+out = ["Html", "Lcov", "Json"]
+exclude-files = ["*/generated/*", "*/tests/*", "*/target/*"]
+fail-under = 90
+print-summary = true
+print-uncovered-lines = true
+
+[report]
+# Optional: Add external coverage services
+# coveralls = "coveralls-token"

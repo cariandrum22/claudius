@@ -1,0 +1,14 @@
+mod app_config_test;
+mod append_context_test;
+mod claude_mcp_merge_test;
+mod commands_test;
+mod config_agent_test;
+mod config_test;
+mod merge_test;
+mod reader_test;
+mod rules_test;
+mod secrets_test;
+mod settings_sync_test;
+mod settings_test;
+mod template_test;
+mod writer_test;
