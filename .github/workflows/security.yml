@@ -138,7 +138,7 @@ jobs:
           retention-days: 30
 
       - name: Scan SBOM for vulnerabilities
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v6
         with:
           sbom: sbom.spdx.json
           fail-build: false
