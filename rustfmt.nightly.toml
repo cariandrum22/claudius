@@ -1,0 +1,62 @@
+# Advanced Rust Formatting Configuration (Requires Nightly)
+# Use with: cargo +nightly fmt
+
+# All stable options from rustfmt.toml
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+use_small_heuristics = "Max"
+reorder_imports = true
+reorder_modules = true
+match_block_trailing_comma = true
+use_field_init_shorthand = false
+use_try_shorthand = false
+merge_derives = true
+chain_width = 80
+single_line_if_else_max_width = 80
+error_on_line_overflow = false
+error_on_unformatted = false
+force_explicit_abi = true
+newline_style = "Unix"
+inline_attribute_width = 0
+skip_children = false
+
+# Nightly-only features
+unstable_features = true
+
+# Import formatting
+imports_granularity = "Module"
+imports_layout = "Vertical"
+group_imports = "StdExternalCrate"
+
+# Comments and documentation
+normalize_comments = true
+normalize_doc_attributes = true
+wrap_comments = true
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 80
+
+# Function formatting
+fn_single_line = false
+where_single_line = false
+
+# Struct and enum formatting
+struct_field_align_threshold = 20
+enum_discrim_align_threshold = 20
+struct_lit_single_line = false
+
+# Pattern matching
+match_arm_blocks = true
+force_multiline_blocks = true
+
+# Spacing
+spaces_around_ranges = true
+binop_separator = "Back"
+
+# Expression formatting
+overflow_delimited_expr = true
+
+# Blank lines
+blank_lines_upper_bound = 2
+blank_lines_lower_bound = 0

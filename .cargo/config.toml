@@ -1,0 +1,118 @@
+[build]
+# Use sparse registry for faster dependency resolution
+# Note: Requires Rust 1.68+, comment out for 1.66.1
+# registries.crates-io.protocol = "sparse"
+
+[target.'cfg(all())']
+rustflags = [
+    # Enable all warnings as errors
+    "-D", "warnings",
+
+    # Functional Programming Style Lints
+    "-D", "clippy::all",
+    "-D", "clippy::pedantic",
+    "-D", "clippy::nursery",
+    "-D", "clippy::cargo",
+
+    # Restriction lints for functional style
+    # "-D", "clippy::print_stdout",  # TODO: Enable for lib code only
+    # "-D", "clippy::print_stderr",  # TODO: Enable for lib code only
+    "-D", "clippy::use_debug",
+    "-D", "clippy::dbg_macro",
+    "-D", "clippy::todo",
+    "-D", "clippy::unimplemented",
+    # "-D", "clippy::unwrap_used",  # TODO: Enable for non-test code only
+    # "-D", "clippy::expect_used",  # TODO: Enable for non-test code only
+    "-D", "clippy::panic",
+    "-D", "clippy::unreachable",
+    "-D", "clippy::unwrap_in_result",
+
+    # Error handling
+    "-D", "clippy::missing_errors_doc",
+    "-D", "clippy::missing_panics_doc",
+    "-D", "clippy::indexing_slicing",
+    "-D", "clippy::string_slice",
+
+    # Functional patterns
+    "-D", "clippy::explicit_iter_loop",
+    "-D", "clippy::explicit_into_iter_loop",
+    "-D", "clippy::needless_for_each",
+    "-D", "clippy::while_let_on_iterator",
+    "-D", "clippy::map_unwrap_or",
+    "-D", "clippy::manual_filter_map",
+    "-D", "clippy::manual_find_map",
+    "-D", "clippy::manual_map",
+
+    # Mutability restrictions
+    "-D", "clippy::mut_mut",
+    "-D", "clippy::needless_pass_by_value",
+    "-D", "clippy::trivially_copy_pass_by_ref",
+
+    # Code clarity
+    "-D", "clippy::shadow_unrelated",
+    "-D", "clippy::shadow_reuse",
+    "-D", "clippy::shadow_same",
+    "-D", "clippy::cognitive_complexity",
+    "-D", "clippy::too_many_lines",
+    "-D", "clippy::too_many_arguments",
+    "-D", "clippy::type_complexity",
+    "-D", "clippy::excessive_nesting",
+
+    # Performance
+    "-D", "clippy::inefficient_to_string",
+    "-D", "clippy::unnecessary_wraps",
+    "-D", "clippy::needless_collect",
+    "-D", "clippy::needless_borrowed_reference",
+
+    # Modern Rust patterns
+    "-D", "clippy::manual_let_else",
+    "-D", "clippy::question_mark",
+    "-D", "clippy::manual_ok_or",
+    "-D", "clippy::if_not_else",
+    "-D", "clippy::single_match_else",
+    "-D", "clippy::unnested_or_patterns",
+
+    # Safety and correctness
+    "-D", "clippy::float_arithmetic",
+    "-D", "clippy::arithmetic_side_effects",
+    "-D", "clippy::as_conversions",
+    "-D", "clippy::cast_possible_truncation",
+    "-D", "clippy::cast_possible_wrap",
+    "-D", "clippy::cast_precision_loss",
+    "-D", "clippy::cast_sign_loss",
+
+    # Module organization
+    "-D", "clippy::mod_module_files",
+
+    # Testing
+    "-D", "clippy::panic_in_result_fn",
+    "-D", "clippy::tests_outside_test_module",
+
+    # Documentation
+    "-D", "missing_docs",
+    "-D", "missing_debug_implementations",
+    "-D", "missing_copy_implementations",
+
+    # Allowed lints (too restrictive or false positives)
+    "-A", "clippy::module_name_repetitions",
+    "-A", "clippy::must_use_candidate",
+    "-A", "clippy::missing_const_for_fn",
+    "-A", "clippy::struct_excessive_bools",
+    "-A", "clippy::fn_to_numeric_cast_any",
+    "-A", "clippy::blanket_clippy_restriction_lints",
+    "-A", "clippy::implicit_return",
+    "-A", "clippy::missing_inline_in_public_items",
+    "-A", "clippy::exhaustive_structs",
+    "-A", "clippy::exhaustive_enums",
+    "-A", "clippy::single_char_lifetime_names",
+    "-A", "clippy::pub_with_shorthand",
+    "-A", "clippy::absolute_paths",
+    "-A", "clippy::self_named_module_files",
+    "-A", "clippy::missing_docs_in_private_items",
+    "-A", "clippy::multiple_crate_versions",
+]
+
+# Unstable features for better diagnostics (if using nightly)
+# [unstable]
+# build-std = ["core", "std", "alloc", "proc_macro"]
+# build-std-features = ["panic_immediate_abort"]

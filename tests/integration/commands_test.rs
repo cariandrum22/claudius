@@ -1,0 +1,113 @@
+use crate::fixtures::TestFixture;
+use assert_cmd::Command;
+use predicates::prelude::*;
+use serial_test::serial;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[serial]
+    fn test_commands_sync_project_local() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        // Create test commands
+        fixture.with_command("hello", "# Hello Command\nTest command").unwrap();
+        fixture.with_command("debug", "# Debug Command\nDebug info").unwrap();
+
+        // Create minimal config
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        // Run sync in project-local mode (default)
+        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .arg("sync")
+            .arg("--agent")
+            .arg("gemini")
+            .assert()
+            .success();
+
+        // Verify commands were synced to project-local .claude/commands/
+        assert!(fixture.project_file_exists(".claude/commands"));
+
+        // Check commands exist without .md extension
+        assert!(fixture.project_file_exists(".claude/commands/hello"));
+        assert!(fixture.project_file_exists(".claude/commands/debug"));
+
+        // Verify content
+        let hello_content = fixture.read_project_file(".claude/commands/hello").unwrap();
+        assert_eq!(hello_content, "# Hello Command\nTest command");
+
+        let debug_content = fixture.read_project_file(".claude/commands/debug").unwrap();
+        assert_eq!(debug_content, "# Debug Command\nDebug info");
+    }
+
+    #[test]
+    #[serial]
+    fn test_commands_sync_global() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        // Create test commands
+        fixture.with_command("test", "# Test Command").unwrap();
+
+        // Create minimal config
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        // Run sync in global mode
+        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        cmd.env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .arg("sync")
+            .arg("--global")
+            .assert()
+            .success();
+
+        // Verify commands were synced to ~/.claude/commands/
+        assert!(fixture.home_file_exists(".claude/commands"));
+
+        // Check command exists
+        assert!(fixture.home_file_exists(".claude/commands/test"));
+
+        let test_content = fixture.read_home_file(".claude/commands/test").unwrap();
+        assert_eq!(test_content, "# Test Command");
+    }
+
+    #[test]
+    #[serial]
+    fn test_commands_only_mode_project_local() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        // Create test command
+        fixture.with_command("cmd", "Command content").unwrap();
+
+        // Create config files
+        fixture
+            .with_mcp_servers(r#"{"mcpServers": {"test": {"command": "test"}}}"#)
+            .unwrap();
+        fixture.with_settings(r#"{"apiKeyHelper": "test"}"#).unwrap();
+
+        // Run sync with --commands-only
+        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .arg("sync")
+            .arg("--agent")
+            .arg("gemini")
+            .arg("--commands-only")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Successfully synced"));
+
+        // Verify only commands were synced (no .mcp.json or settings.json)
+        assert!(!fixture.project_file_exists(".mcp.json"));
+        assert!(!fixture.project_file_exists(".claude/settings.json"));
+
+        // But commands should exist
+        assert!(fixture.project_file_exists(".claude/commands/cmd"));
+    }
+}

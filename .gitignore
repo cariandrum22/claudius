@@ -1,0 +1,69 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Nix
+result
+result-*
+.direnv/
+.envrc
+.pre-commit-config.yaml
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# Coverage artifacts
+lcov.info
+coverage.json
+cobertura.xml
+target/llvm-cov/
+
+# Backup files
+*.backup.*
+
+# Temporary files
+*.tmp
+.tmp*
+
+# Claude project-local configurations
+.mcp.json
+.claude/
+
+# Git hooks (not tracked)
+.githooks/
+.pre-commit-config.yaml
+
+# Documentation (keep only specific markdown files)
+*.md
+!README.md
+!CLAUDE.md
+!CHANGELOG.md
+!docs/*.md
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Act secrets (for local GitHub Actions testing)
+.secrets
+.secrets.*

@@ -1,0 +1,16 @@
+mod app_config_test;
+mod cli_test;
+mod codex_model_providers_test;
+mod codex_sync_test;
+mod codex_toml_test;
+mod commands_test;
+mod context_test;
+mod init_test;
+mod install_context_test;
+mod merge_interactive_test;
+mod multi_agent_sync_test;
+mod parallel_performance_test;
+mod run_command_test;
+mod secrets_fixture_test;
+mod settings_test;
+mod variable_expansion_test;

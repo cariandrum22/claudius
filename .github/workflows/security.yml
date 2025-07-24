@@ -1,0 +1,210 @@
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Monday at midnight UTC
+  workflow_dispatch:
+  push:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      # Cargo audit for known vulnerabilities
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Run cargo audit
+        run: |
+          cargo audit --deny warnings || true
+          cargo audit --json > audit-results.json
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-results
+          path: audit-results.json
+          retention-days: 30
+
+      # Cargo deny for license and security checks
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Check licenses
+        run: cargo deny check licenses
+
+      - name: Check bans
+        run: cargo deny check bans
+
+      - name: Check advisories
+        run: cargo deny check advisories
+
+      # SARIF output for GitHub Security tab
+      - name: Generate SARIF
+        if: always()
+        run: |
+          cargo audit --json | python3 -c "
+          import json
+          import sys
+
+          data = json.load(sys.stdin)
+          sarif = {
+              'version': '2.1.0',
+              'runs': [{
+                  'tool': {
+                      'driver': {
+                          'name': 'cargo-audit',
+                          'version': '0.17.0'
+                      }
+                  },
+                  'results': []
+              }]
+          }
+
+          for vuln in data.get('vulnerabilities', {}).get('list', []):
+              result = {
+                  'ruleId': vuln['advisory']['id'],
+                  'level': 'error',
+                  'message': {
+                      'text': vuln['advisory']['title']
+                  },
+                  'locations': [{
+                      'physicalLocation': {
+                          'artifactLocation': {
+                              'uri': 'Cargo.lock'
+                          }
+                      }
+                  }]
+              }
+              sarif['runs'][0]['results'].append(result)
+
+          json.dump(sarif, sys.stdout, indent=2)
+          " > cargo-audit.sarif
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: cargo-audit.sarif
+          category: cargo-audit
+
+  # Supply chain security
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          retention-days: 30
+
+      - name: Scan SBOM for vulnerabilities
+        uses: anchore/scan-action@v3
+        with:
+          sbom: sbom.spdx.json
+          fail-build: false
+
+  # CodeQL analysis
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: 'rust'
+          queries: security-and-quality
+
+      - name: Build
+        run: cargo build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:rust"
+
+  # Notify on failures
+  notify:
+    name: Notify on Security Issues
+    if: failure()
+    needs: [audit, supply-chain, codeql]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue for security failures
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🚨 Security Audit Failed';
+            const body = `The security audit workflow has detected potential issues.
+
+            **Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+            **Triggered by:** ${context.eventName}
+            **Ref:** ${context.ref}
+
+            Please review the workflow logs and address any security vulnerabilities found.`;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'security',
+              state: 'open'
+            });
+
+            const existingIssue = issues.data.find(issue => issue.title === title);
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['security', 'automated']
+              });
+            }

@@ -1,0 +1,41 @@
+# Clippy Configuration for Modern Functional Rust
+# Enforces best practices and functional programming patterns
+
+# Deny dangerous and problematic patterns
+avoid-breaking-exported-api = false
+msrv = "1.86.0"
+
+# Threshold configurations
+cognitive-complexity-threshold = 20
+too-many-arguments-threshold = 6
+too-many-lines-threshold = 50
+excessive-nesting-threshold = 5
+large-error-threshold = 128
+trivial-copy-size-limit = 8
+type-complexity-threshold = 250
+single-char-binding-names-threshold = 3
+
+# Disallowed names for better clarity
+disallowed-names = [
+    "foo",
+    "bar",
+    "baz",
+    "tmp",
+    "temp",
+    "test",
+    "data",
+    "obj",
+    "object",
+    "mgr",
+    "manager",
+    "ref",
+    "ptr",
+]
+
+# Documentation requirements
+# Note: missing_docs is configured via cargo flags, not clippy.toml
+missing-docs-in-crate-items = true
+
+# Note: Many lints cannot be configured in clippy.toml and must be set via rustflags
+# or command-line arguments. See .cargo/config.toml or use:
+# cargo clippy -- -D warnings -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo

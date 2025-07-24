@@ -1,0 +1,13 @@
+# Default Docker image for runners
+-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest
+-P ubuntu-22.04=ghcr.io/catthehacker/ubuntu:act-22.04
+-P ubuntu-20.04=ghcr.io/catthehacker/ubuntu:act-20.04
+
+# Use Docker instead of Podman
+--container-daemon-socket unix:///var/run/docker.sock
+
+# Reuse containers for speed
+--reuse
+
+# Default workflow file
+--workflows .github/workflows/

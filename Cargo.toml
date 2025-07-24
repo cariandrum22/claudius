@@ -1,0 +1,94 @@
+[package]
+name = "claudius"
+version = "0.1.0"
+edition = "2021"
+authors = ["claudius contributors"]
+description = "Comprehensive configuration management tool for Claude Desktop/CLI"
+license = "MIT"
+repository = "https://github.com/cariandrum22/claudius"
+keywords = ["mcp", "claude", "config", "sync", "claudius"]
+categories = ["command-line-utilities", "config"]
+
+[dependencies]
+clap = { version = "4.0", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+anyhow = "1.0"
+thiserror = "1.0"
+directories = "5.0"
+regex = "1.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3.9"
+chrono = "0.4"
+toml = "0.8"
+
+# Parallel processing
+rayon = "1.5"
+
+# Optional dependencies for profiling
+pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+
+[features]
+default = []
+profiling = ["dep:pprof"]
+
+[dev-dependencies]
+assert_cmd = "2.0"
+assert_fs = "1.1"
+predicates = "3.1"
+pretty_assertions = "1.4"
+proptest = "1.4"
+rstest = "0.18"
+serial_test = "3.0"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Allow some pedantic lints
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+# Functional style encouragements
+map_unwrap_or = "warn"
+manual_map = "warn"
+option_if_let_else = "warn"
+or_fun_call = "warn"
+
+# Iterator improvements
+needless_collect = "warn"
+manual_filter_map = "warn"
+flat_map_option = "warn"
+
+# Pattern matching
+single_match_else = "warn"
+match_like_matches_macro = "warn"
+
+[profile.test]
+opt-level = 0
+
+[profile.coverage]
+inherits = "test"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
+[[bin]]
+name = "claudius"
+path = "src/main.rs"
