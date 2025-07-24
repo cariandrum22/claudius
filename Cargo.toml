@@ -21,7 +21,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.9"
 chrono = "0.4"
-toml = "0.8"
+toml = "0.9"
 
 # Parallel processing
 rayon = "1.5"
@@ -39,7 +39,7 @@ assert_fs = "1.1"
 predicates = "3.1"
 pretty_assertions = "1.4"
 proptest = "1.4"
-rstest = "0.18"
+rstest = "0.25"
 serial_test = "3.0"
 
 [profile.dev]
