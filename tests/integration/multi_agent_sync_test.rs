@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use assert_fs::prelude::*;
+use serial_test::serial;
 use std::fs;
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_global_all_agents() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");
@@ -96,6 +98,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_global_single_agent_with_flag() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");
@@ -129,6 +132,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_global_no_agents_available() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");
@@ -171,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sync_global_partial_agents() {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");

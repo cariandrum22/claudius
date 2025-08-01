@@ -26,12 +26,21 @@ toml = "0.8"
 # Parallel processing
 rayon = "1.5"
 
-# Optional dependencies for profiling
-pprof = { version = "0.15", features = ["flamegraph"], optional = true }
-
 [features]
 default = []
-profiling = ["dep:pprof"]
+# Profiling feature enables timing profiling on all platforms
+# Note: Flamegraph generation requires the "flamegraph" feature on Unix
+profiling = []
+# Flamegraph feature enables pprof-based flamegraph generation (Unix only)
+# This is separate to avoid compilation issues on Windows with --all-features
+flamegraph = ["pprof"]
+
+# Unix-only dependencies (pprof doesn't compile on Windows)
+# pprof is optional and only used when both:
+# 1. We're on a Unix system
+# 2. The code explicitly uses pprof (via cfg checks)
+[target.'cfg(unix)'.dependencies]
+pprof = { version = "0.15", features = ["flamegraph"], optional = true }
 
 [dev-dependencies]
 assert_cmd = "2.0"

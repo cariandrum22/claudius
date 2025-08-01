@@ -43,6 +43,7 @@ type = "1password"
         fs::write(config_dir.join("mcpServers.json"), mcp_config).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();
@@ -93,6 +94,7 @@ type = "1password"
         fs::write(config_dir.join("mcpServers.json"), r#"{"mcpServers": {}}"#).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();
@@ -154,6 +156,7 @@ type = "1password"
         fs::write(config_dir.join("mcpServers.json"), mcp_config).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();

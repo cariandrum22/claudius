@@ -97,12 +97,13 @@ mod tests {
         // In local mode, gemini uses settings from config dir
         assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
         // But project settings path should be ./gemini/settings.json
+        let expected_path = format!("gemini{}settings.json", std::path::MAIN_SEPARATOR);
         assert!(config
             .project_settings_path
             .as_ref()
             .unwrap()
             .to_string_lossy()
-            .contains("gemini/settings.json"));
+            .contains(&expected_path));
         assert!(!config
             .project_settings_path
             .as_ref()
@@ -135,7 +136,8 @@ mod tests {
 
         let config = Config::new_with_agent(true, Some(Agent::Gemini)).unwrap();
         // In global mode, gemini uses ~/.gemini/settings.json
-        assert!(config.settings_path.to_string_lossy().contains(".gemini/settings.json"));
+        let expected_path = format!(".gemini{}settings.json", std::path::MAIN_SEPARATOR);
+        assert!(config.settings_path.to_string_lossy().contains(&expected_path));
     }
 
     #[test]

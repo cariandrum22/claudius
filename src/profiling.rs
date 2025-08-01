@@ -41,7 +41,7 @@ macro_rules! time_block {
 /// - Failed to build the profiler
 /// - Failed to create the output file
 /// - Failed to generate the flamegraph report
-#[cfg(feature = "profiling")]
+#[cfg(all(feature = "profiling", feature = "flamegraph", target_family = "unix"))]
 pub fn profile_flamegraph<F, R>(label: &str, f: F) -> Result<R, anyhow::Error>
 where
     F: FnOnce() -> R,
@@ -67,6 +67,18 @@ where
     }
 
     Ok(result)
+}
+
+/// Profile a function when flamegraph is not available (timing only)
+#[cfg(all(feature = "profiling", any(not(feature = "flamegraph"), not(target_family = "unix"))))]
+pub fn profile_flamegraph<F, R>(label: &str, f: F) -> Result<R, anyhow::Error>
+where
+    F: FnOnce() -> R,
+{
+    use tracing::info;
+    info!("Flamegraph profiling is not available. Running {} with timing profiling only.", label);
+    let _timer = Timer::new(label);
+    Ok(f())
 }
 
 /// Profile a function without flamegraph (no-op when profiling feature is disabled)

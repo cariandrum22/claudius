@@ -47,10 +47,15 @@ type = "1password"
         let start = Instant::now();
 
         let mut cmd = Command::cargo_bin("claudius").unwrap();
-        cmd.arg("run")
-            .arg("--")
-            .arg("/usr/bin/env")
-            .env("CLAUDIUS_TEST_MOCK_OP", "1")
+        cmd.arg("run").arg("--");
+
+        if cfg!(windows) {
+            cmd.arg("cmd").arg("/C").arg("echo");
+        } else {
+            cmd.arg("/usr/bin/env");
+        }
+
+        cmd.env("CLAUDIUS_TEST_MOCK_OP", "1")
             .env("CLAUDIUS_PROFILE", "1")
             .env("XDG_CONFIG_HOME", temp_dir.path().join(".config"));
 

@@ -97,9 +97,9 @@ mod tests {
             .arg("--debug")
             .arg("run")
             .arg("--")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg("echo $TEST_VAR");
+            .arg(if cfg!(windows) { "cmd" } else { "/bin/sh" })
+            .arg(if cfg!(windows) { "/C" } else { "-c" })
+            .arg(if cfg!(windows) { "echo %TEST_VAR%" } else { "echo $TEST_VAR" });
 
         cmd.assert().success().stdout(predicate::str::contains("secret_value"));
     }
@@ -152,6 +152,7 @@ type = "1password"
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();
@@ -176,9 +177,13 @@ type = "1password"
             .arg("--debug")
             .arg("run")
             .arg("--")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg("echo API_KEY=$API_KEY DB_PASSWORD=$DB_PASSWORD");
+            .arg(if cfg!(windows) { "cmd" } else { "/bin/sh" })
+            .arg(if cfg!(windows) { "/C" } else { "-c" })
+            .arg(if cfg!(windows) {
+                "echo API_KEY=%API_KEY% DB_PASSWORD=%DB_PASSWORD%"
+            } else {
+                "echo API_KEY=$API_KEY DB_PASSWORD=$DB_PASSWORD"
+            });
 
         cmd.assert()
             .success()
@@ -201,6 +206,7 @@ type = "1password"
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();
@@ -225,9 +231,13 @@ type = "1password"
             .arg("--debug")
             .arg("run")
             .arg("--")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg("echo OP=$OP_SECRET PLAIN=$PLAIN_SECRET");
+            .arg(if cfg!(windows) { "cmd" } else { "/bin/sh" })
+            .arg(if cfg!(windows) { "/C" } else { "-c" })
+            .arg(if cfg!(windows) {
+                "echo OP=%OP_SECRET% PLAIN=%PLAIN_SECRET%"
+            } else {
+                "echo OP=$OP_SECRET PLAIN=$PLAIN_SECRET"
+            });
 
         cmd.assert()
             .success()
@@ -276,6 +286,7 @@ type = "1password"
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
 
         // Get the mock op path
+        #[cfg_attr(not(unix), allow(unused_variables))]
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
         fs::create_dir_all(&mock_bin_dir).unwrap();
