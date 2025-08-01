@@ -53,6 +53,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_append_context_default_claude() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
@@ -93,6 +95,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_append_context_with_agent_gemini() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
@@ -137,6 +141,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_append_context_with_agent_codex() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
@@ -225,6 +231,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_append_context_with_custom_context_file() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
 
         // Create a config file that specifies a custom context file
@@ -268,6 +275,8 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_append_context_with_specific_path() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
@@ -313,6 +322,8 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_append_context_with_template_path() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
@@ -434,6 +445,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_project_local_sync() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -491,6 +503,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_append_template_command() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -519,6 +532,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_append_to_existing_claude_md() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -558,6 +572,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_append_custom_template() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -590,6 +605,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_rules_command() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -623,6 +639,7 @@ context-file = "CUSTOM.md"
     #[test]
     #[serial]
     fn test_rules_command_with_existing_claude_md() {
+        let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 

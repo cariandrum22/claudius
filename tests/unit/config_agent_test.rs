@@ -8,12 +8,47 @@ use tempfile::TempDir;
 mod tests {
     use super::*;
 
+    /// Helper to save and restore environment variables
+    struct EnvGuard {
+        xdg_original: Option<String>,
+        home_original: Option<String>,
+        dir_original: Option<std::path::PathBuf>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            Self {
+                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
+                home_original: std::env::var("HOME").ok(),
+                dir_original: std::env::current_dir().ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // Restore XDG_CONFIG_HOME
+            match &self.xdg_original {
+                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            // Restore HOME
+            match &self.home_original {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            // Restore current directory
+            if let Some(dir) = &self.dir_original {
+                let _ = std::env::set_current_dir(dir);
+            }
+        }
+    }
+
     #[test]
     #[serial]
     fn test_config_with_claude_agent() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
-        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        let original_dir = std::env::current_dir().ok();
 
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
 
@@ -29,24 +64,13 @@ mod tests {
 
         let config = Config::new_with_agent(false, Some(Agent::Claude)).unwrap();
         assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
-
-        // Restore original environment
-        if let Some(orig) = original_xdg {
-            std::env::set_var("XDG_CONFIG_HOME", orig);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(dir) = original_dir {
-            std::env::set_current_dir(dir).unwrap();
-        }
     }
 
     #[test]
     #[serial]
     fn test_config_with_codex_agent() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
-        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        let original_dir = std::env::current_dir().ok();
 
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
 
@@ -62,24 +86,13 @@ mod tests {
 
         let config = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
         assert!(config.settings_path.to_string_lossy().contains("codex.settings.toml"));
-
-        // Restore original environment
-        if let Some(orig) = original_xdg {
-            std::env::set_var("XDG_CONFIG_HOME", orig);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(dir) = original_dir {
-            std::env::set_current_dir(dir).unwrap();
-        }
     }
 
     #[test]
     #[serial]
     fn test_config_with_gemini_agent_local() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
-        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        let original_dir = std::env::current_dir().ok();
 
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
 
@@ -110,21 +123,12 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .contains(".claude"));
-
-        // Restore original environment
-        if let Some(orig) = original_xdg {
-            std::env::set_var("XDG_CONFIG_HOME", orig);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(dir) = original_dir {
-            std::env::set_current_dir(dir).unwrap();
-        }
     }
 
     #[test]
     #[serial]
     fn test_config_with_gemini_agent_global() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
         std::env::set_var("HOME", temp_dir.path());
@@ -143,9 +147,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_config_without_agent_defaults_to_claude() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
-        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        let original_dir = std::env::current_dir().ok();
 
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
 
@@ -164,21 +167,12 @@ mod tests {
         assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
         assert!(!config.settings_path.to_string_lossy().contains("codex.settings.toml"));
         assert!(!config.settings_path.to_string_lossy().contains("gemini.settings.json"));
-
-        // Restore original environment
-        if let Some(orig) = original_xdg {
-            std::env::set_var("XDG_CONFIG_HOME", orig);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(dir) = original_dir {
-            std::env::set_current_dir(dir).unwrap();
-        }
     }
 
     #[test]
     #[serial]
     fn test_global_config_with_agent() {
+        let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
 
