@@ -20,10 +20,10 @@ Claudius is a powerful configuration management tool that helps developers maint
 
 ## Installation
 
-### Using Cargo
+### Using Cargo (from Git)
 
 ```bash
-cargo install claudius
+cargo install --git https://github.com/cariandrum22/claudius
 ```
 
 ### Using Nix Flake
