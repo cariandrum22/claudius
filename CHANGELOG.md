@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nix flake support for reproducible builds
 - Pre-commit hooks for code quality
 - Just command runner integration
-- Cross-platform support (Linux, macOS, Windows)
+- Linux and macOS support (Unix-like systems)
 
 #### Configuration
 - TOML-based application configuration

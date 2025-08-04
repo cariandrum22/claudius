@@ -16,7 +16,7 @@ Claudius is a powerful configuration management tool that helps developers maint
 - 🔗 **Variable Expansion** - DAG-based nested environment variable resolution
 - 🤖 **Multi-Agent Support** - Configure for Claude, Codex, or Gemini agents
 - 🚀 **Fast & Reliable** - Written in Rust for performance and safety
-- 🔧 **Cross-Platform** - Works on Linux, macOS, and Windows
+- 🐧 **Linux and macOS** - Designed for Unix-like operating systems
 
 ## Installation
 

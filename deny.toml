@@ -36,18 +36,10 @@ deny = [
 ]
 
 # Skip certain crates when checking for duplicates
-skip = [
-    # Windows-only crates that might have duplicates
-    { name = "winapi" },
-]
+skip = []
 
 # Similarly named crates that are allowed to coexist
 allow = []
-
-# Certain crates are allowed to have multiple versions
-[[bans.skip-tree]]
-name = "windows-sys"
-version = "*"
 
 [advisories]
 # The path where the advisory database is cloned/fetched into
