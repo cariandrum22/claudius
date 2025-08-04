@@ -517,7 +517,7 @@ cargo build --profile=profiling --features=profiling
 - **Language**: Rust (for safety and performance)
 - **Build System**: Nix Flake (reproducible build environment)
 - **Testing**: TDD with comprehensive unit and integration tests
-- **Target OS**: Linux/macOS/Windows (cross-platform)
+- **Target OS**: Linux/macOS (Unix-like systems)
 
 ### Development Workflow
 
@@ -597,7 +597,7 @@ claudius/
 2. **Explicit**: No surprising automatic behaviors
 3. **Composable**: Each feature works independently
 4. **Versionable**: All configs in version-control-friendly formats
-5. **Cross-Platform**: Works on all major operating systems
+5. **Linux and macOS**: Designed for Unix-like operating systems
 
 ## Current Status & Roadmap
 
@@ -889,7 +889,7 @@ This convention:
 
 ## Just Command Runner
 
-The project uses [Just](https://github.com/casey/just), a modern command runner written in Rust that provides better error messages, cross-platform support, and more features.
+The project uses [Just](https://github.com/casey/just), a modern command runner written in Rust that provides better error messages, improved UX, and more features than Make.
 
 ### Available Commands
 
@@ -940,10 +940,9 @@ just --list
 ### Advantages over Make
 
 1. **Better Error Messages** - Clear, helpful error reporting
-2. **Cross-Platform** - Works on Windows without WSL
-3. **Rust Integration** - Written in Rust, understands Rust workflows
-4. **Modern Features** - String interpolation, conditionals, functions
-5. **Shell Selection** - Can use any shell, not just sh/bash
+2. **Rust Integration** - Written in Rust, understands Rust workflows
+3. **Modern Features** - String interpolation, conditionals, functions
+4. **Shell Selection** - Can use any shell, not just sh/bash
 
 ### Examples
 
