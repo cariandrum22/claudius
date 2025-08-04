@@ -7,6 +7,42 @@ use tempfile::TempDir;
 mod tests {
     use super::*;
 
+    /// Helper to save and restore environment variables
+    struct EnvGuard {
+        xdg_original: Option<String>,
+        home_original: Option<String>,
+        dir_original: Option<std::path::PathBuf>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            Self {
+                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
+                home_original: std::env::var("HOME").ok(),
+                dir_original: std::env::current_dir().ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // Restore XDG_CONFIG_HOME
+            match &self.xdg_original {
+                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            // Restore HOME
+            match &self.home_original {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            // Restore current directory
+            if let Some(dir) = &self.dir_original {
+                let _ = std::env::set_current_dir(dir);
+            }
+        }
+    }
+
     // ==========================================
     // Basic model provider tests
     // ==========================================
@@ -14,6 +50,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_codex_sync_preserves_model_providers() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let home_dir = temp_dir.path().join("home");
@@ -133,6 +171,8 @@ base_url = "http://localhost:8080"
     #[test]
     #[serial]
     fn test_codex_sync_model_providers_edge_cases() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let home_dir = temp_dir.path().join("home");
@@ -288,6 +328,8 @@ base_url = "https://edge.values.com"
     #[test]
     #[serial]
     fn test_codex_sync_preserves_provider_order() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let home_dir = temp_dir.path().join("home");
@@ -357,6 +399,8 @@ base_url = "https://bbb.com"
     #[test]
     #[serial]
     fn test_codex_sync_preserves_model_provider_extra_fields() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let home_dir = temp_dir.path().join("home");
@@ -552,6 +596,8 @@ nested_field = { key = "value" }
     #[test]
     #[serial]
     fn test_codex_sync_model_providers_project_local() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
         let temp_dir = TempDir::new()?;
         let config_dir = temp_dir.path().join("config");
         let project_dir = temp_dir.path().join("project");
