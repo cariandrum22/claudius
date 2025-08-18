@@ -24,7 +24,7 @@ chrono = "0.4"
 toml = "0.9"
 
 # Parallel processing
-rayon = "1.5"
+rayon = "1.11"
 
 # Optional dependencies for profiling
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }
