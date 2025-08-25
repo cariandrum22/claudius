@@ -16,15 +16,15 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 anyhow = "1.0"
 thiserror = "1.0"
 directories = "5.0"
-regex = "1.5"
+regex = "1.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tempfile = "3.9"
+tempfile = "3.21"
 chrono = "0.4"
 toml = "0.9"
 
 # Parallel processing
-rayon = "1.5"
+rayon = "1.11"
 
 # Optional dependencies for profiling
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }
