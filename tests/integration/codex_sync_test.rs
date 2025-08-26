@@ -580,4 +580,98 @@ args = ["cmd"]
 
         Ok(())
     }
+
+    #[test]
+    #[serial]
+    fn test_gemini_global_sync_preserves_settings() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+        let gemini_dir = home_dir.join(".gemini");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+        fs::create_dir_all(&gemini_dir)?;
+
+        // Set environment variables
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        // Create initial MCP servers config
+        let mcp_servers_content = r#"{
+  "mcpServers": {
+    "test-server": {
+      "command": "test",
+      "args": ["arg1"],
+      "env": {}
+    }
+  }
+}"#;
+        fs::write(claudius_dir.join("mcpServers.json"), mcp_servers_content)?;
+
+        // Create source settings with some fields
+        let source_settings_content = r#"{
+  "apiKeyHelper": "/bin/gemini-key",
+  "cleanupPeriodDays": 30
+}"#;
+        fs::write(claudius_dir.join("gemini.settings.json"), source_settings_content)?;
+
+        // Create existing Gemini settings with other fields
+        let existing_settings_content = r#"{
+  "preferredNotifChannel": "email",
+  "includeCoAuthoredBy": true,
+  "env": {
+    "EXISTING_VAR": "existing_value"
+  }
+}"#;
+        fs::write(gemini_dir.join("settings.json"), existing_settings_content)?;
+
+        // Run sync in global mode for Gemini
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["sync", "--global", "--agent", "gemini"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        // Read the output settings.json
+        let gemini_settings_path = home_dir.join(".gemini").join("settings.json");
+        anyhow::ensure!(gemini_settings_path.exists(), "Gemini settings.json should exist");
+
+        let gemini_settings_content = fs::read_to_string(&gemini_settings_path)?;
+        let settings: serde_json::Value = serde_json::from_str(&gemini_settings_content)?;
+
+        // Verify that both source and existing settings are preserved
+        anyhow::ensure!(
+            settings.get("apiKeyHelper").and_then(|v| v.as_str()) == Some("/bin/gemini-key"),
+            "apiKeyHelper from source should be preserved"
+        );
+        anyhow::ensure!(
+            settings.get("cleanupPeriodDays").and_then(|v| v.as_i64()) == Some(30),
+            "cleanupPeriodDays from source should be preserved"
+        );
+        anyhow::ensure!(
+            settings.get("preferredNotifChannel").and_then(|v| v.as_str()) == Some("email"),
+            "preferredNotifChannel from existing should be preserved"
+        );
+        anyhow::ensure!(
+            settings.get("includeCoAuthoredBy").and_then(|v| v.as_bool()) == Some(true),
+            "includeCoAuthoredBy from existing should be preserved"
+        );
+        anyhow::ensure!(
+            settings.get("env")
+                .and_then(|v| v.get("EXISTING_VAR"))
+                .and_then(|v| v.as_str()) == Some("existing_value"),
+            "env from existing should be preserved"
+        );
+
+        Ok(())
+    }
 }

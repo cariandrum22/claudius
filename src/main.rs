@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
 #[cfg(feature = "profiling")]
 use claudius::profiling::profile_flamegraph;
 use claudius::{
@@ -423,7 +424,10 @@ fn execute_sync_operation(
     let mut claude_config = if global && (agent_context.is_codex || agent_context.is_gemini) {
         // For Codex/Gemini in global mode, don't read from ~/.claude.json
         // Start with empty config - the actual existing config will be read in write_*_global functions
-        claudius::config::ClaudeConfig::default()
+        claudius::config::ClaudeConfig {
+            mcp_servers: None,
+            other: HashMap::new(),
+        }
     } else {
         reader::read_claude_config(&paths.target_config)
             .context("Failed to read target configuration")?

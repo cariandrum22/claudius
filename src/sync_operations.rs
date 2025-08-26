@@ -533,27 +533,82 @@ fn write_gemini_global(
     target_config_path: &Path,
     settings: Option<&Settings>,
 ) -> Result<()> {
+    // For Gemini, we write MCP servers to target path and settings separately
+    let gemini_settings_path = directories::BaseDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+        .home_dir()
+        .join(".gemini")
+        .join("settings.json");
+
+    // Read existing Gemini settings
+    let existing_settings = reader::read_settings(&gemini_settings_path)
+        .context("Failed to read existing Gemini settings")?;
+
+    // Merge or use settings
+    let settings_to_write = if let Some(mut existing) = existing_settings {
+        if let Some(source) = settings {
+            // Merge source settings into existing (field by field)
+            merge_gemini_settings(&mut existing, source);
+            existing
+        } else {
+            // Keep existing settings
+            existing
+        }
+    } else if let Some(source) = settings {
+        // Use source settings
+        source.clone()
+    } else {
+        // No settings to write - create minimal settings
+        Settings {
+            api_key_helper: None,
+            cleanup_period_days: None,
+            env: None,
+            include_co_authored_by: None,
+            permissions: None,
+            preferred_notif_channel: None,
+            mcp_servers: None,
+            extra: HashMap::new(),
+        }
+    };
+
+    // Write MCP servers to target configuration
     info!("Writing MCP servers to target configuration");
     writer::write_claude_config(target_config_path, claude_config)
         .context("Failed to write configuration")?;
 
-    if let Some(settings_ref) = settings {
-        let gemini_settings_path = directories::BaseDirs::new()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-            .home_dir()
-            .join(".gemini")
-            .join("settings.json");
-
-        info!("Writing settings to ~/.gemini/settings.json");
-
-        if let Some(parent) = gemini_settings_path.parent() {
-            std::fs::create_dir_all(parent).context("Failed to create .gemini directory")?;
-        }
-
-        writer::write_settings(&gemini_settings_path, settings_ref)
-            .context("Failed to write ~/.gemini/settings.json")?;
+    // Write merged settings
+    info!("Writing settings to ~/.gemini/settings.json");
+    if let Some(parent) = gemini_settings_path.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create .gemini directory")?;
     }
+    writer::write_settings(&gemini_settings_path, &settings_to_write)
+        .context("Failed to write ~/.gemini/settings.json")?;
+
     Ok(())
+}
+
+/// Merge Gemini settings (field by field merge)
+fn merge_gemini_settings(target: &mut Settings, source: &Settings) {
+    // Merge each field from source into target
+    if source.api_key_helper.is_some() {
+        target.api_key_helper.clone_from(&source.api_key_helper);
+    }
+    if source.cleanup_period_days.is_some() {
+        target.cleanup_period_days = source.cleanup_period_days;
+    }
+    if source.env.is_some() {
+        target.env.clone_from(&source.env);
+    }
+    if source.include_co_authored_by.is_some() {
+        target.include_co_authored_by = source.include_co_authored_by;
+    }
+    if source.permissions.is_some() {
+        target.permissions.clone_from(&source.permissions);
+    }
+    if source.preferred_notif_channel.is_some() {
+        target.preferred_notif_channel.clone_from(&source.preferred_notif_channel);
+    }
+    // Note: MCP servers are handled separately in target configuration
 }
 
 /// Write configurations in project-local mode
