@@ -497,4 +497,87 @@ args = ["cmd"]
 
         Ok(())
     }
+
+    #[test]
+    #[serial]
+    fn test_codex_does_not_read_claude_json() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        // Set environment variables
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        // Create .claude.json with old server definition
+        let claude_json_content = r#"{
+  "mcpServers": {
+    "old-server-from-claude-json": {
+      "command": "should-not-appear",
+      "args": ["in", "codex", "config"]
+    }
+  }
+}"#;
+        fs::write(home_dir.join(".claude.json"), claude_json_content)?;
+
+        // Create mcpServers.json with new server
+        let mcp_servers_content = r#"{
+  "mcpServers": {
+    "new-server": {
+      "command": "npx",
+      "args": ["-y", "new-server"],
+      "env": {}
+    }
+  }
+}"#;
+        fs::write(claudius_dir.join("mcpServers.json"), mcp_servers_content)?;
+
+        // Create empty Codex settings
+        fs::write(claudius_dir.join("codex.settings.toml"), "")?;
+
+        // Run sync for Codex in global mode
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["sync", "--global", "--agent", "codex"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        // Read generated Codex config
+        let codex_config_path = home_dir.join(".codex").join("config.toml");
+        anyhow::ensure!(codex_config_path.exists(), "Codex config should exist");
+
+        let codex_config_content = fs::read_to_string(&codex_config_path)?;
+
+        // Should have new server from mcpServers.json
+        anyhow::ensure!(
+            codex_config_content.contains("new-server"),
+            "Should contain new-server from mcpServers.json"
+        );
+
+        // Should NOT have old server from .claude.json
+        anyhow::ensure!(
+            !codex_config_content.contains("old-server-from-claude-json"),
+            "Should NOT contain old-server-from-claude-json from .claude.json"
+        );
+
+        // Verify .claude.json wasn't modified
+        let claude_json_after = fs::read_to_string(home_dir.join(".claude.json"))?;
+        anyhow::ensure!(
+            claude_json_after.contains("old-server-from-claude-json"),
+            ".claude.json should remain unchanged"
+        );
+
+        Ok(())
+    }
 }
