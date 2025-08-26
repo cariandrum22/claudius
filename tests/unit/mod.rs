@@ -1,6 +1,7 @@
 mod app_config_test;
 mod append_context_test;
 mod claude_mcp_merge_test;
+mod codex_toml_dot_test;
 mod commands_test;
 mod config_agent_test;
 mod config_test;

@@ -362,6 +362,43 @@ fn create_settings_with_mcp_servers(claude_config: &ClaudeConfig) -> Settings {
     }
 }
 
+/// Merge source Codex settings into existing settings
+/// Only non-None fields from source override existing fields
+fn merge_codex_settings(target: &mut CodexSettings, source: &CodexSettings) {
+    if source.model.is_some() {
+        target.model.clone_from(&source.model);
+    }
+    if source.model_provider.is_some() {
+        target.model_provider.clone_from(&source.model_provider);
+    }
+    if source.approval_policy.is_some() {
+        target.approval_policy.clone_from(&source.approval_policy);
+    }
+    if source.disable_response_storage.is_some() {
+        target.disable_response_storage = source.disable_response_storage;
+    }
+    if source.notify.is_some() {
+        target.notify.clone_from(&source.notify);
+    }
+    if source.model_providers.is_some() {
+        target.model_providers.clone_from(&source.model_providers);
+    }
+    if source.shell_environment_policy.is_some() {
+        target.shell_environment_policy.clone_from(&source.shell_environment_policy);
+    }
+    if source.sandbox.is_some() {
+        target.sandbox.clone_from(&source.sandbox);
+    }
+    if source.history.is_some() {
+        target.history.clone_from(&source.history);
+    }
+    // Note: mcp_servers are handled separately in the calling function
+    // Merge extra fields
+    for (key, value) in &source.extra {
+        target.extra.insert(key.clone(), value.clone());
+    }
+}
+
 /// Create a new `CodexSettings` struct with MCP servers
 fn create_codex_settings_with_mcp_servers(claude_config: &ClaudeConfig) -> CodexSettings {
     let mut codex_settings = CodexSettings {
@@ -442,20 +479,41 @@ fn write_codex_global(
     _target_config_path: &Path,
     codex_settings: Option<&CodexSettings>,
 ) -> Result<()> {
-    // Prepare Codex settings with MCP servers
-    let mut codex_to_write = codex_settings
-        .map_or_else(|| create_codex_settings_with_mcp_servers(claude_config), Clone::clone);
-
-    if let Some(ref mcp_servers) = claude_config.mcp_servers {
-        codex_to_write.mcp_servers = Some(convert_mcp_to_toml(mcp_servers));
-    }
-
     // For Codex, we write everything to ~/.codex/config.toml
     let codex_config_path = directories::BaseDirs::new()
         .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
         .home_dir()
         .join(".codex")
         .join("config.toml");
+
+    // Read existing Codex configuration from target location
+    let existing_codex = reader::read_codex_settings(&codex_config_path)
+        .context("Failed to read existing Codex settings")?;
+
+    // Start with existing settings if they exist, otherwise use source settings or create new
+    let mut codex_to_write = existing_codex
+        .or_else(|| codex_settings.cloned())
+        .unwrap_or_else(|| create_codex_settings_with_mcp_servers(claude_config));
+
+    // Merge source settings into existing settings (if source settings exist)
+    if let Some(source_settings) = codex_settings {
+        merge_codex_settings(&mut codex_to_write, source_settings);
+    }
+
+    // Merge MCP servers - combine existing and new servers
+    if let Some(ref new_mcp_servers) = claude_config.mcp_servers {
+        let new_toml_servers = convert_mcp_to_toml(new_mcp_servers);
+
+        if let Some(existing_mcp) = codex_to_write.mcp_servers.as_mut() {
+            // Merge new servers into existing ones
+            for (name, server) in new_toml_servers {
+                existing_mcp.insert(name, server);
+            }
+        } else {
+            // No existing servers, just use new ones
+            codex_to_write.mcp_servers = Some(new_toml_servers);
+        }
+    }
 
     info!("Writing settings to ~/.codex/config.toml");
 
