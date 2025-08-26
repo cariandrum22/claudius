@@ -138,8 +138,8 @@ mod tests {
         fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
 
         let config = Config::new_with_agent(true, Some(Agent::Gemini)).unwrap();
-        // In global mode, gemini uses ~/.gemini/settings.json
-        assert!(config.settings_path.to_string_lossy().contains(".gemini/settings.json"));
+        // In global mode, gemini reads from config_dir/gemini.settings.json
+        assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
     }
 
     #[test]

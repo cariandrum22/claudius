@@ -160,8 +160,8 @@ impl Config {
 
         match agent {
             Some(crate::app_config::Agent::Gemini) => {
-                let gemini_settings = home_dir.join(".gemini").join("settings.json");
-                (path, None, gemini_settings)
+                let gemini_input = config_dir.join("gemini.settings.json");
+                (path, None, gemini_input)
             },
             Some(crate::app_config::Agent::Codex) => {
                 let codex_input = config_dir.join("codex.settings.toml");
