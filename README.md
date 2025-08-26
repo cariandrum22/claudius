@@ -109,14 +109,6 @@ cargo install --path .
 - **Nix**: 2.19.0 or higher (optional, for development)
 - **1Password CLI**: For secret management features (optional)
 
-## Build Status
-
-✅ **Build**: Passing  
-✅ **Tests**: All tests passing  
-✅ **Linting**: All clippy lints passing with strict pedantic configuration  
-✅ **Security**: No vulnerabilities (`cargo audit` clean)  
-✅ **Coverage**: Test coverage ready with `cargo-llvm-cov`
-
 ## Quick Start
 
 1. **Bootstrap configuration:**
