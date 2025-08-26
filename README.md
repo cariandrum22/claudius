@@ -1,5 +1,9 @@
 # Claudius
 
+[![CI Pipeline](https://github.com/cariandrum22/claudius/actions/workflows/ci.yml/badge.svg)](https://github.com/cariandrum22/claudius/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/cariandrum22/claudius/actions/workflows/security.yml/badge.svg)](https://github.com/cariandrum22/claudius/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Multi-agent configuration management tool for AI assistants
 
 ## Overview
