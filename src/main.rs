@@ -138,7 +138,11 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
         .and_then(|c| c.default.as_ref())
         .and_then(|d| d.context_file.as_deref());
 
-    match bootstrap::bootstrap_config_with_context(config_dir, force, default_context) {
+    // Get current working directory for context file creation
+    let current_dir = std::env::current_dir()
+        .context("Failed to get current directory")?;
+
+    match bootstrap::bootstrap_config_with_context(config_dir, &current_dir, force, default_context) {
         Ok(()) => {
             println!("Claudius configuration bootstrapped successfully!");
             println!();

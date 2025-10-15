@@ -236,13 +236,11 @@ fn init_rules_directory(config_dir: &Path, force: bool) -> Result<()> {
 
 /// Initialize context files in project directory based on config
 fn init_context_files(
+    target_dir: &Path,
     default_context: Option<&str>,
     force: bool,
 ) -> Result<()> {
     use std::os::unix::fs as unix_fs;
-
-    let current_dir = std::env::current_dir()
-        .context("Failed to get current directory")?;
 
     // Determine which file is the default context
     let (primary_file, secondary_file) = match default_context {
@@ -250,8 +248,8 @@ fn init_context_files(
         _ => ("CLAUDE.md", "AGENTS.md"), // Default to CLAUDE.md
     };
 
-    let primary_path = current_dir.join(primary_file);
-    let secondary_path = current_dir.join(secondary_file);
+    let primary_path = target_dir.join(primary_file);
+    let secondary_path = target_dir.join(secondary_file);
 
     // Check if files exist
     let primary_exists = primary_path.exists();
@@ -375,14 +373,15 @@ pub fn bootstrap_config(config_dir: &Path, force: bool) -> Result<()> {
 /// - Context file operations fail
 pub fn bootstrap_config_with_context(
     config_dir: &Path,
+    target_dir: &Path,
     force: bool,
     default_context: Option<&str>,
 ) -> Result<()> {
     // First do regular bootstrap
     bootstrap_config(config_dir, force)?;
 
-    // Then initialize context files
-    init_context_files(default_context, force)?;
+    // Then initialize context files in target directory
+    init_context_files(target_dir, default_context, force)?;
 
     Ok(())
 }
@@ -481,82 +480,69 @@ mod tests {
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_bootstrap_with_context_creates_claude_md() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let config_dir = temp_dir.path().join("claudius");
-
-        // Set working directory to temp dir
-        let original_dir = std::env::current_dir().expect("Failed to get current directory");
-        std::env::set_current_dir(temp_dir.path()).expect("Failed to change directory");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
 
         // Bootstrap with CLAUDE.md as default (None means CLAUDE.md)
-        bootstrap_config_with_context(&config_dir, false, None)
+        bootstrap_config_with_context(&config_dir, &target_dir, false, None)
             .expect("bootstrap_config_with_context should succeed");
 
-        // Verify CLAUDE.md exists
-        let claude_md = temp_dir.path().join("CLAUDE.md");
+        // Verify CLAUDE.md exists in target directory
+        let claude_md = target_dir.join("CLAUDE.md");
         assert!(claude_md.exists());
 
         // Verify AGENTS.md is a symlink
-        let agents_md = temp_dir.path().join("AGENTS.md");
+        let agents_md = target_dir.join("AGENTS.md");
         assert!(agents_md.exists());
         let metadata = fs::symlink_metadata(&agents_md).expect("Failed to get metadata");
         assert!(metadata.is_symlink());
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).expect("Failed to restore directory");
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_bootstrap_with_context_creates_agents_md() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let config_dir = temp_dir.path().join("claudius");
-
-        // Set working directory to temp dir
-        let original_dir = std::env::current_dir().expect("Failed to get current directory");
-        std::env::set_current_dir(temp_dir.path()).expect("Failed to change directory");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
 
         // Bootstrap with AGENTS.md as default
-        bootstrap_config_with_context(&config_dir, false, Some("AGENTS.md"))
+        bootstrap_config_with_context(&config_dir, &target_dir, false, Some("AGENTS.md"))
             .expect("bootstrap_config_with_context should succeed");
 
-        // Verify AGENTS.md exists
-        let agents_md = temp_dir.path().join("AGENTS.md");
+        // Verify AGENTS.md exists in target directory
+        let agents_md = target_dir.join("AGENTS.md");
         assert!(agents_md.exists());
 
         // Verify CLAUDE.md is a symlink
-        let claude_md = temp_dir.path().join("CLAUDE.md");
+        let claude_md = target_dir.join("CLAUDE.md");
         assert!(claude_md.exists());
         let metadata = fs::symlink_metadata(&claude_md).expect("Failed to get metadata");
         assert!(metadata.is_symlink());
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).expect("Failed to restore directory");
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_init_context_files_respects_symlinks() {
         use std::os::unix::fs as unix_fs;
 
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let original_dir = std::env::current_dir().expect("Failed to get current directory");
-        std::env::set_current_dir(temp_dir.path()).expect("Failed to change directory");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
 
         // Create CLAUDE.md with content
-        let claude_md = temp_dir.path().join("CLAUDE.md");
+        let claude_md = target_dir.join("CLAUDE.md");
         let content = "# Original Content\n\nThis is original content with more than 100 bytes to trigger backup prompt. ".repeat(3);
         fs::write(&claude_md, content)
             .expect("Failed to write CLAUDE.md");
 
         // Create AGENTS.md as symlink to CLAUDE.md
-        let agents_md = temp_dir.path().join("AGENTS.md");
+        let agents_md = target_dir.join("AGENTS.md");
         unix_fs::symlink(&claude_md, &agents_md).expect("Failed to create symlink");
 
         // Run init_context_files with force=true (to bypass prompts)
-        init_context_files(None, true).expect("init_context_files should succeed");
+        init_context_files(&target_dir, None, true).expect("init_context_files should succeed");
 
         // Verify both files exist
         assert!(claude_md.exists());
@@ -565,8 +551,5 @@ mod tests {
         // Verify AGENTS.md is still a symlink
         let metadata = fs::symlink_metadata(&agents_md).expect("Failed to get metadata");
         assert!(metadata.is_symlink());
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).expect("Failed to restore directory");
     }
 }
