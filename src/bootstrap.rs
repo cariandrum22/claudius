@@ -234,6 +234,109 @@ fn init_rules_directory(config_dir: &Path, force: bool) -> Result<()> {
     create_file_if_needed(&example_rule_path, EXAMPLE_RULE, force, "example rule")
 }
 
+/// Initialize context files in project directory based on config
+fn init_context_files(
+    target_dir: &Path,
+    default_context: Option<&str>,
+    force: bool,
+) -> Result<()> {
+    use std::os::unix::fs as unix_fs;
+
+    // Determine which file is the default context
+    let (primary_file, secondary_file) = match default_context {
+        Some("AGENTS.md") => ("AGENTS.md", "CLAUDE.md"),
+        _ => ("CLAUDE.md", "AGENTS.md"), // Default to CLAUDE.md
+    };
+
+    let primary_path = target_dir.join(primary_file);
+    let secondary_path = target_dir.join(secondary_file);
+
+    // Check if files exist
+    let primary_exists = primary_path.exists();
+    let secondary_exists = secondary_path.exists();
+
+    if primary_exists || secondary_exists {
+        // Files exist - need user confirmation to overwrite
+        if !force {
+            eprintln!("\nWarning: Context files already exist:");
+            if primary_exists {
+                eprintln!("  - {} (primary)", primary_file);
+            }
+            if secondary_exists {
+                eprintln!("  - {} (secondary)", secondary_file);
+            }
+
+            eprint!("\nDo you want to overwrite them? [y/N]: ");
+            use std::io::{self, Write};
+            io::stderr().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            if !input.trim().eq_ignore_ascii_case("y") {
+                info!("Skipping context file initialization");
+                return Ok(());
+            }
+        }
+
+        // Check if primary file has valid data and offer backup
+        if primary_exists {
+            let metadata = fs::metadata(&primary_path)?;
+            let file_size = metadata.len();
+
+            // Only offer backup if file has substantial content (>100 bytes)
+            if file_size > 100 {
+                eprint!("\nThe {} file contains {} bytes of data. Create a backup? [y/N]: ",
+                    primary_file, file_size);
+                use std::io::{self, Write};
+                io::stderr().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().eq_ignore_ascii_case("y") {
+                    // Create backup with .bak extension
+                    let backup_path = primary_path.with_extension("md.bak");
+
+                    // If primary is a symlink, resolve and backup the real file
+                    let real_path = if metadata.is_symlink() {
+                        fs::read_link(&primary_path)?
+                    } else {
+                        primary_path.clone()
+                    };
+
+                    fs::copy(&real_path, &backup_path)
+                        .with_context(|| format!("Failed to create backup: {}", backup_path.display()))?;
+                    info!("Created backup: {}", backup_path.display());
+                }
+            }
+        }
+
+        // Remove existing files
+        if primary_exists {
+            fs::remove_file(&primary_path)
+                .with_context(|| format!("Failed to remove {}", primary_path.display()))?;
+        }
+        if secondary_exists {
+            fs::remove_file(&secondary_path)
+                .with_context(|| format!("Failed to remove {}", secondary_path.display()))?;
+        }
+    }
+
+    // Create empty primary context file
+    fs::write(&primary_path, "")
+        .with_context(|| format!("Failed to create {}", primary_path.display()))?;
+    info!("Created {}", primary_file);
+
+    // Create symlink from secondary to primary
+    unix_fs::symlink(&primary_path, &secondary_path)
+        .with_context(|| format!("Failed to create symlink from {} to {}",
+            secondary_file, primary_file))?;
+    info!("Created symlink: {} -> {}", secondary_file, primary_file);
+
+    Ok(())
+}
+
 /// Bootstrap Claudius configuration directory with all necessary files
 ///
 /// # Errors
@@ -256,6 +359,30 @@ pub fn bootstrap_config(config_dir: &Path, force: bool) -> Result<()> {
     init_rules_directory(config_dir, force)?;
 
     info!("Bootstrap complete at: {}", config_dir.display());
+    Ok(())
+}
+
+/// Bootstrap with context file initialization
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to create the configuration directory
+/// - Unable to create any of the required subdirectories or files
+/// - I/O operations fail during initialization
+/// - Context file operations fail
+pub fn bootstrap_config_with_context(
+    config_dir: &Path,
+    target_dir: &Path,
+    force: bool,
+    default_context: Option<&str>,
+) -> Result<()> {
+    // First do regular bootstrap
+    bootstrap_config(config_dir, force)?;
+
+    // Then initialize context files in target directory
+    init_context_files(target_dir, default_context, force)?;
+
     Ok(())
 }
 
@@ -350,5 +477,79 @@ mod tests {
         // Verify example files exist
         assert!(commands_dir.join("example.md").exists());
         assert!(rules_dir.join("example.md").exists());
+    }
+
+    #[test]
+    fn test_bootstrap_with_context_creates_claude_md() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
+
+        // Bootstrap with CLAUDE.md as default (None means CLAUDE.md)
+        bootstrap_config_with_context(&config_dir, &target_dir, false, None)
+            .expect("bootstrap_config_with_context should succeed");
+
+        // Verify CLAUDE.md exists in target directory
+        let claude_md = target_dir.join("CLAUDE.md");
+        assert!(claude_md.exists());
+
+        // Verify AGENTS.md is a symlink
+        let agents_md = target_dir.join("AGENTS.md");
+        assert!(agents_md.exists());
+        let metadata = fs::symlink_metadata(&agents_md).expect("Failed to get metadata");
+        assert!(metadata.is_symlink());
+    }
+
+    #[test]
+    fn test_bootstrap_with_context_creates_agents_md() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
+
+        // Bootstrap with AGENTS.md as default
+        bootstrap_config_with_context(&config_dir, &target_dir, false, Some("AGENTS.md"))
+            .expect("bootstrap_config_with_context should succeed");
+
+        // Verify AGENTS.md exists in target directory
+        let agents_md = target_dir.join("AGENTS.md");
+        assert!(agents_md.exists());
+
+        // Verify CLAUDE.md is a symlink
+        let claude_md = target_dir.join("CLAUDE.md");
+        assert!(claude_md.exists());
+        let metadata = fs::symlink_metadata(&claude_md).expect("Failed to get metadata");
+        assert!(metadata.is_symlink());
+    }
+
+    #[test]
+    fn test_init_context_files_respects_symlinks() {
+        use std::os::unix::fs as unix_fs;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
+
+        // Create CLAUDE.md with content
+        let claude_md = target_dir.join("CLAUDE.md");
+        let content = "# Original Content\n\nThis is original content with more than 100 bytes to trigger backup prompt. ".repeat(3);
+        fs::write(&claude_md, content)
+            .expect("Failed to write CLAUDE.md");
+
+        // Create AGENTS.md as symlink to CLAUDE.md
+        let agents_md = target_dir.join("AGENTS.md");
+        unix_fs::symlink(&claude_md, &agents_md).expect("Failed to create symlink");
+
+        // Run init_context_files with force=true (to bypass prompts)
+        init_context_files(&target_dir, None, true).expect("init_context_files should succeed");
+
+        // Verify both files exist
+        assert!(claude_md.exists());
+        assert!(agents_md.exists());
+
+        // Verify AGENTS.md is still a symlink
+        let metadata = fs::symlink_metadata(&agents_md).expect("Failed to get metadata");
+        assert!(metadata.is_symlink());
     }
 }

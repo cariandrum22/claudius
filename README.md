@@ -230,12 +230,13 @@ claudius append-context testing --agent gemini
 
 Install context rules to project-local .agents/rules directory.
 
-This command copies rules from your global rules directory to a project-local directory and adds a reference directive to your context file (CLAUDE.md/AGENTS.md). The directive ensures all installed rules are automatically included.
+This command copies rules from your global rules directory to a project-local directory and adds a reference directive to your context file (CLAUDE.md/AGENTS.md). The directive lists each installed rule explicitly with its file path.
 
 **Key features:**
 - Keeps context files compact while including many rules
-- Reference directive is idempotent (won't duplicate)
-- Supports subdirectories with `**/*.md` pattern
+- Reference directive is idempotent (updates existing section without duplication)
+- Lists specific file paths for each rule
+- Supports subdirectories and preserves directory structure
 
 ```bash
 # Install specific rules
