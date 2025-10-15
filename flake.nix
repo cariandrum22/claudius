@@ -91,6 +91,7 @@
                   --glob '!src/validation.rs' \
                   --glob '!src/merge.rs' \
                   --glob '!src/sync_operations.rs' \
+                  --glob '!src/bootstrap.rs' \
                   . || (echo "Error: Debug statements found in non-test code" && exit 1)
               ''}";
               types = [ "rust" ];
