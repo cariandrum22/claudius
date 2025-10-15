@@ -39,7 +39,10 @@ mod tests {
         // Verify reference directive was added to CLAUDE.md
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
-        claude_md.assert(predicate::str::contains("{include:.agents/rules/**/*.md}"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        claude_md.assert(predicate::str::contains("# External Rule References"));
+        claude_md.assert(predicate::str::contains(".agents/rules/test-rule.md"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
     #[test]
@@ -58,7 +61,18 @@ mod tests {
         // Pre-create CLAUDE.md with the directive
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md
-            .write_str("# Existing Content\n{include:.agents/rules/**/*.md}\n")
+            .write_str(
+                "# Existing Content\n\
+                <!-- CLAUDIUS_RULES_START -->\n\
+                # External Rule References\n\
+                \n\
+                The following rules from `.agents/rules` are installed:\n\
+                \n\
+                - `.agents/rules/test-rule.md`: test-rule\n\
+                \n\
+                Read these files to understand the project conventions and guidelines.\n\
+                <!-- CLAUDIUS_RULES_END -->\n"
+            )
             .unwrap();
 
         // Run install-context command
@@ -69,12 +83,14 @@ mod tests {
             .arg("test-rule")
             .assert()
             .success()
-            .stdout(predicate::str::contains("Reference directive already exists"));
+            .stdout(predicate::str::contains("Updated reference directive"));
 
         // Verify directive appears only once
         let content = fs::read_to_string(claude_md.path()).unwrap();
-        let count = content.matches("{include:.agents/rules/**/*.md}").count();
-        assert_eq!(count, 1, "Directive should appear only once");
+        let start_count = content.matches("<!-- CLAUDIUS_RULES_START -->").count();
+        let end_count = content.matches("<!-- CLAUDIUS_RULES_END -->").count();
+        assert_eq!(start_count, 1, "Start marker should appear only once");
+        assert_eq!(end_count, 1, "End marker should appear only once");
     }
 
     #[test]
@@ -162,7 +178,10 @@ mod tests {
         // Verify AGENTS.md was created instead of CLAUDE.md (Gemini uses AGENTS.md)
         let agents_md = temp_dir.child("AGENTS.md");
         agents_md.assert(predicate::path::exists());
-        agents_md.assert(predicate::str::contains("{include:.agents/rules/**/*.md}"));
+        agents_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        agents_md.assert(predicate::str::contains("# External Rule References"));
+        agents_md.assert(predicate::str::contains(".agents/rules/test-rule.md"));
+        agents_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
     #[test]
@@ -230,7 +249,10 @@ mod tests {
         // Verify reference directive uses custom path
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
-        claude_md.assert(predicate::str::contains("{include:.custom/rules/**/*.md}"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        claude_md.assert(predicate::str::contains("# External Rule References"));
+        claude_md.assert(predicate::str::contains(".custom/rules/test-rule.md"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
     // ========== install-context --all tests ==========
@@ -287,7 +309,13 @@ mod tests {
         // Verify reference directive was added to CLAUDE.md
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
-        claude_md.assert(predicate::str::contains("{include:.agents/rules/**/*.md}"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        claude_md.assert(predicate::str::contains("# External Rule References"));
+        claude_md.assert(predicate::str::contains(".agents/rules/security.md"));
+        claude_md.assert(predicate::str::contains(".agents/rules/testing.md"));
+        claude_md.assert(predicate::str::contains(".agents/rules/advanced/security-advanced.md"));
+        claude_md.assert(predicate::str::contains(".agents/rules/advanced/testing-advanced.md"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
     #[test]
@@ -346,6 +374,10 @@ mod tests {
         // Verify reference directive uses custom path
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
-        claude_md.assert(predicate::str::contains("{include:.custom/rules/**/*.md}"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        claude_md.assert(predicate::str::contains("# External Rule References"));
+        claude_md.assert(predicate::str::contains(".custom/rules/rule1.md"));
+        claude_md.assert(predicate::str::contains(".custom/rules/rule2.md"));
+        claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 }

@@ -115,7 +115,7 @@ fn dispatch_command(command: Commands, app_config: Option<&AppConfig>) -> Result
         Commands::AppendContext { rule, path, template_path, global, agent } => {
             run_append_context(rule, path, template_path, global, agent, app_config)
         },
-        Commands::Init { force } => run_init(force),
+        Commands::Init { force } => run_init(force, app_config),
         Commands::Run { command: cmd } => run_command(&cmd, app_config),
         Commands::InstallContext { rules, all, path, agent, install_dir } => {
             run_install_context(rules, all, path, agent, install_dir, app_config)
@@ -123,7 +123,7 @@ fn dispatch_command(command: Commands, app_config: Option<&AppConfig>) -> Result
     }
 }
 
-fn run_init(force: bool) -> Result<()> {
+fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
     // Always use the default config directory (not project-local)
     let config = Config::new(true)?;
     let config_dir = config
@@ -133,7 +133,16 @@ fn run_init(force: bool) -> Result<()> {
 
     println!("Bootstrapping Claudius configuration at: {}", config_dir.display());
 
-    match bootstrap::bootstrap_config(config_dir, force) {
+    // Get default context file from config if available
+    let default_context = app_config
+        .and_then(|c| c.default.as_ref())
+        .and_then(|d| d.context_file.as_deref());
+
+    // Get current working directory for context file creation
+    let current_dir = std::env::current_dir()
+        .context("Failed to get current directory")?;
+
+    match bootstrap::bootstrap_config_with_context(config_dir, &current_dir, force, default_context) {
         Ok(()) => {
             println!("Claudius configuration bootstrapped successfully!");
             println!();
@@ -614,6 +623,7 @@ fn add_reference_directive(
     target_dir: &std::path::Path,
     rules_dir: &std::path::Path,
     context_filename: &str,
+    copied_rules: &[String],
 ) -> Result<()> {
     use std::fs;
     use std::io::Write;
@@ -625,28 +635,73 @@ fn add_reference_directive(
         .strip_prefix(target_dir)
         .map_or_else(|_| rules_dir.to_path_buf(), std::path::Path::to_path_buf);
 
-    // Format the include pattern with forward slashes
-    let include_pattern =
-        format!("{{include:{}/**/*.md}}", relative_rules_path.to_string_lossy().replace('\\', "/"));
-    let reference_directive = format!(
-        "\n# External Rule References\n\
-The following rules are included from the {} directory:\n\
-{}\n",
-        relative_rules_path.display(),
-        include_pattern
-    );
-
-    // Check if directive already exists
+    // Read existing content
     let existing_content = if context_file_path.exists() {
         fs::read_to_string(&context_file_path)?
     } else {
         String::new()
     };
 
-    if existing_content.contains(&include_pattern) {
-        println!("Reference directive already exists in {context_filename}");
+    // Define section markers
+    const SECTION_START: &str = "<!-- CLAUDIUS_RULES_START -->";
+    const SECTION_END: &str = "<!-- CLAUDIUS_RULES_END -->";
+
+    // Check if section already exists
+    let section_exists = existing_content.contains(SECTION_START);
+
+    // Build the list of rule files with descriptions
+    let mut rule_list = String::new();
+    for rule_name in copied_rules {
+        let rule_path = relative_rules_path.join(format!("{rule_name}.md"));
+        let rule_path_str = rule_path.to_string_lossy().replace('\\', "/");
+        rule_list.push_str(&format!("- `{}`: {}\n", rule_path_str, rule_name.replace('/', " / ")));
+    }
+
+    // Build the reference directive
+    let reference_directive = format!(
+        "\n{}\n\
+# External Rule References\n\
+\n\
+The following rules from `{}` are installed:\n\
+\n\
+{}\
+\n\
+Read these files to understand the project conventions and guidelines.\n\
+{}\n",
+        SECTION_START,
+        relative_rules_path.display(),
+        rule_list,
+        SECTION_END
+    );
+
+    if section_exists {
+        // Section exists - update it
+        if let Some(start_pos) = existing_content.find(SECTION_START) {
+            if let Some(end_pos) = existing_content.find(SECTION_END) {
+                // Calculate end position including the marker
+                let end_with_marker = end_pos + SECTION_END.len();
+
+                // Build new content
+                let new_content = format!(
+                    "{}{}{}",
+                    &existing_content[..start_pos],
+                    reference_directive.trim_start(),
+                    &existing_content[end_with_marker..]
+                );
+
+                // Write the updated content
+                fs::write(&context_file_path, new_content)
+                    .with_context(|| format!("Failed to update {}", context_file_path.display()))?;
+                println!("Updated reference directive in {context_filename}");
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Found section start marker but no end marker in {}",
+                    context_filename
+                ));
+            }
+        }
     } else {
-        // Append the directive
+        // Section doesn't exist - append it
         let mut file = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -723,8 +778,8 @@ fn run_install_context(
     // Copy specified rules
     let copied_rules = copy_rules(&rules_to_copy, &source_rules_dir, &rules_dir)?;
 
-    // Add reference directive to context file
-    add_reference_directive(&target_dir, &rules_dir, &context_filename)?;
+    // Add reference directive to context file with the list of copied rules
+    add_reference_directive(&target_dir, &rules_dir, &context_filename, &copied_rules)?;
 
     println!("Successfully installed {} rule(s) to {}", copied_rules.len(), rules_dir.display());
 
