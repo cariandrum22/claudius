@@ -30,16 +30,16 @@ Claudius provides a structured approach to Claude configuration management:
 
 ```bash
 # Initialize configuration
-claudius init
+claudius config init
 
 # Sync configurations (project-local)
-claudius sync
+claudius config sync
 
 # Sync to global configuration
-claudius sync --global
+claudius config sync --global
 
 # Add template to CLAUDE.md
-claudius append-template security
+claudius context append security
 ```
 
 ## Features
@@ -118,15 +118,15 @@ Home Directory (--global):
 
 ## Command Reference
 
-### `claudius init`
+### `claudius config init`
 Bootstrap configuration directory with default files.
 
 ```bash
 # Bootstrap configuration (preserves existing)
-claudius init
+claudius config init
 
 # Force bootstrap (overwrites existing)
-claudius init --force
+claudius config init --force
 ```
 
 Creates default:
@@ -136,7 +136,7 @@ Creates default:
 - `commands/example.md` - Example custom command
 - `rules/example.md` - Example CLAUDE.md rule
 
-### `claudius sync`
+### `claudius config sync`
 Synchronize configurations to target files.
 
 **Project-local mode (default):**
@@ -150,39 +150,39 @@ Synchronize configurations to target files.
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
-claudius sync
+claudius config sync
 
 # Sync to global ~/.claude.json
-claudius sync --global
+claudius config sync --global
 
 # Preview changes
-claudius sync --dry-run
+claudius config sync --dry-run
 
 # Create backup before syncing
-claudius sync --backup
+claudius config sync --backup
 
 # Custom paths
-claudius sync --config /path/to/servers.json --claude-config /path/to/target.json
+claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
 
 # Sync only commands
-claudius sync --commands-only
+claudius commands sync
 ```
 
-### `claudius append-template`
+### `claudius context append`
 Append rules or templates to CLAUDE.md.
 
 ```bash
 # Use predefined rule
-claudius append-template security
+claudius context append security
 
 # Specify target directory
-claudius append-template testing /path/to/project
+claudius context append testing /path/to/project
 
 # Use custom template
-claudius append-template dummy . --template-path ./my-template.md
+claudius context append dummy . --template-path ./my-template.md
 ```
 
-### `claudius install-context`
+### `claudius context install`
 Install context rules to project-local .agents/rules directory with automatic reference directive.
 
 This command:
@@ -193,19 +193,19 @@ This command:
 
 ```bash
 # Install specific rules
-claudius install-context security testing performance
+claudius context install security testing performance
 
 # Install ALL rules from rules directory (including subdirectories)
-claudius install-context --all
+claudius context install --all
 
 # Install rules to a specific project directory
-claudius install-context security --path /path/to/project
+claudius context install security --path /path/to/project
 
 # Install rules with a custom install directory
-claudius install-context security --install-dir ./.claude/rules
+claudius context install security --install-dir ./.claude/rules
 
 # Install rules for a specific agent
-claudius install-context security --agent gemini
+claudius context install security --agent gemini
 ```
 
 The reference directive added to CLAUDE.md/AGENTS.md looks like:
@@ -215,7 +215,7 @@ The following rules are included from the .agents/rules directory:
 {include:.agents/rules/**/*.md}
 ```
 
-### `claudius run`
+### `claudius secrets run`
 Execute commands with resolved secrets from environment variables.
 
 This command enables running any program with secrets automatically resolved from configured secret managers. It's particularly useful for:
@@ -226,23 +226,23 @@ This command enables running any program with secrets automatically resolved fro
 
 ```bash
 # Run with resolved secrets
-CLAUDIUS_SECRET_API_KEY=op://vault/api/key claudius run -- npm start
+CLAUDIUS_SECRET_API_KEY=op://vault/api/key claudius secrets run -- npm start
 
 # Run interactive commands
-CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius run -- psql -U admin
+CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius secrets run -- psql -U admin
 
 # Run long-running processes
-CLAUDIUS_SECRET_TOKEN=op://vault/tokens/github claudius run -- ./server.sh
+CLAUDIUS_SECRET_TOKEN=op://vault/tokens/github claudius secrets run -- ./server.sh
 
 # Multiple secrets
 export CLAUDIUS_SECRET_AWS_KEY=op://vault/aws/access-key
 export CLAUDIUS_SECRET_AWS_SECRET=op://vault/aws/secret-key
-claudius run -- aws s3 ls
+claudius secrets run -- aws s3 ls
 
 # Nested variable references
 export CLAUDIUS_SECRET_ACCOUNT_ID="12345"
 export CLAUDIUS_SECRET_API_URL='https://api.example.com/$CLAUDIUS_SECRET_ACCOUNT_ID/v1'
-claudius run -- curl $API_URL/users
+claudius secrets run -- curl $API_URL/users
 # Resolves to: https://api.example.com/12345/v1/users
 ```
 
@@ -389,7 +389,7 @@ Template files for CLAUDE.md content. Can contain:
    - Conflict resolution
 
 3. **CLI Module** - Command-line interface
-   - Subcommand structure (sync, append-template, init)
+   - Subcommand structure (sync, context append, init)
    - Rich help documentation
    - Environment variable support
 
