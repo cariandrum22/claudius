@@ -71,7 +71,7 @@ mod tests {
                 - `.agents/rules/test-rule.md`: test-rule\n\
                 \n\
                 Read these files to understand the project conventions and guidelines.\n\
-                <!-- CLAUDIUS_RULES_END -->\n"
+                <!-- CLAUDIUS_RULES_END -->\n",
             )
             .unwrap();
 

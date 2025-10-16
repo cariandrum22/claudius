@@ -85,11 +85,7 @@ fn test_quoted_key_preservation_in_toml() {
     for name in &test_names {
         mcp_servers.insert(
             name.to_string(),
-            McpServerConfig {
-                command: "test".to_string(),
-                args: vec![],
-                env: HashMap::new(),
-            },
+            McpServerConfig { command: "test".to_string(), args: vec![], env: HashMap::new() },
         );
     }
 
@@ -97,7 +93,10 @@ fn test_quoted_key_preservation_in_toml() {
 
     // Manually create a TOML table to test serialization
     let mut root = toml::map::Map::new();
-    root.insert("mcp_servers".to_string(), TomlValue::Table(toml_servers.into_iter().map(|(k, v)| (k, v)).collect()));
+    root.insert(
+        "mcp_servers".to_string(),
+        TomlValue::Table(toml_servers.into_iter().map(|(k, v)| (k, v)).collect()),
+    );
 
     let toml_str = toml::to_string_pretty(&root);
     assert!(toml_str.is_ok(), "Should serialize successfully");
@@ -107,8 +106,11 @@ fn test_quoted_key_preservation_in_toml() {
     // Verify all server names are preserved
     for name in &test_names {
         // The name should appear in the TOML, either quoted or unquoted
-        assert!(toml_output.contains(name) || toml_output.contains(&format!("\"{}\"", name)),
-                "Server name '{}' should be in TOML output", name);
+        assert!(
+            toml_output.contains(name) || toml_output.contains(&format!("\"{}\"", name)),
+            "Server name '{}' should be in TOML output",
+            name
+        );
     }
 
     // Parse back to ensure validity

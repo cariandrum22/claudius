@@ -111,6 +111,12 @@ cargo install --path .
 
 ## Quick Start
 
+Before running any subcommands, you can inspect the reorganized CLI surface:
+
+```bash
+claudius --list-commands
+```
+
 1. **Bootstrap configuration:**
    ```bash
    # Bootstrap with default configuration files
@@ -148,6 +154,18 @@ cargo install --path .
    ```
 
 ## Command Reference
+
+### Migrating from legacy `claudius sync`
+
+Version 0.1 reorganized the CLI into domain-focused verbs. If you previously ran
+`claudius sync`, use the following replacements:
+
+- Project/local sync: `claudius config sync`
+- Global sync: `claudius config sync --global`
+- Commands only: `claudius commands sync`
+
+Tip: `claudius --list-commands` prints the new layout along with the available
+subcommands.
 
 ### `claudius config init`
 

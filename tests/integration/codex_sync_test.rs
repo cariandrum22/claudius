@@ -666,9 +666,8 @@ args = ["cmd"]
             "includeCoAuthoredBy from existing should be preserved"
         );
         anyhow::ensure!(
-            settings.get("env")
-                .and_then(|v| v.get("EXISTING_VAR"))
-                .and_then(|v| v.as_str()) == Some("existing_value"),
+            settings.get("env").and_then(|v| v.get("EXISTING_VAR")).and_then(|v| v.as_str())
+                == Some("existing_value"),
             "env from existing should be preserved"
         );
 

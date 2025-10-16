@@ -46,7 +46,11 @@ mod tests {
     fn test_run_command_pipeline() {
         // Test that pipes work correctly
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.args(["secrets", "run"]).arg("--").arg("sh").arg("-c").arg("echo hello | tr a-z A-Z");
+        cmd.args(["secrets", "run"])
+            .arg("--")
+            .arg("sh")
+            .arg("-c")
+            .arg("echo hello | tr a-z A-Z");
 
         cmd.assert().success().stdout(predicate::str::contains("HELLO"));
     }
