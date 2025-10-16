@@ -22,6 +22,12 @@ Claudius provides a structured approach to Claude configuration management:
 
 ## Quick Start
 
+Before running any subcommands, you can list the reorganized CLI surface:
+
+```bash
+claudius --list-commands
+```
+
 ### Prerequisites
 - Rust 1.86.0 or higher
 - Nix 2.19.0 or higher (optional, for development)
@@ -117,6 +123,18 @@ Home Directory (--global):
 ```
 
 ## Command Reference
+
+### Migrating from legacy `claudius sync`
+
+Earlier releases exposed a single `claudius sync` command. The refactored CLI
+splits responsibilities across dedicated verbs:
+
+- `claudius config sync` replaces project-local sync
+- `claudius config sync --global` replaces global sync
+- `claudius commands sync` replaces the manual command deployment step
+
+Run `claudius --list-commands` to see the complete tree of available verbs at
+any time.
 
 ### `claudius config init`
 Bootstrap configuration directory with default files.

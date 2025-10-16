@@ -29,8 +29,16 @@ Target files:
     author
 )]
 pub struct Cli {
+    /// List all available subcommands and exit
+    #[arg(
+        long,
+        global = true,
+        help = "List all available top-level commands and their subcommands"
+    )]
+    pub list_commands: bool,
+
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Enable debug output (shows INFO and DEBUG messages)
     #[arg(long, global = true)]
@@ -115,19 +123,19 @@ Examples:
 #[derive(Subcommand, Debug, Clone, Copy)]
 pub enum CommandCommands {
     /// Synchronize custom slash commands into Claude directories
-    #[command(
-        long_about = "Synchronize custom slash command definitions into Claude directories.
+    #[command(long_about = "Synchronize custom slash command definitions into Claude directories.
 
 This command copies the markdown files from your commands/ directory into \
-Claude's command directory, ensuring all commands are up to date."
-    )]
+Claude's command directory, ensuring all commands are up to date.")]
     Sync(CommandSyncArgs),
 }
 
 #[derive(Subcommand, Debug)]
 pub enum ContextCommands {
     /// Append rules or templates into agent-specific context files
-    #[command(name = "append", long_about = "Append context to agent-specific context files.
+    #[command(
+        name = "append",
+        long_about = "Append context to agent-specific context files.
 
 Each agent uses a different context file:
   • Claude: CLAUDE.md
@@ -159,7 +167,9 @@ Examples:
     Append(AppendContextArgs),
 
     /// Install rules into project-local directories with include directives
-    #[command(name = "install", long_about = "Install context rules to project-local .agents/rules directory.
+    #[command(
+        name = "install",
+        long_about = "Install context rules to project-local .agents/rules directory.
 
 This command:
   • Copies specified rules from your rules directory to ./.agents/rules/ (default)
@@ -189,7 +199,9 @@ Examples:
     Install(InstallContextArgs),
 
     /// List available rules and templates
-    #[command(long_about = "List all available context rules and templates in the rules directory.")]
+    #[command(
+        long_about = "List all available context rules and templates in the rules directory."
+    )]
     List(ContextListArgs),
 }
 

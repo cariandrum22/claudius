@@ -235,11 +235,7 @@ fn init_rules_directory(config_dir: &Path, force: bool) -> Result<()> {
 }
 
 /// Initialize context files in project directory based on config
-fn init_context_files(
-    target_dir: &Path,
-    default_context: Option<&str>,
-    force: bool,
-) -> Result<()> {
+fn init_context_files(target_dir: &Path, default_context: Option<&str>, force: bool) -> Result<()> {
     use std::os::unix::fs as unix_fs;
 
     // Determine which file is the default context
@@ -286,8 +282,10 @@ fn init_context_files(
 
             // Only offer backup if file has substantial content (>100 bytes)
             if file_size > 100 {
-                eprint!("\nThe {} file contains {} bytes of data. Create a backup? [y/N]: ",
-                    primary_file, file_size);
+                eprint!(
+                    "\nThe {} file contains {} bytes of data. Create a backup? [y/N]: ",
+                    primary_file, file_size
+                );
                 use std::io::{self, Write};
                 io::stderr().flush()?;
 
@@ -305,8 +303,9 @@ fn init_context_files(
                         primary_path.clone()
                     };
 
-                    fs::copy(&real_path, &backup_path)
-                        .with_context(|| format!("Failed to create backup: {}", backup_path.display()))?;
+                    fs::copy(&real_path, &backup_path).with_context(|| {
+                        format!("Failed to create backup: {}", backup_path.display())
+                    })?;
                     info!("Created backup: {}", backup_path.display());
                 }
             }
@@ -329,9 +328,9 @@ fn init_context_files(
     info!("Created {}", primary_file);
 
     // Create symlink from secondary to primary
-    unix_fs::symlink(&primary_path, &secondary_path)
-        .with_context(|| format!("Failed to create symlink from {} to {}",
-            secondary_file, primary_file))?;
+    unix_fs::symlink(&primary_path, &secondary_path).with_context(|| {
+        format!("Failed to create symlink from {} to {}", secondary_file, primary_file)
+    })?;
     info!("Created symlink: {} -> {}", secondary_file, primary_file);
 
     Ok(())
@@ -534,8 +533,7 @@ mod tests {
         // Create CLAUDE.md with content
         let claude_md = target_dir.join("CLAUDE.md");
         let content = "# Original Content\n\nThis is original content with more than 100 bytes to trigger backup prompt. ".repeat(3);
-        fs::write(&claude_md, content)
-            .expect("Failed to write CLAUDE.md");
+        fs::write(&claude_md, content).expect("Failed to write CLAUDE.md");
 
         // Create AGENTS.md as symlink to CLAUDE.md
         let agents_md = target_dir.join("AGENTS.md");

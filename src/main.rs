@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+use anyhow::{Context, Result};
+use clap::{CommandFactory, Parser};
 #[cfg(feature = "profiling")]
 use claudius::profiling::profile_flamegraph;
 use claudius::{
@@ -13,10 +15,10 @@ use claudius::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
         sync_commands_if_exists, write_configurations, AgentContext,
     },
-    template::{append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory},
+    template::{
+        append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
+    },
 };
-use anyhow::{Context, Result};
-use clap::Parser;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -29,7 +31,18 @@ fn main() -> Result<()> {
     let app_config = load_and_log_config()?;
     resolve_and_inject_secrets(app_config.as_ref());
 
-    dispatch_command(cli.command, app_config.as_ref())
+    if cli.list_commands {
+        print_available_commands();
+        return Ok(());
+    }
+
+    let Some(command) = cli.command else {
+        Cli::command().print_help().expect("failed to print top-level help");
+        println!();
+        return Ok(());
+    };
+
+    dispatch_command(command, app_config.as_ref())
 }
 
 /// Initialize tracing with the specified debug/trace flags
@@ -127,6 +140,28 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
     }
 }
 
+fn print_available_commands() {
+    let root = Cli::command();
+    println!("Available commands:");
+    for subcommand in root.get_subcommands() {
+        let name = subcommand.get_name();
+        let about = subcommand
+            .get_about()
+            .or_else(|| subcommand.get_long_about())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| String::from("(no description)"));
+        println!("  {:<10} {}", name, about.trim());
+
+        let nested: Vec<String> =
+            subcommand.get_subcommands().map(|child| child.get_name().to_string()).collect();
+        if !nested.is_empty() {
+            println!("    subcommands: {}", nested.join(", "));
+        }
+    }
+    println!();
+    println!("Use `claudius <command> --help` for detailed usage.");
+}
+
 fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
     // Always use the default config directory (not project-local)
     let config = Config::new(true)?;
@@ -143,10 +178,10 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
         .and_then(|d| d.context_file.as_deref());
 
     // Get current working directory for context file creation
-    let current_dir = std::env::current_dir()
-        .context("Failed to get current directory")?;
+    let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
-    match bootstrap::bootstrap_config_with_context(config_dir, &current_dir, force, default_context) {
+    match bootstrap::bootstrap_config_with_context(config_dir, &current_dir, force, default_context)
+    {
         Ok(()) => {
             println!("Claudius configuration bootstrapped successfully!");
             println!();
@@ -185,14 +220,7 @@ fn run_sync_commands(global: bool) -> Result<()> {
 }
 
 fn run_config_sync(args: cli::ConfigSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
-    let cli::ConfigSyncArgs {
-        config,
-        dry_run,
-        backup,
-        target_config,
-        global,
-        agent,
-    } = args;
+    let cli::ConfigSyncArgs { config, dry_run, backup, target_config, global, agent } = args;
 
     run_sync(
         &SyncOptions {
@@ -536,10 +564,7 @@ fn execute_sync_operation(
     let mut claude_config = if global && (agent_context.is_codex || agent_context.is_gemini) {
         // For Codex/Gemini in global mode, don't read from ~/.claude.json
         // Start with empty config - the actual existing config will be read in write_*_global functions
-        claudius::config::ClaudeConfig {
-            mcp_servers: None,
-            other: HashMap::new(),
-        }
+        claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() }
     } else {
         reader::read_claude_config(&paths.target_config)
             .context("Failed to read target configuration")?
