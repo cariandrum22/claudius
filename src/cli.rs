@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -43,6 +43,25 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Manage configuration files (initialization and synchronization)
+    #[command(subcommand)]
+    Config(ConfigCommands),
+
+    /// Manage custom command definitions
+    #[command(subcommand, name = "commands")]
+    Command(CommandCommands),
+
+    /// Manage project context rules and templates
+    #[command(subcommand)]
+    Context(ContextCommands),
+
+    /// Execute processes with automatic secret resolution
+    #[command(subcommand)]
+    Secrets(SecretsCommands),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
     /// Bootstrap Claudius configuration directory with default files
     #[command(long_about = "Bootstrap Claudius configuration directory with default files.
 
@@ -56,17 +75,13 @@ By default, existing files are preserved. Use --force to reinitialize.
 
 Examples:
   # Initialize configuration (preserves existing files)
-  claudius init
+  claudius config init
 
   # Force reinitialize (resets to defaults)
-  claudius init --force")]
-    Init {
-        /// Force reinitialization (removes existing configurations)
-        #[arg(short, long)]
-        force: bool,
-    },
+  claudius config init --force")]
+    Init(InitArgs),
 
-    /// Synchronize configurations to .mcp.json/.claude/settings.json or claude.json
+    /// Synchronize configurations to project or global targets
     #[command(
         long_about = "Synchronize all Claude configurations to the target configuration files.
 
@@ -78,64 +93,41 @@ This command:
        • ./.mcp.json for MCP servers
        • ./.claude/settings.json for settings
      - Global mode (--global):
-       • ~/claude.json for everything
+       • ~/claudius.json for everything
   4. Syncs custom commands from commands/ to ~/.claude/commands/
 
 Examples:
   # Basic sync to project-local files
-  claudius sync
+  claudius config sync
 
   # Sync to global configuration
-  claudius sync --global
+  claudius config sync --global
 
   # Preview changes without writing
-  claudius sync --dry-run
+  claudius config sync --dry-run
 
   # Create backup before syncing
-  claudius sync --backup"
+  claudius config sync --backup"
     )]
-    Sync {
-        /// Path to the MCP servers configuration file
-        #[arg(short, long, env = "CLAUDIUS_CONFIG", value_hint = clap::ValueHint::FilePath)]
-        config: Option<PathBuf>,
+    Sync(ConfigSyncArgs),
+}
 
-        /// Preview changes without writing them
-        #[arg(short, long, help = "Preview changes without writing them")]
-        dry_run: bool,
-
-        /// Create timestamped backup before making changes
-        #[arg(
-            short,
-            long,
-            help = "Create timestamped backup of target configuration before making changes"
-        )]
-        backup: bool,
-
-        /// Override target configuration file path
-        #[arg(short = 'T', long, env = "TARGET_CONFIG_PATH", value_hint = clap::ValueHint::FilePath)]
-        target_config: Option<PathBuf>,
-
-        /// Target system-wide configuration (~/.claude.json) instead of project-local files
-        #[arg(
-            short,
-            long,
-            help = "Target system-wide configuration (~/.claude.json) instead of project-local files (.mcp.json, .claude/settings.json)"
-        )]
-        global: bool,
-
-        /// Only sync custom slash commands (skip config merge)
-        #[arg(short = 'C', long)]
-        commands_only: bool,
-
-        /// Specify the agent to use (overrides config file)
-        #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
-        agent: Option<crate::app_config::Agent>,
-    },
-
-    /// Append context to agent-specific context files
+#[derive(Subcommand, Debug, Clone, Copy)]
+pub enum CommandCommands {
+    /// Synchronize custom slash commands into Claude directories
     #[command(
-        name = "append-context",
-        long_about = "Append context to agent-specific context files.
+        long_about = "Synchronize custom slash command definitions into Claude directories.
+
+This command copies the markdown files from your commands/ directory into \
+Claude's command directory, ensuring all commands are up to date."
+    )]
+    Sync(CommandSyncArgs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ContextCommands {
+    /// Append rules or templates into agent-specific context files
+    #[command(name = "append", long_about = "Append context to agent-specific context files.
 
 Each agent uses a different context file:
   • Claude: CLAUDE.md
@@ -150,50 +142,24 @@ Rules are stored in: $XDG_CONFIG_HOME/claudius/rules/*.md
 
 Examples:
   # Append a predefined rule to current agent's context file
-  claudius append-context security
+  claudius context append security
 
   # Append to a specific directory
-  claudius append-context testing --path /path/to/project
+  claudius context append testing --path /path/to/project
 
   # Use a custom template file
-  claudius append-context --template-path ./my-template.md
+  claudius context append --template-path ./my-template.md
 
   # Append to global context file in home directory
-  claudius append-context security --global
+  claudius context append security --global
 
   # Append a rule to a specific agent's global file
-  claudius append-context security --global --agent gemini"
+  claudius context append security --global --agent gemini"
     )]
-    AppendContext {
-        /// Rule name from rules directory (e.g., 'security' for security.md)
-        #[arg(value_name = "RULE", required_unless_present = "template_path")]
-        rule: Option<String>,
+    Append(AppendContextArgs),
 
-        /// Target directory (optional, defaults to current directory or $HOME with --global)
-        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath, env = "CLAUDIUS_PROJECT_PATH")]
-        path: Option<PathBuf>,
-
-        /// Use custom template file instead of predefined rule
-        #[arg(short = 'T', long, value_hint = clap::ValueHint::FilePath, conflicts_with = "rule", env = "CLAUDIUS_TEMPLATE_PATH")]
-        template_path: Option<PathBuf>,
-
-        /// Target context file in home directory instead of project directory
-        #[arg(
-            short,
-            long,
-            help = "Target context file in home directory ($HOME) instead of project directory"
-        )]
-        global: bool,
-
-        /// Specify the agent (overrides config file)
-        #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
-        agent: Option<crate::app_config::Agent>,
-    },
-
-    /// Install context rules to project-local .agents/rules directory
-    #[command(
-        name = "install-context",
-        long_about = "Install context rules to project-local .agents/rules directory.
+    /// Install rules into project-local directories with include directives
+    #[command(name = "install", long_about = "Install context rules to project-local .agents/rules directory.
 
 This command:
   • Copies specified rules from your rules directory to ./.agents/rules/ (default)
@@ -206,44 +172,33 @@ Rules are stored in: $XDG_CONFIG_HOME/claudius/rules/*.md
 
 Examples:
   # Install specific rules (to ./.agents/rules/)
-  claudius install-context security testing performance
+  claudius context install security testing performance
 
   # Install ALL rules from rules directory
-  claudius install-context --all
+  claudius context install --all
 
   # Install rules to a specific project directory
-  claudius install-context security --path /path/to/project
+  claudius context install security --path /path/to/project
 
   # Install rules with a custom install directory
-  claudius install-context security --install-dir ./.claude/rules
+  claudius context install security --install-dir ./.claude/rules
 
   # Install rules with a custom agent
-  claudius install-context security --agent gemini"
+  claudius context install security --agent gemini"
     )]
-    InstallContext {
-        /// Rule names to install (e.g., 'security', 'testing')
-        #[arg(value_name = "RULES", required_unless_present = "all", num_args = 1..)]
-        rules: Vec<String>,
+    Install(InstallContextArgs),
 
-        /// Install ALL rules from the rules directory
-        #[arg(short = 'A', long, help = "Install all available rules from the rules directory")]
-        all: bool,
+    /// List available rules and templates
+    #[command(long_about = "List all available context rules and templates in the rules directory.")]
+    List(ContextListArgs),
+}
 
-        /// Target directory (optional, defaults to current directory)
-        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        path: Option<PathBuf>,
-
-        /// Specify the agent (overrides config file)
-        #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
-        agent: Option<crate::app_config::Agent>,
-
-        /// Custom install directory (defaults to .agents/rules)
-        #[arg(short = 'i', long, value_name = "DIR", value_hint = clap::ValueHint::DirPath, env = "CLAUDIUS_INSTALL_DIR")]
-        install_dir: Option<PathBuf>,
-    },
-
-    /// Run a command with resolved secrets from environment variables
-    #[command(long_about = "Run a command with resolved secrets from environment variables.
+#[derive(Subcommand, Debug)]
+pub enum SecretsCommands {
+    /// Run a process with secrets resolved from environment variables
+    #[command(
+        name = "run",
+        long_about = "Run a command with resolved secrets from environment variables.
 
 This command:
   1. Loads the Claudius configuration (if present)
@@ -258,37 +213,160 @@ The command inherits all stdio streams, allowing for:
 
 Examples:
   # Run a command with resolved secrets
-  CLAUDIUS_SECRET_API_KEY=op://vault/item/field claudius run -- npm start
+  CLAUDIUS_SECRET_API_KEY=op://vault/item/field claudius secrets run -- npm start
 
   # Run an interactive command
-  CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius run -- psql -U admin
+  CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius secrets run -- psql -U admin
 
   # Run a long-running process
-  CLAUDIUS_SECRET_TOKEN=op://vault/tokens/github claudius run -- ./server.sh
+  CLAUDIUS_SECRET_TOKEN=op://vault/tokens/github claudius secrets run -- ./server.sh
 
-Note: Everything after '--' is treated as the command and its arguments.")]
-    Run {
-        /// Command and arguments to execute
-        #[arg(
-            required = true,
-            num_args = 1..,
-            value_name = "COMMAND",
-            trailing_var_arg = true,
-            help = "Command and arguments to execute (use -- before the command)"
-        )]
-        command: Vec<String>,
-    },
+Note: Everything after '--' is treated as the command and its arguments."
+    )]
+    Run(RunArgs),
 }
 
-// Helper methods to maintain backward compatibility
-impl Commands {
-    #[must_use]
-    pub const fn is_sync(&self) -> bool {
-        matches!(self, Self::Sync { .. })
-    }
+#[derive(Args, Debug, Clone, Copy)]
+pub struct InitArgs {
+    /// Force reinitialization (removes existing configurations)
+    #[arg(short, long)]
+    pub force: bool,
+}
 
-    #[must_use]
-    pub const fn is_append_context(&self) -> bool {
-        matches!(self, Self::AppendContext { .. })
-    }
+#[derive(Args, Debug, Clone)]
+pub struct ConfigSyncArgs {
+    /// Path to the MCP servers configuration file
+    #[arg(short, long, env = "CLAUDIUS_CONFIG", value_hint = clap::ValueHint::FilePath)]
+    pub config: Option<PathBuf>,
+
+    /// Preview changes without writing them
+    #[arg(short, long, help = "Preview changes without writing them")]
+    pub dry_run: bool,
+
+    /// Create timestamped backup before making changes
+    #[arg(
+        short,
+        long,
+        help = "Create timestamped backup of target configuration before making changes"
+    )]
+    pub backup: bool,
+
+    /// Override target configuration file path
+    #[arg(short = 'T', long, env = "TARGET_CONFIG_PATH", value_hint = clap::ValueHint::FilePath)]
+    pub target_config: Option<PathBuf>,
+
+    /// Target system-wide configuration (~/.claude.json) instead of project-local files
+    #[arg(
+        short,
+        long,
+        help = "Target system-wide configuration (~/.claude.json) instead of project-local files (.mcp.json, .claude/settings.json)"
+    )]
+    pub global: bool,
+
+    /// Specify the agent to use (overrides config file)
+    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
+    pub agent: Option<crate::app_config::Agent>,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct CommandSyncArgs {
+    /// Target system-wide configuration (~/.claude/commands/) instead of project-local directory
+    #[arg(
+        short,
+        long,
+        help = "Target system-wide commands directory (~/.claude/commands/) instead of project-local commands directory"
+    )]
+    pub global: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct AppendContextArgs {
+    /// Rule name from rules directory (e.g., 'security' for security.md)
+    #[arg(value_name = "RULE", required_unless_present = "template_path")]
+    pub rule: Option<String>,
+
+    /// Target directory (optional, defaults to current directory or $HOME with --global)
+    #[arg(
+        short,
+        long,
+        value_name = "PATH",
+        value_hint = clap::ValueHint::DirPath,
+        env = "CLAUDIUS_PROJECT_PATH"
+    )]
+    pub path: Option<PathBuf>,
+
+    /// Use custom template file instead of predefined rule
+    #[arg(
+        short = 'T',
+        long,
+        value_hint = clap::ValueHint::FilePath,
+        conflicts_with = "rule",
+        env = "CLAUDIUS_TEMPLATE_PATH"
+    )]
+    pub template_path: Option<PathBuf>,
+
+    /// Target context file in home directory instead of project directory
+    #[arg(
+        short,
+        long,
+        help = "Target context file in home directory ($HOME) instead of project directory"
+    )]
+    pub global: bool,
+
+    /// Specify the agent (overrides config file)
+    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
+    pub agent: Option<crate::app_config::Agent>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct InstallContextArgs {
+    /// Rule names to install (e.g., 'security', 'testing')
+    #[arg(value_name = "RULES", required_unless_present = "all", num_args = 1..)]
+    pub rules: Vec<String>,
+
+    /// Install ALL rules from the rules directory
+    #[arg(short = 'A', long, help = "Install all available rules from the rules directory")]
+    pub all: bool,
+
+    /// Target directory (optional, defaults to current directory)
+    #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+    pub path: Option<PathBuf>,
+
+    /// Specify the agent (overrides config file)
+    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Custom install directory (defaults to .agents/rules)
+    #[arg(
+        short = 'i',
+        long,
+        value_name = "DIR",
+        value_hint = clap::ValueHint::DirPath,
+        env = "CLAUDIUS_INSTALL_DIR"
+    )]
+    pub install_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct ContextListArgs {
+    /// Show detailed tree structure of rule directories
+    #[arg(
+        short = 'T',
+        long,
+        help = "Display rule directory tree with nested files instead of simple list"
+    )]
+    pub tree: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct RunArgs {
+    /// Command and arguments to execute
+    #[arg(
+        required = true,
+        num_args = 1..,
+        value_name = "COMMAND",
+        trailing_var_arg = true,
+        help = "Command and arguments to execute (use -- before the command)"
+    )]
+    pub command: Vec<String>,
 }

@@ -1,14 +1,11 @@
 #![allow(missing_docs)]
 
-use anyhow::{Context, Result};
-use clap::Parser;
-use std::collections::HashMap;
 #[cfg(feature = "profiling")]
 use claudius::profiling::profile_flamegraph;
 use claudius::{
     app_config::AppConfig,
     bootstrap,
-    cli::{Cli, Commands},
+    cli::{self, Cli},
     commands,
     config::{reader, Config},
     secrets::SecretResolver,
@@ -16,8 +13,11 @@ use claudius::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
         sync_commands_if_exists, write_configurations, AgentContext,
     },
-    template::{append_rules_to_context_file, append_template_to_context_file},
+    template::{append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory},
 };
+use anyhow::{Context, Result};
+use clap::Parser;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -93,32 +93,36 @@ fn resolve_and_inject_secrets(app_config: Option<&AppConfig>) {
 }
 
 /// Dispatch to the appropriate command handler
-fn dispatch_command(command: Commands, app_config: Option<&AppConfig>) -> Result<()> {
+fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> Result<()> {
     match command {
-        Commands::Sync { config, dry_run, backup, target_config, global, commands_only, agent } => {
-            if commands_only {
-                run_sync_commands(global)
-            } else {
-                run_sync(
-                    &SyncOptions {
-                        config_path: config,
-                        target_config_path: target_config,
-                        dry_run,
-                        backup,
-                        global,
-                        agent_override: agent,
-                    },
-                    app_config,
-                )
-            }
+        cli::Commands::Config(subcommand) => match subcommand {
+            cli::ConfigCommands::Init(args) => run_init(args.force, app_config),
+            cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
         },
-        Commands::AppendContext { rule, path, template_path, global, agent } => {
-            run_append_context(rule, path, template_path, global, agent, app_config)
+        cli::Commands::Command(subcommand) => match subcommand {
+            cli::CommandCommands::Sync(args) => run_sync_commands(args.global),
         },
-        Commands::Init { force } => run_init(force, app_config),
-        Commands::Run { command: cmd } => run_command(&cmd, app_config),
-        Commands::InstallContext { rules, all, path, agent, install_dir } => {
-            run_install_context(rules, all, path, agent, install_dir, app_config)
+        cli::Commands::Context(subcommand) => match subcommand {
+            cli::ContextCommands::Append(args) => run_append_context(
+                args.rule,
+                args.path,
+                args.template_path,
+                args.global,
+                args.agent,
+                app_config,
+            ),
+            cli::ContextCommands::Install(args) => run_install_context(
+                args.rules,
+                args.all,
+                args.path,
+                args.agent,
+                args.install_dir,
+                app_config,
+            ),
+            cli::ContextCommands::List(args) => run_list_context(args, app_config),
+        },
+        cli::Commands::Secrets(subcommand) => match subcommand {
+            cli::SecretsCommands::Run(args) => run_command(&args.command, app_config),
         },
     }
 }
@@ -148,7 +152,8 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
             println!();
             println!("Next steps:");
             println!("  1. Edit configuration files in: {}", config_dir.display());
-            println!("  2. Run 'claudius sync' to apply your configuration");
+            println!("  2. Run 'claudius config sync' to apply your configuration");
+            println!("  3. Run 'claudius commands sync' to publish custom commands");
             Ok(())
         },
         Err(e) => {
@@ -176,6 +181,104 @@ fn run_sync_commands(global: bool) -> Result<()> {
             error!("Failed to sync commands: {e:#}");
             std::process::exit(1);
         },
+    }
+}
+
+fn run_config_sync(args: cli::ConfigSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
+    let cli::ConfigSyncArgs {
+        config,
+        dry_run,
+        backup,
+        target_config,
+        global,
+        agent,
+    } = args;
+
+    run_sync(
+        &SyncOptions {
+            config_path: config,
+            target_config_path: target_config,
+            dry_run,
+            backup,
+            global,
+            agent_override: agent,
+        },
+        app_config,
+    )
+}
+
+fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>) -> Result<()> {
+    let rules_dir = ensure_rules_directory()?;
+    let mut rules = Vec::new();
+    collect_md_files(&rules_dir, &rules_dir, &mut rules)?;
+    rules.sort();
+
+    if rules.is_empty() {
+        println!("No rules found in {}", rules_dir.display());
+        return Ok(());
+    }
+
+    println!("Rules directory: {}", rules_dir.display());
+
+    if args.tree {
+        let mut tree = RulesTree::default();
+        for rule in &rules {
+            let components: Vec<&str> =
+                rule.split('/').filter(|segment| !segment.is_empty()).collect();
+            if components.is_empty() {
+                continue;
+            }
+            insert_rule_path(&mut tree, &components);
+        }
+        print_rules_tree(&tree, "");
+    } else {
+        println!("Available rules ({}):", rules.len());
+        for rule in &rules {
+            println!("  - {rule}");
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct RulesTree {
+    directories: BTreeMap<String, RulesTree>,
+    files: BTreeSet<String>,
+}
+
+fn insert_rule_path(node: &mut RulesTree, components: &[&str]) {
+    if let Some((head, tail)) = components.split_first() {
+        if tail.is_empty() {
+            node.files.insert(format!("{head}.md"));
+        } else {
+            insert_rule_path(node.directories.entry((*head).to_owned()).or_default(), tail);
+        }
+    }
+}
+
+fn print_rules_tree(node: &RulesTree, prefix: &str) {
+    let total = node.directories.len() + node.files.len();
+    if total == 0 {
+        return;
+    }
+
+    let mut index = 0_usize;
+
+    for (dir, child) in &node.directories {
+        index += 1;
+        let is_last = index == total;
+        let connector = if is_last { "└── " } else { "├── " };
+        println!("{prefix}{connector}{dir}/");
+        let next_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
+        print_rules_tree(child, &next_prefix);
+    }
+
+    for file in &node.files {
+        index += 1;
+        let is_last = index == total;
+        let connector = if is_last { "└── " } else { "├── " };
+        println!("{prefix}{connector}{file}");
     }
 }
 
