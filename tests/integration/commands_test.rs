@@ -52,12 +52,10 @@ mod tests {
         fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
 
         // Run sync in project-local mode (default)
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("sync")
-            .arg("--agent")
-            .arg("gemini")
+            .args(["commands", "sync"])
             .assert()
             .success();
 
@@ -90,10 +88,10 @@ mod tests {
         fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
 
         // Run sync in global mode
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", fixture.config_home())
             .env("HOME", fixture.home_dir())
-            .arg("sync")
+            .args(["commands", "sync"])
             .arg("--global")
             .assert()
             .success();
@@ -124,14 +122,11 @@ mod tests {
             .unwrap();
         fixture.with_settings(r#"{"apiKeyHelper": "test"}"#).unwrap();
 
-        // Run sync with --commands-only
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run sync using dedicated commands subcommand
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("sync")
-            .arg("--agent")
-            .arg("gemini")
-            .arg("--commands-only")
+            .args(["commands", "sync"])
             .assert()
             .success()
             .stdout(predicate::str::contains("Successfully synced"));

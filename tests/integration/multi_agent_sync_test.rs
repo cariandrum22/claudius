@@ -99,11 +99,11 @@ mod tests {
         home_dir.create_dir_all().unwrap();
 
         // Run sync with global flag (no agent specified)
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
             .env("HOME", home_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("-g")
             .assert()
             .success();
@@ -142,11 +142,11 @@ mod tests {
         home_dir.create_dir_all().unwrap();
 
         // Run sync with global flag and specific agent
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
             .env("HOME", home_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("-g")
             .arg("-a")
             .arg("gemini")
@@ -190,12 +190,12 @@ mod tests {
         home_dir.create_dir_all().unwrap();
 
         // Run sync with global flag (no agent specified, no agent configs)
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         let output = cmd
             .current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
             .env("HOME", home_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("-g")
             .output()
             .unwrap();
@@ -253,11 +253,11 @@ mod tests {
         home_dir.create_dir_all().unwrap();
 
         // Run sync with global flag
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
             .env("HOME", home_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("-g")
             .assert()
             .success();

@@ -103,7 +103,7 @@ agent = "codex"
 
         // Run sync command
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync"])
+            .args(["config", "sync"])
             .output()?;
 
         if !output.status.success() {
@@ -180,7 +180,7 @@ agent = "claude"
 
         // Run sync command with --agent codex override
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--agent", "codex"])
+            .args(["config", "sync", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -250,7 +250,7 @@ agent = "claude"
 
         // Run sync command with dry-run
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--agent", "codex", "--dry-run"])
+            .args(["config", "sync", "--agent", "codex", "--dry-run"])
             .output()?;
 
         if !output.status.success() {
@@ -318,7 +318,7 @@ persistence = "ephemeral"
 
         // Run sync in global mode for Codex
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -413,7 +413,7 @@ args = ["cmd"]
 
         // First sync - should merge dotted name server
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -453,7 +453,7 @@ args = ["cmd"]
 
         // Second sync - should replace old name with new name
         let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output2.status.success() {
@@ -544,7 +544,7 @@ args = ["cmd"]
 
         // Run sync for Codex in global mode
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -632,7 +632,7 @@ args = ["cmd"]
 
         // Run sync in global mode for Gemini
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "gemini"])
+            .args(["config", "sync", "--global", "--agent", "gemini"])
             .output()?;
 
         if !output.status.success() {

@@ -31,7 +31,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_cli_help() {
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.arg("--help").assert().success().stdout(predicate::str::contains(
             "Claudius is a comprehensive configuration management tool for Claude Desktop/CLI",
         ));
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_cli_version() {
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.arg("--version")
             .assert()
             .success()
@@ -74,9 +74,9 @@ mod tests {
         mcp_file.write_str("{}").unwrap();
 
         // Run sync
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--target-config")
@@ -137,9 +137,9 @@ mod tests {
             .unwrap();
 
         // Run sync
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--target-config")
@@ -193,9 +193,9 @@ mod tests {
         mcp_file.write_str("{}").unwrap();
 
         // Run sync with dry-run
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--dry-run")
@@ -242,9 +242,9 @@ mod tests {
             .unwrap();
 
         // Run sync with backup
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--backup")
@@ -275,9 +275,9 @@ mod tests {
         let servers_file = temp_dir.child("config").child("claudius").child("nonexistent.json");
 
         // Run sync with missing servers file
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--config")
@@ -301,9 +301,9 @@ mod tests {
         mcp_file.write_str("{}").unwrap();
 
         // Run sync
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--target-config")
@@ -358,8 +358,8 @@ mod tests {
             .unwrap();
 
         // Run sync with global flag
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
-        cmd.arg("sync")
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.args(["config", "sync"])
             .arg("--global")
             .arg("--config")
             .arg(servers_file.path())

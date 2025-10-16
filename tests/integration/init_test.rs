@@ -14,10 +14,10 @@ mod tests {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
-        // Run init command
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run config init command
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("init")
+            .args(["config", "init"])
             .assert()
             .success()
             .stdout(predicate::str::contains("Claudius configuration bootstrapped successfully"));
@@ -50,9 +50,9 @@ mod tests {
         fixture.with_mcp_servers(existing_content).unwrap();
 
         // Run init without force
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("init")
+            .args(["config", "init"])
             .assert()
             .success()
             .stdout(predicate::str::contains("Claudius configuration bootstrapped successfully"));
@@ -73,9 +73,9 @@ mod tests {
         fixture.with_mcp_servers(existing_content).unwrap();
 
         // Run init with force
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("init")
+            .args(["config", "init"])
             .arg("--force")
             .assert()
             .success()

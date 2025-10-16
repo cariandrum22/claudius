@@ -40,9 +40,9 @@ type = "1password"
         );
 
         // Run claudius with a test command that will show resolved environment variables
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         let assert = cmd
-            .arg("run")
+            .args(["secrets", "run"])
             .arg("--")
             .arg("sh")
             .arg("-c")
@@ -86,9 +86,9 @@ type = "1password"
             "$CLAUDIUS_SECRET_SERVER_URL$CLAUDIUS_SECRET_BASE_PATH",
         );
 
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         let assert = cmd
-            .arg("run")
+            .args(["secrets", "run"])
             .arg("--")
             .arg("sh")
             .arg("-c")
@@ -122,8 +122,8 @@ type = "1password"
         env::set_var("CLAUDIUS_SECRET_B", "$CLAUDIUS_SECRET_C");
         env::set_var("CLAUDIUS_SECRET_C", "$CLAUDIUS_SECRET_A");
 
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
-        let assert = cmd.arg("run").arg("--").arg("echo").arg("test").assert();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        let assert = cmd.args(["secrets", "run"]).arg("--").arg("echo").arg("test").assert();
 
         assert
             .failure()

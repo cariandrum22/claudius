@@ -48,7 +48,7 @@ mod tests {
         }
     }
 
-    // ========== append-context command tests ==========
+    // ========== context append command tests ==========
 
     #[test]
     #[serial]
@@ -73,16 +73,16 @@ mod tests {
         // Change to project directory
         std::env::set_current_dir(&project_dir)?;
 
-        // Run append-context command
+        // Run context append command
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
-            .args(["append-context", "test-rule"])
+            .args(["context", "append", "test-rule"])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify CLAUDE.md was created
@@ -115,16 +115,16 @@ mod tests {
         // Change to project directory
         std::env::set_current_dir(&project_dir)?;
 
-        // Run append-context command with Gemini agent
+        // Run context append command with Gemini agent
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
-            .args(["append-context", "gemini-rule", "--agent", "gemini"])
+            .args(["context", "append", "gemini-rule", "--agent", "gemini"])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify AGENTS.md was created (not CLAUDE.md)
@@ -161,16 +161,16 @@ mod tests {
         // Change to project directory
         std::env::set_current_dir(&project_dir)?;
 
-        // Run append-context command with Codex agent
+        // Run context append command with Codex agent
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
-            .args(["append-context", "codex-rule", "--agent", "codex"])
+            .args(["context", "append", "codex-rule", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify AGENTS.md was created (not CLAUDE.md)
@@ -205,17 +205,17 @@ mod tests {
         fs::create_dir_all(&rules_dir)?;
         fs::write(rules_dir.join("global-rule.md"), "# Global Rule\n\nGlobal context.")?;
 
-        // Run append-context command with --global flag
+        // Run context append command with --global flag
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
             .env("HOME", &home_dir)
-            .args(["append-context", "global-rule", "--global"])
+            .args(["context", "append", "global-rule", "--global"])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify CLAUDE.md was created in home directory
@@ -252,11 +252,11 @@ context-file = "CUSTOM.md"
         // Set up environment
         fixture.setup_env();
 
-        // Run append-context command
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context append command
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(project_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("custom-rule")
             .assert()
             .success();
@@ -293,16 +293,16 @@ context-file = "CUSTOM.md"
         fs::create_dir_all(&rules_dir)?;
         fs::write(rules_dir.join("path-rule.md"), "# Path Rule\n\nWith specific path.")?;
 
-        // Run append-context command with specific path
+        // Run context append command with specific path
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
-            .args(["append-context", "path-rule", "--path", subdir.to_str().unwrap()])
+            .args(["context", "append", "path-rule", "--path", subdir.to_str().unwrap()])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify CLAUDE.md was created in subdir
@@ -341,16 +341,16 @@ context-file = "CUSTOM.md"
         // Change to project directory
         std::env::set_current_dir(&project_dir)?;
 
-        // Run append-context command with --template-path
+        // Run context append command with --template-path
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
             .env("XDG_CONFIG_HOME", temp_dir.path())
-            .args(["append-context", "--template-path", template_path.to_str().unwrap()])
+            .args(["context", "append", "--template-path", template_path.to_str().unwrap()])
             .output()?;
 
         if !output.status.success() {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("append-context command failed"));
+            return Err(anyhow::anyhow!("context append command failed"));
         }
 
         // Verify CLAUDE.md was created with template content
@@ -394,9 +394,9 @@ context-file = "CUSTOM.md"
             .unwrap();
 
         // Run in temp directory (should use project-local .mcp.json)
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--config")
             .arg(servers_file.path())
             .arg("--dry-run")
@@ -431,8 +431,8 @@ context-file = "CUSTOM.md"
             .unwrap();
 
         // Run with --global flag
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
-        cmd.arg("sync")
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.args(["config", "sync"])
             .arg("--config")
             .arg(servers_file.path())
             .arg("--global")
@@ -466,7 +466,7 @@ context-file = "CUSTOM.md"
             .env("XDG_CONFIG_HOME", fixture.config_home())
             .env("HOME", fixture.home_dir())
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .output()
             .unwrap();
 
@@ -514,10 +514,10 @@ context-file = "CUSTOM.md"
         let target_dir = assert_fs::TempDir::new().unwrap();
 
         // Run with rule
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(target_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("basic")
             .assert()
             .success();
@@ -547,10 +547,10 @@ context-file = "CUSTOM.md"
         claude_md.write_str("# Existing Content\n\nOriginal content here.").unwrap();
 
         // Run with rule
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(target_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("append")
             .assert()
             .success();
@@ -586,10 +586,10 @@ context-file = "CUSTOM.md"
         let target_dir = assert_fs::TempDir::new().unwrap();
 
         // Run with custom template
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(target_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("--template-path")
             .arg(custom_template.path())
             .assert()
@@ -621,10 +621,10 @@ context-file = "CUSTOM.md"
         let target_dir = assert_fs::TempDir::new().unwrap();
 
         // Run with rules
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(target_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("security")
             .assert()
             .success();
@@ -654,10 +654,10 @@ context-file = "CUSTOM.md"
         claude_md.write_str("# Existing Project Rules\n\nOriginal content.").unwrap();
 
         // Run with rule
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(target_dir.path())
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("append-context")
+            .args(["context", "append"])
             .arg("testing")
             .assert()
             .success();
@@ -674,5 +674,57 @@ context-file = "CUSTOM.md"
             content.contains("Write comprehensive tests"),
             "Content should contain testing rules text"
         );
+    }
+
+    #[test]
+    #[serial]
+    fn test_context_list_outputs_rules() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new()?;
+
+        let rules_dir = temp_dir.path().join("claudius").join("rules");
+        fs::create_dir_all(rules_dir.join("nested"))?;
+        fs::write(rules_dir.join("alpha.md"), "# Alpha Rule\n\nDetails.")?;
+        fs::write(rules_dir.join("nested").join("omega.md"), "# Omega Rule\n\nDetails.")?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("XDG_CONFIG_HOME", temp_dir.path())
+            .args(["context", "list"])
+            .output()?;
+
+        anyhow::ensure!(output.status.success(), "context list command failed");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(stdout.contains("alpha"), "List output should mention alpha rule");
+        anyhow::ensure!(
+            stdout.contains("nested/omega"),
+            "List output should mention nested omega rule"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_context_list_tree_view() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new()?;
+
+        let rules_dir = temp_dir.path().join("claudius").join("rules");
+        fs::create_dir_all(rules_dir.join("security").join("sub"))?;
+        fs::write(rules_dir.join("security").join("base.md"), "# Base\n")?;
+        fs::write(rules_dir.join("security").join("sub").join("extended.md"), "# Extended\n")?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("XDG_CONFIG_HOME", temp_dir.path())
+            .args(["context", "list", "--tree"])
+            .output()?;
+
+        anyhow::ensure!(output.status.success(), "context list --tree command failed");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(stdout.contains("security/"), "Tree output should show directory names");
+        anyhow::ensure!(
+            stdout.contains("└── base.md"),
+            "Tree output should include leaf files with connectors"
+        );
+        Ok(())
     }
 }
