@@ -44,10 +44,10 @@ mod tests {
             .unwrap();
 
         // Run sync (project-local mode by default)
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .assert()
@@ -136,11 +136,11 @@ mod tests {
         let claude_file_path = fixture.home_dir().join(".claude.json");
 
         // Run sync with --global flag
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
             .env("HOME", fixture.home_dir())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--global")
             .arg("--target-config")
             .arg(&claude_file_path)
@@ -204,10 +204,10 @@ mod tests {
             .unwrap();
 
         // Run sync
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .assert()
@@ -265,10 +265,10 @@ mod tests {
             .unwrap();
 
         // Run sync with dry-run
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--agent")
             .arg("gemini")
             .arg("--dry-run")

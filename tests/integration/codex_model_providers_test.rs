@@ -101,7 +101,7 @@ base_url = "http://localhost:8080"
 
         // Run sync in global mode for Codex
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -240,7 +240,7 @@ base_url = "https://edge.values.com"
 
         // Run sync in global mode for Codex
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -369,7 +369,7 @@ base_url = "https://bbb.com"
 
         // Run sync
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -461,7 +461,7 @@ max_tokens = 4096
 
         // Run sync in global mode for Codex
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--global", "--agent", "codex"])
+            .args(["config", "sync", "--global", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {
@@ -654,7 +654,7 @@ network_access = true
 
         // Run sync command in project-local mode
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
-            .args(["sync", "--agent", "codex"])
+            .args(["config", "sync", "--agent", "codex"])
             .output()?;
 
         if !output.status.success() {

@@ -7,7 +7,7 @@ use std::fs;
 mod tests {
     use super::*;
 
-    // ========== Basic install-context tests ==========
+    // ========== Basic context install tests ==========
 
     #[test]
     fn test_install_context_basic() {
@@ -22,11 +22,11 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule\nThis is a test rule.").unwrap();
 
-        // Run install-context command
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install command
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("test-rule")
             .assert()
             .success();
@@ -75,11 +75,11 @@ mod tests {
             )
             .unwrap();
 
-        // Run install-context command
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install command
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("test-rule")
             .assert()
             .success()
@@ -112,11 +112,11 @@ mod tests {
         let rule3 = rules_dir.child("rule3.md");
         rule3.write_str("# Rule 3").unwrap();
 
-        // Run install-context with multiple rules
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with multiple rules
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("rule1")
             .arg("rule2")
             .arg("rule3")
@@ -140,11 +140,11 @@ mod tests {
         let rules_dir = claudius_dir.child("rules");
         rules_dir.create_dir_all().unwrap();
 
-        // Run install-context with non-existent rule
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with non-existent rule
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("non-existent-rule")
             .assert()
             .failure()
@@ -164,11 +164,11 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule").unwrap();
 
-        // Run install-context with Gemini agent
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with Gemini agent
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("test-rule")
             .arg("--agent")
             .arg("gemini")
@@ -199,11 +199,11 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule").unwrap();
 
-        // Run install-context with custom path
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with custom path
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("test-rule")
             .arg("--path")
             .arg("project")
@@ -231,11 +231,11 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule").unwrap();
 
-        // Run install-context with custom install directory
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with custom install directory
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("test-rule")
             .arg("--install-dir")
             .arg("./.custom/rules")
@@ -255,7 +255,7 @@ mod tests {
         claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
-    // ========== install-context --all tests ==========
+    // ========== context install --all tests ==========
 
     #[test]
     fn test_install_context_all_option() {
@@ -284,11 +284,11 @@ mod tests {
         let advanced_testing = advanced_dir.child("testing-advanced.md");
         advanced_testing.write_str("# Advanced Testing").unwrap();
 
-        // Run install-context with --all option
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with --all option
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("--all")
             .assert()
             .success()
@@ -328,11 +328,11 @@ mod tests {
         let rules_dir = claudius_dir.child("rules");
         rules_dir.create_dir_all().unwrap();
 
-        // Run install-context with --all option on empty directory
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with --all option on empty directory
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("--all")
             .assert()
             .failure()
@@ -355,11 +355,11 @@ mod tests {
         let rule2 = rules_dir.child("rule2.md");
         rule2.write_str("# Rule 2").unwrap();
 
-        // Run install-context with --all and custom install directory
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        // Run context install with --all and custom install directory
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
             .env("XDG_CONFIG_HOME", config_dir.path())
-            .arg("install-context")
+            .args(["context", "install"])
             .arg("--all")
             .arg("--install-dir")
             .arg(".custom/rules")

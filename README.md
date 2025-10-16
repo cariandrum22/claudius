@@ -114,10 +114,10 @@ cargo install --path .
 1. **Bootstrap configuration:**
    ```bash
    # Bootstrap with default configuration files
-   claudius init
+   claudius config init
    
    # Force bootstrap (overwrites existing)
-   claudius init --force
+   claudius config init --force
    ```
 
 2. **Edit configuration files:**
@@ -129,33 +129,36 @@ cargo install --path .
 3. **Sync configuration:**
    ```bash
    # To project-local files (.mcp.json and .claude/settings.json)
-   claudius sync
+   claudius config sync
    
    # To global ~/.claude.json
-   claudius sync --global
+   claudius config sync --global
+
+   # Sync only custom commands
+   claudius commands sync
    ```
 
 4. **Install context rules (optional):**
    ```bash
    # Install specific rules to project
-   claudius install-context security testing
+   claudius context install security testing
    
    # Or install all available rules
-   claudius install-context --all
+   claudius context install --all
    ```
 
 ## Command Reference
 
-### `claudius init`
+### `claudius config init`
 
 Bootstrap Claudius configuration directory with default files.
 
 ```bash
 # Bootstrap configuration (preserves existing files)
-claudius init
+claudius config init
 
 # Force bootstrap (overwrites existing)
-claudius init --force
+claudius config init --force
 ```
 
 This creates:
@@ -165,7 +168,7 @@ This creates:
 - `commands/example.md` - Example custom slash command
 - `rules/example.md` - Example context file rule template
 
-### `claudius sync`
+### `claudius config sync`
 
 Synchronize all agent configurations to target files.
 
@@ -185,48 +188,58 @@ Synchronize all agent configurations to target files.
 
 ```bash
 # Basic sync to project-local files
-claudius sync
+claudius config sync
 
 # Sync to global configuration
-claudius sync --global
+claudius config sync --global
 
 # Preview changes without writing
-claudius sync --dry-run
+claudius config sync --dry-run
 
 # Create backup before syncing
-claudius sync --backup
+claudius config sync --backup
 
 # Use custom configuration paths
-claudius sync --config /path/to/servers.json --claude-config /path/to/target.json
-
-# Sync only commands
-claudius sync --commands-only
+claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
 
 # Use specific agent
-claudius sync --agent codex
-claudius sync --agent gemini
+claudius config sync --agent codex
+claudius config sync --agent gemini
 ```
 
-### `claudius append-context`
+### `claudius commands sync`
+
+Synchronize custom slash command markdown files into Claude's command directories.
+
+```bash
+# Sync commands to project-local .claude/commands/
+claudius commands sync
+
+# Sync commands to global ~/.claude/commands/
+claudius commands sync --global
+```
+
+
+### `claudius context append`
 
 Append instructions or rules to project's context file (CLAUDE.md, CODEX.md, or GEMINI.md).
 
 ```bash
 # Append a predefined rule
-claudius append-context security
+claudius context append security
 
 # Append to specific project
-claudius append-context testing --path /path/to/project
+claudius context append testing --path /path/to/project
 
 # Use custom template file
-claudius append-context --template-path ./my-template.md
+claudius context append --template-path ./my-template.md
 
 # Use specific agent
-claudius append-context security --agent codex
-claudius append-context testing --agent gemini
+claudius context append security --agent codex
+claudius context append testing --agent gemini
 ```
 
-### `claudius install-context`
+### `claudius context install`
 
 Install context rules to project-local .agents/rules directory.
 
@@ -240,41 +253,41 @@ This command copies rules from your global rules directory to a project-local di
 
 ```bash
 # Install specific rules
-claudius install-context security testing performance
+claudius context install security testing performance
 
 # Install ALL rules from rules directory (including subdirectories)
-claudius install-context --all
+claudius context install --all
 
 # Install to specific project
-claudius install-context security --path /path/to/project
+claudius context install security --path /path/to/project
 
 # Use custom install directory
-claudius install-context security --install-dir ./.claude/rules
+claudius context install security --install-dir ./.claude/rules
 
 # Use specific agent
-claudius install-context security --agent gemini
+claudius context install security --agent gemini
 ```
 
-### `claudius run`
+### `claudius secrets run`
 
 Execute commands with automatic secret resolution from environment variables.
 
 ```bash
 # Run with resolved secrets
-CLAUDIUS_SECRET_API_KEY=op://vault/api/key claudius run -- npm start
+CLAUDIUS_SECRET_API_KEY=op://vault/api/key claudius secrets run -- npm start
 
 # Run interactive commands
-CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius run -- psql -U admin
+CLAUDIUS_SECRET_DB_PASSWORD=op://vault/db/password claudius secrets run -- psql -U admin
 
 # Multiple secrets
 export CLAUDIUS_SECRET_AWS_KEY=op://vault/aws/access-key
 export CLAUDIUS_SECRET_AWS_SECRET=op://vault/aws/secret-key
-claudius run -- aws s3 ls
+claudius secrets run -- aws s3 ls
 
 # Nested variable references (NEW!)
 export CLAUDIUS_SECRET_ACCOUNT_ID="12345"
 export CLAUDIUS_SECRET_API_URL='https://api.example.com/$CLAUDIUS_SECRET_ACCOUNT_ID/v1'
-claudius run -- curl $API_URL/users
+claudius secrets run -- curl $API_URL/users
 # Resolves to: https://api.example.com/12345/v1/users
 ```
 
@@ -370,7 +383,7 @@ Create custom slash commands in `~/.config/claudius/commands/`:
 echo "# My Command\n\nCommand implementation..." > ~/.config/claudius/commands/mycommand.md
 
 # Commands are synced automatically
-claudius sync
+claudius config sync
 ```
 
 Commands are deployed to `~/.claude/commands/` without the `.md` extension.
@@ -384,22 +397,22 @@ Create reusable templates in `~/.config/claudius/rules/`:
 echo "# Security Rules\n\nAlways validate input..." > ~/.config/claudius/rules/security.md
 
 # Apply the rule to CLAUDE.md (default)
-claudius append-context security
+claudius context append security
 
 # Apply to agent-specific context files
-claudius append-context security --agent codex   # → CODEX.md
-claudius append-context security --agent gemini  # → GEMINI.md
+claudius context append security --agent codex   # → CODEX.md
+claudius context append security --agent gemini  # → GEMINI.md
 ```
 
 ### Context Management Strategies
 
 Claudius offers two ways to manage project context:
 
-1. **append-context**: Directly appends rules to CLAUDE.md/AGENTS.md
+1. **context append**: Directly appends rules to CLAUDE.md/AGENTS.md
    - Best for: Small number of rules, simple projects
    - Result: All content in one file
 
-2. **install-context**: Copies rules to `.agents/rules/` with reference directive
+2. **context install**: Copies rules to `.agents/rules/` with reference directive
    - Best for: Many rules, complex projects, team collaboration
    - Result: Compact context file + organized rule structure
 
@@ -424,7 +437,7 @@ export CLAUDIUS_SECRET_SERVER_URL='$CLAUDIUS_SECRET_PROTOCOL://$CLAUDIUS_SECRET_
 export CLAUDIUS_SECRET_API_ENDPOINT='$CLAUDIUS_SECRET_SERVER_URL/v2/production'
 
 # Run command - variables are expanded automatically
-claudius run -- echo $API_ENDPOINT
+claudius secrets run -- echo $API_ENDPOINT
 # Output: https://api.example.com:8443/v2/production
 ```
 
@@ -483,22 +496,22 @@ For coverage setup instructions, see CLAUDE.md.
 
 ```bash
 # Global configuration for all projects
-claudius sync --global
+claudius config sync --global
 
 # Project-specific configuration
 cd /path/to/project
-claudius sync  # Creates .mcp.json and .claude/settings.json
+claudius config sync  # Creates .mcp.json and .claude/settings.json
 
 # Project instructions
-claudius append-context project-rules
+claudius context append project-rules
 ```
 
 ### Multi-Agent Support
 
 ```bash
 # Configure for different AI agents
-claudius sync --agent codex   # Creates .codex/config.toml
-claudius sync --agent gemini  # Creates .gemini/settings.json
+claudius config sync --agent codex   # Creates .codex/config.toml
+claudius config sync --agent gemini  # Creates .gemini/settings.json
 
 # Set default agent in config.toml
 echo '[agent]
@@ -521,7 +534,7 @@ export CLAUDIUS_SECRET_BASE_URL="https://api.example.com/v1/{{op://vault/account
 export CLAUDIUS_SECRET_AUTH="Bearer {{op://vault/tokens/api}}"
 
 # Run command with resolved secrets
-claudius run -- ./my-app
+claudius secrets run -- ./my-app
 # API_KEY, DB_PASS, BASE_URL, and AUTH are available to my-app with resolved values
 ```
 
@@ -538,7 +551,7 @@ claudius run -- ./my-app
 2. **Team members clone and sync:**
    ```bash
    git clone team-configs ~/.config/claudius
-   claudius sync --global
+   claudius config sync --global
    ```
 
 ## Troubleshooting
@@ -549,7 +562,7 @@ claudius run -- ./my-app
 ls -la ~/.config/claudius/
 
 # Use custom path
-claudius sync --config /custom/path/mcpServers.json
+claudius config sync --config /custom/path/mcpServers.json
 ```
 
 ### Permission errors
@@ -559,7 +572,7 @@ ls -la ~/.claude.json
 ls -la ./.mcp.json
 
 # Use sudo if needed (not recommended)
-sudo claudius sync --global
+sudo claudius config sync --global
 ```
 
 ### JSON validation

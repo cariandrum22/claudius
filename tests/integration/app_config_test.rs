@@ -29,7 +29,7 @@ type = "1password"
         fs::write(config_dir.join("mcpServers.json"), mcp_content).unwrap();
 
         // Run the command with custom XDG_CONFIG_HOME
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("HOME", temp_dir.path().join("home"))
             // Clear any existing CLAUDIUS_SECRET_* env vars from the test environment
@@ -38,7 +38,7 @@ type = "1password"
             .env("HOME", temp_dir.path().join("home"))
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success().success();
@@ -69,12 +69,12 @@ type = "vault"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Set a secret env var
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("CLAUDIUS_SECRET_TEST", "test_value")
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success().stderr(predicate::str::contains(
@@ -100,11 +100,11 @@ type = "vault"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Run without config file
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success().success();
@@ -132,12 +132,12 @@ type = "vault"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Set a secret env var
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("CLAUDIUS_SECRET_TEST_KEY", "test_value")
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success().success();

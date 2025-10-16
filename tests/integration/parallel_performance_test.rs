@@ -46,8 +46,8 @@ type = "1password"
         // Run with profiling enabled
         let start = Instant::now();
 
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
-        cmd.arg("run")
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.args(["secrets", "run"])
             .arg("--")
             .arg("/usr/bin/env")
             .env("CLAUDIUS_TEST_MOCK_OP", "1")

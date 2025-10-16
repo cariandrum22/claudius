@@ -58,7 +58,7 @@ type = "1password"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Run claudius with the mock in PATH
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("CLAUDIUS_TEST_MOCK_OP", "1")
@@ -69,7 +69,7 @@ type = "1password"
             .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
             .env("CLAUDIUS_SECRET_DB_PASSWORD", "op://vault/database/password")
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success();
@@ -108,7 +108,7 @@ type = "1password"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Run claudius with an invalid reference
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("CLAUDIUS_TEST_MOCK_OP", "1")
@@ -117,7 +117,7 @@ type = "1password"
                 format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
             )
             .env("CLAUDIUS_SECRET_INVALID", "op://invalid/reference/field")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         // The command should succeed but keep the unresolved reference
@@ -169,7 +169,7 @@ type = "1password"
         fs::create_dir_all(&project_dir).unwrap();
 
         // Run claudius with mixed secret types
-        let mut cmd = Command::cargo_bin("claudius").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
             .env("CLAUDIUS_TEST_MOCK_OP", "1")
@@ -180,7 +180,7 @@ type = "1password"
             .env("CLAUDIUS_SECRET_OP_SECRET", "op://vault/test-item/api-key")
             .env("CLAUDIUS_SECRET_PLAIN_SECRET", "plain-text-value")
             .arg("--debug")
-            .arg("sync")
+            .args(["config", "sync"])
             .arg("--dry-run");
 
         cmd.assert().success().success();

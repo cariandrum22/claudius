@@ -280,7 +280,7 @@ fn init_context_files(
         }
 
         // Check if primary file has valid data and offer backup
-        if primary_exists {
+        if primary_exists && !force {
             let metadata = fs::metadata(&primary_path)?;
             let file_size = metadata.len();
 
