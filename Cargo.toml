@@ -34,11 +34,11 @@ default = []
 profiling = ["dep:pprof"]
 
 [dev-dependencies]
-assert_cmd = "2.0"
+assert_cmd = "2.1"
 assert_fs = "1.1"
 predicates = "3.1"
 pretty_assertions = "1.4"
-proptest = "1.8"
+proptest = "1.9"
 rstest = "0.26"
 serial_test = "3.0"
 
