@@ -44,8 +44,8 @@
         };
 
         # Use specific Rust version for reproducibility
-        # Note: Using 1.86.0 as the stable version in Nix
-        rustToolchain = pkgs.rust-bin.stable."1.86.0".default;
+        # Note: Using latest stable version (1.91.1)
+        rustToolchain = pkgs.rust-bin.stable."1.91.1".default;
 
         # Pre-commit hooks configuration
         # Note: Cargo-based hooks (rustfmt, clippy, audit, deny, machete) are disabled

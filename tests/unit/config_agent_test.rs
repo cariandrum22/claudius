@@ -10,17 +10,17 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg_original: Option<String>,
-        home_original: Option<String>,
-        dir_original: Option<std::path::PathBuf>,
+        xdg: Option<String>,
+        home: Option<String>,
+        dir: Option<std::path::PathBuf>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
-                home_original: std::env::var("HOME").ok(),
-                dir_original: std::env::current_dir().ok(),
+                xdg: std::env::var("XDG_CONFIG_HOME").ok(),
+                home: std::env::var("HOME").ok(),
+                dir: std::env::current_dir().ok(),
             }
         }
     }
@@ -28,17 +28,17 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg_original {
+            match &self.xdg {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
             // Restore HOME
-            match &self.home_original {
+            match &self.home {
                 Some(value) => std::env::set_var("HOME", value),
                 None => std::env::remove_var("HOME"),
             }
             // Restore current directory
-            if let Some(dir) = &self.dir_original {
+            if let Some(dir) = &self.dir {
                 let _ = std::env::set_current_dir(dir);
             }
         }

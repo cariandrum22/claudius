@@ -55,7 +55,7 @@ where
         .frequency(1000)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
         .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create profiler: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to create profiler: {e}"))?;
 
     let result = f();
 
