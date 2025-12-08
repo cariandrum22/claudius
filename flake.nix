@@ -342,16 +342,13 @@
               allowBuiltinFetchGit = true;
             };
 
-            buildInputs =
-              with pkgs;
-              [
-                pkg-config
-                openssl
-              ]
-              ++ lib.optionals stdenv.isDarwin [
-                darwin.apple_sdk.frameworks.Security
-                darwin.apple_sdk.frameworks.SystemConfiguration
-              ];
+            # Note: On Darwin, Security and SystemConfiguration frameworks are now
+            # provided automatically by the Darwin stdenv (nixpkgs 25.05+).
+            # See: https://discourse.nixos.org/t/the-darwin-sdks-have-been-updated/55295
+            buildInputs = with pkgs; [
+              pkg-config
+              openssl
+            ];
 
             nativeBuildInputs = [ pkgs.pkg-config ];
 
