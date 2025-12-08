@@ -74,12 +74,12 @@ impl VariableGraph {
     ) -> Result<()> {
         let dependents = adjacency_list
             .get_mut(dep)
-            .ok_or_else(|| anyhow!("dependency {} should exist in adjacency_list", dep))?;
+            .ok_or_else(|| anyhow!("dependency {dep} should exist in adjacency_list"))?;
         dependents.push(dependent.to_string());
 
         let degree = in_degree
             .get_mut(dependent)
-            .ok_or_else(|| anyhow!("node {} should exist in in_degree map", dependent))?;
+            .ok_or_else(|| anyhow!("node {dependent} should exist in in_degree map"))?;
         *degree = degree.saturating_add(1);
 
         Ok(())
@@ -133,7 +133,7 @@ impl VariableGraph {
 
             for dependent in dependents {
                 let degree = in_degree.get_mut(dependent).ok_or_else(|| {
-                    anyhow!("dependent {} should exist in in_degree map", dependent)
+                    anyhow!("dependent {dependent} should exist in in_degree map")
                 })?;
                 *degree = degree.saturating_sub(1);
 
@@ -147,8 +147,7 @@ impl VariableGraph {
         if sorted_order.len() != self.nodes.len() {
             let cycle_nodes = Self::find_cycle_nodes(&in_degree);
             return Err(anyhow!(
-                "Circular dependency detected involving variables: {:?}",
-                cycle_nodes
+                "Circular dependency detected involving variables: {cycle_nodes:?}"
             ));
         }
 
@@ -207,7 +206,7 @@ impl VariableGraph {
         let current_node = self
             .nodes
             .get(var_name)
-            .ok_or_else(|| anyhow!("Variable {} not found in graph", var_name))?
+            .ok_or_else(|| anyhow!("Variable {var_name} not found in graph"))?
             .clone();
 
         if current_node.resolved_value.is_some() {

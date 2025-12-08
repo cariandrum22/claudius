@@ -13,10 +13,10 @@ use std::path::Path;
 /// - Unable to parse the JSON content
 pub fn read_mcp_servers_config<P: AsRef<Path>>(path: P) -> anyhow::Result<McpServersConfig> {
     let content = fs::read_to_string(&path)
-        .map_err(|e| anyhow::anyhow!("Failed to read MCP servers config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read MCP servers config: {e}"))?;
 
     let config: McpServersConfig = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse MCP servers config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse MCP servers config: {e}"))?;
 
     Ok(config)
 }
@@ -37,10 +37,10 @@ pub fn read_claude_config<P: AsRef<Path>>(path: P) -> anyhow::Result<ClaudeConfi
     }
 
     let content = fs::read_to_string(path_ref)
-        .map_err(|e| anyhow::anyhow!("Failed to read claude.json: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read claude.json: {e}"))?;
 
     let config: ClaudeConfig = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse claude.json: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse claude.json: {e}"))?;
 
     Ok(config)
 }
@@ -61,10 +61,10 @@ pub fn read_settings<P: AsRef<Path>>(path: P) -> anyhow::Result<Option<Settings>
     }
 
     let content = fs::read_to_string(path_ref)
-        .map_err(|e| anyhow::anyhow!("Failed to read settings.json: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read settings.json: {e}"))?;
 
     let settings: Settings = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse settings.json: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse settings.json: {e}"))?;
 
     Ok(Some(settings))
 }
@@ -85,10 +85,10 @@ pub fn read_codex_settings<P: AsRef<Path>>(path: P) -> anyhow::Result<Option<Cod
     }
 
     let content = fs::read_to_string(path_ref)
-        .map_err(|e| anyhow::anyhow!("Failed to read codex settings TOML: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read codex settings TOML: {e}"))?;
 
     let settings: CodexSettings = toml::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse codex settings TOML: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse codex settings TOML: {e}"))?;
 
     Ok(Some(settings))
 }

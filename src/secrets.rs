@@ -411,7 +411,7 @@ impl SecretResolver {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("1Password CLI failed: {}", stderr);
+                anyhow::bail!("1Password CLI failed: {stderr}");
             }
 
             let resolved = String::from_utf8(output.stdout)
