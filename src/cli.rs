@@ -23,7 +23,10 @@ Configuration files are stored in:
 Target files:
   • ./.mcp.json (MCP servers in project-local mode, default)
   • ./.claude/settings.json (Settings in project-local mode)
-  • ~/.claude.json (everything in global mode with --global)
+  • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop global config)
+  • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
+  • ~/.codex/config.toml (Codex global config)
+  • ~/.gemini/settings.json (Gemini global config)
   • ./CLAUDE.md (project instructions)",
     version,
     author
@@ -101,7 +104,10 @@ This command:
        • ./.mcp.json for MCP servers
        • ./.claude/settings.json for settings
      - Global mode (--global):
-       • ~/claudius.json for everything
+       • Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
+       • Claude Code: ~/.claude.json + ~/.claude/settings.json
+       • Codex: ~/.codex/config.toml
+       • Gemini: ~/.gemini/settings.json
   4. Syncs custom commands from commands/ to ~/.claude/commands/
 
 Examples:
@@ -109,7 +115,10 @@ Examples:
   claudius config sync
 
   # Sync to global configuration
-  claudius config sync --global
+  claudius config sync --global --agent claude
+
+  # Sync Claude Code global configuration
+  claudius config sync --global --agent claude-code
 
   # Preview changes without writing
   claudius config sync --dry-run
@@ -267,16 +276,16 @@ pub struct ConfigSyncArgs {
     #[arg(short = 'T', long, env = "TARGET_CONFIG_PATH", value_hint = clap::ValueHint::FilePath)]
     pub target_config: Option<PathBuf>,
 
-    /// Target system-wide configuration (~/.claude.json) instead of project-local files
+    /// Target agent global configuration instead of project-local files
     #[arg(
         short,
         long,
-        help = "Target system-wide configuration (~/.claude.json) instead of project-local files (.mcp.json, .claude/settings.json)"
+        help = "Target agent global configuration instead of project-local files (.mcp.json, .claude/settings.json)"
     )]
     pub global: bool,
 
     /// Specify the agent to use (overrides config file)
-    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, or gemini")]
+    #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]
     pub agent: Option<crate::app_config::Agent>,
 }
 

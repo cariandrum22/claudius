@@ -137,8 +137,11 @@ claudius --list-commands
    # To project-local files (.mcp.json and .claude/settings.json)
    claudius config sync
    
-   # To global ~/.claude.json
-   claudius config sync --global
+   # To Claude Desktop global config
+   claudius config sync --global --agent claude
+
+   # To Claude Code global config
+   claudius config sync --global --agent claude-code
 
    # Sync only custom commands
    claudius commands sync
@@ -191,19 +194,16 @@ This creates:
 Synchronize all agent configurations to target files.
 
 **Project-local mode (default):**
-- MCP servers → `./.mcp.json`
-- Settings → `./.claude/settings.json`
-- Commands → `./.claude/commands/`
+- Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
+- Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
+- Gemini (`--agent gemini`): MCP servers → `./.mcp.json`, settings → `./gemini/settings.json`
 
 **Global mode (`--global`):**
-- Everything → `~/.claude.json`
-- Commands → `~/.claude/commands/`
-
-**Agent-specific modes:**
-- Claude (default): `.claude.json` or `.mcp.json`
-- Claude Code: `~/.claude/settings.json` + `~/.claude.json`/`.mcp.json`
-- Codex: `.codex/config.toml`
-- Gemini: `.gemini/settings.json`
+- Claude Desktop (`--agent claude`): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
+- Claude Code (`--agent claude-code`): MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`, commands → `~/.claude/commands/`
+- Codex (`--agent codex`): `~/.codex/config.toml`
+- Gemini (`--agent gemini`): MCP servers → `~/.claude.json`, settings → `~/.gemini/settings.json`
 
 ```bash
 # Basic sync to project-local files
@@ -571,7 +571,8 @@ claudius secrets run -- ./my-app
 2. **Team members clone and sync:**
    ```bash
    git clone team-configs ~/.config/claudius
-   claudius config sync --global
+   claudius config sync --global --agent claude
+   claudius config sync --global --agent claude-code
    ```
 
 ## Troubleshooting
@@ -587,8 +588,10 @@ claudius config sync --config /custom/path/mcpServers.json
 
 ### Permission errors
 ```bash
-# Check file permissions (example for Claude agent)
-ls -la ~/.claude.json
+# Check file permissions
+ls -la ~/.claude.json                    # Claude Code MCP servers
+ls -la ~/.claude/settings.json           # Claude Code settings
+ls -la "$XDG_CONFIG_HOME/Claude/claude_desktop_config.json"  # Claude Desktop
 ls -la ./.mcp.json
 
 # Use sudo if needed (not recommended)

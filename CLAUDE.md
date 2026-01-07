@@ -59,7 +59,7 @@ claudius context append security
 
 ### 2. Multi-Project Support
 - **Project-Local Configurations**: Each project can have its own `.mcp.json` and `.claude/settings.json`
-- **Global Configurations**: Maintain system-wide settings in `~/.claude.json`
+- **Global Configurations**: Maintain system-wide settings in the agent’s global config files (e.g. Claude Desktop: `claude_desktop_config.json`, Claude Code: `~/.claude.json` + `~/.claude/settings.json`)
 - **Configuration Separation**: MCP servers and settings are managed in separate files for project-local mode
 
 ### 3. Team Collaboration
@@ -92,14 +92,16 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 Project Directory (default):
 ├── .mcp.json                  # Project-local MCP servers configuration
 ├── .claude/
-│   ├── settings.json          # Project-local Claude settings
+│   ├── settings.json          # Project-local Claude Code settings (when using --agent claude-code)
 │   └── commands/              # Project-local slash commands
 └── CLAUDE.md                  # Project-specific instructions
 
-Home Directory (--global):
-├── .claude.json               # Global Claude configuration
-└── .claude/
-    └── commands/              # Global slash commands
+Global targets (--global):
+├── Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
+├── Claude Code: ~/.claude.json + ~/.claude/settings.json
+├── Codex: ~/.codex/config.toml
+├── Gemini: ~/.claude.json + ~/.gemini/settings.json
+└── Commands: ~/.claude/commands
 ```
 
 ### Data Flow
@@ -114,13 +116,10 @@ Home Directory (--global):
 ```
 
 **Global Mode (--global):**
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│ Config Sources  │────▶│    Claudius      │────▶│ ~/.claude.json  │
-│ • mcpServers    │     │ • Read configs   │     │ (all merged)    │
-│ • settings      │     │ • Merge data     │     │                 │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-```
+- Claude Desktop: MCP servers → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json`
+- Claude Code: MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
+- Codex: settings + MCP servers → `~/.codex/config.toml`
+- Gemini: MCP servers → `~/.claude.json`, settings → `~/.gemini/settings.json`
 
 ## Command Reference
 
@@ -158,21 +157,27 @@ Creates default:
 Synchronize configurations to target files.
 
 **Project-local mode (default):**
-- MCP servers → `./.mcp.json`
-- Settings → `./.claude/settings.json`
-- Commands → `./.claude/commands/`
+- Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
+- Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
+- Gemini (`--agent gemini`): MCP servers → `./.mcp.json`, settings → `./gemini/settings.json`
 
 **Global mode (--global):**
-- Claude (Desktop-style) → `~/.claude.json`
-- Claude Code-style → `~/.claude.json` + `~/.claude/settings.json`
+- Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
+- Claude Code (`--agent claude-code`) → `~/.claude.json` + `~/.claude/settings.json`
+- Codex (`--agent codex`) → `~/.codex/config.toml`
+- Gemini (`--agent gemini`) → `~/.claude.json` + `~/.gemini/settings.json`
 - Commands → `~/.claude/commands/`
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
 claudius config sync
 
-# Sync to global ~/.claude.json
-claudius config sync --global
+# Sync Claude Desktop global config
+claudius config sync --global --agent claude
+
+# Sync Claude Code global config
+claudius config sync --global --agent claude-code
 
 # Preview changes
 claudius config sync --dry-run
@@ -673,7 +678,7 @@ claudius/
 1. **Parallel Test Execution**: Some tests modify environment variables
    - Solution: Tests use `serial_test` crate for sequential execution
 
-2. **File Permissions**: .claude.json must be writable
+2. **File Permissions**: target config files must be writable (`~/.claude.json`, `~/.claude/settings.json`, and/or `claude_desktop_config.json`)
    - Solution: Check permissions before operations
 
 3. **JSON Formatting**: Order preservation using serde_json
