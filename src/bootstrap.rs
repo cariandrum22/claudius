@@ -66,7 +66,7 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 
 # [default]
 # Default settings that can be overridden by command-line arguments
-# agent = "claude"  # Options: "claude", "codex", "gemini"
+# agent = "claude"  # Options: "claude", "claude-code", "codex", "gemini"
 # context-file = "CONTEXT.md"  # Custom context file name (overrides agent defaults)
 
 # [secret-manager]

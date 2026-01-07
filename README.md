@@ -201,6 +201,7 @@ Synchronize all agent configurations to target files.
 
 **Agent-specific modes:**
 - Claude (default): `.claude.json` or `.mcp.json`
+- Claude Code: `~/.claude/settings.json` + `~/.claude.json`/`.mcp.json`
 - Codex: `.codex/config.toml`
 - Gemini: `.gemini/settings.json`
 
@@ -221,6 +222,7 @@ claudius config sync --backup
 claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
 
 # Use specific agent
+claudius config sync --agent claude-code
 claudius config sync --agent codex
 claudius config sync --agent gemini
 ```

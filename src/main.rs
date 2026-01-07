@@ -398,7 +398,9 @@ fn run_append_context(
 
 fn get_agent_context_filename(agent: claudius::app_config::Agent) -> String {
     match agent {
-        claudius::app_config::Agent::Claude => "CLAUDE.md".to_string(),
+        claudius::app_config::Agent::Claude | claudius::app_config::Agent::ClaudeCode => {
+            "CLAUDE.md".to_string()
+        },
         _ => "AGENTS.md".to_string(), // Codex and Gemini both use AGENTS.md
     }
 }
@@ -419,6 +421,7 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
         && options.agent_override.is_none()
         && options.config_path.is_none()
         && options.target_config_path.is_none()
+        && app_config.is_none_or(|cfg| cfg.default.is_none())
     {
         sync_all_available_agents(options, app_config)
     } else {
@@ -469,6 +472,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
     for agent in &available_agents {
         let agent_name = match agent {
             claudius::app_config::Agent::Claude => "Claude",
+            claudius::app_config::Agent::ClaudeCode => "Claude Code",
             claudius::app_config::Agent::Codex => "Codex",
             claudius::app_config::Agent::Gemini => "Gemini",
         };

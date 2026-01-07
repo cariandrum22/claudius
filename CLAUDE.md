@@ -163,7 +163,8 @@ Synchronize configurations to target files.
 - Commands → `./.claude/commands/`
 
 **Global mode (--global):**
-- Everything → `~/.claude.json`
+- Claude (Desktop-style) → `~/.claude.json`
+- Claude Code-style → `~/.claude.json` + `~/.claude/settings.json`
 - Commands → `~/.claude/commands/`
 
 ```bash
@@ -279,7 +280,7 @@ Claudius supports its own configuration file at `$XDG_CONFIG_HOME/claudius/confi
 ```toml
 # Default agent configuration (optional)
 [default]
-agent = "claude"  # or "codex" or "gemini"
+agent = "claude"  # or "claude-code" or "codex" or "gemini"
 context-file = "CLAUDE.md"  # optional custom filename
 
 # Secret Manager Configuration (optional)

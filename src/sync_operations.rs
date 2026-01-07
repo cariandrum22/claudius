@@ -4,6 +4,7 @@ use crate::app_config::{Agent, AppConfig};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
 use crate::commands;
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
+use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
 use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
@@ -39,6 +40,7 @@ pub struct AgentContext {
     pub is_codex: bool,
     pub is_gemini: bool,
     pub is_claude: bool,
+    pub is_claude_code: bool,
 }
 
 impl AgentContext {
@@ -46,9 +48,11 @@ impl AgentContext {
     pub const fn new(agent: Option<Agent>) -> Self {
         let is_codex = matches!(agent, Some(Agent::Codex));
         let is_gemini = matches!(agent, Some(Agent::Gemini));
-        let is_claude = matches!(agent, Some(Agent::Claude)) || agent.is_none();
+        let is_claude_code = matches!(agent, Some(Agent::ClaudeCode));
+        let is_claude =
+            matches!(agent, Some(Agent::Claude) | Some(Agent::ClaudeCode)) || agent.is_none();
 
-        Self { agent, is_codex, is_gemini, is_claude }
+        Self { agent, is_codex, is_gemini, is_claude, is_claude_code }
     }
 }
 
@@ -228,16 +232,20 @@ pub fn merge_all_configs(
     let new_count = claude_config.mcp_servers.as_ref().map_or(0, std::collections::HashMap::len);
     debug!("Merged configuration: {} -> {} server(s)", original_count, new_count);
 
-    // Merge settings for Claude in global mode
-    if global && agent_context.is_claude {
+    // Merge settings for Claude Desktop-style global config (single-file ~/.claude.json)
+    if global && agent_context.is_claude && !agent_context.is_claude_code {
         if let Some(ref settings) = read_result.settings {
             debug!("Merging settings");
             merge_settings(claude_config, settings)?;
             debug!("Settings merged successfully");
         }
     }
-    // For non-Claude in global mode (except Gemini), merge settings only
-    else if global && !agent_context.is_gemini && !agent_context.is_claude {
+    // For non-Claude in global mode (except Gemini/Codex/Claude Code), merge settings only
+    else if global
+        && !agent_context.is_gemini
+        && !agent_context.is_codex
+        && !agent_context.is_claude
+    {
         if let Some(ref settings) = read_result.settings {
             debug!("Merging settings");
             merge_settings(claude_config, settings)?;
@@ -554,7 +562,9 @@ fn write_global_configurations(
     read_result: &ReadConfigResult,
     agent_context: AgentContext,
 ) -> Result<()> {
-    if agent_context.is_gemini {
+    if agent_context.is_claude_code {
+        write_claude_code_global(claude_config, target_config_path, read_result.settings.as_ref())?;
+    } else if agent_context.is_gemini {
         write_gemini_global(claude_config, target_config_path, read_result.settings.as_ref())?;
     } else if agent_context.is_codex {
         write_codex_global(claude_config, target_config_path, read_result.codex_settings.as_ref())?;
@@ -564,6 +574,82 @@ fn write_global_configurations(
             .context("Failed to write Claude configuration")?;
     }
     Ok(())
+}
+
+/// Write Claude Code configuration in global mode
+fn write_claude_code_global(
+    claude_config: &ClaudeConfig,
+    target_config_path: &Path,
+    settings: Option<&Settings>,
+) -> Result<()> {
+    let claude_settings_path = directories::BaseDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+        .home_dir()
+        .join(".claude")
+        .join("settings.json");
+
+    let existing_settings = reader::read_settings(&claude_settings_path)
+        .context("Failed to read existing Claude Code settings")?;
+
+    let settings_to_write = if let Some(mut existing) = existing_settings {
+        if let Some(source) = settings {
+            merge_claude_code_settings(&mut existing, source);
+        }
+        existing.mcp_servers = None;
+        existing
+    } else if let Some(source) = settings {
+        let mut cloned = source.clone();
+        cloned.mcp_servers = None;
+        cloned
+    } else {
+        Settings {
+            api_key_helper: None,
+            cleanup_period_days: None,
+            env: None,
+            include_co_authored_by: None,
+            permissions: None,
+            preferred_notif_channel: None,
+            mcp_servers: None,
+            extra: HashMap::new(),
+        }
+    };
+
+    info!("Writing MCP servers to {}", target_config_path.display());
+    writer::write_claude_config(target_config_path, claude_config)
+        .context("Failed to write ~/.claude.json")?;
+
+    info!("Writing settings to {}", claude_settings_path.display());
+    if let Some(parent) = claude_settings_path.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create ~/.claude directory")?;
+    }
+    writer::write_settings(&claude_settings_path, &settings_to_write)
+        .context("Failed to write ~/.claude/settings.json")?;
+
+    Ok(())
+}
+
+/// Merge Claude Code settings (field by field merge)
+fn merge_claude_code_settings(target: &mut Settings, source: &Settings) {
+    if source.api_key_helper.is_some() {
+        target.api_key_helper.clone_from(&source.api_key_helper);
+    }
+    if source.cleanup_period_days.is_some() {
+        target.cleanup_period_days = source.cleanup_period_days;
+    }
+    if source.env.is_some() {
+        target.env.clone_from(&source.env);
+    }
+    if source.include_co_authored_by.is_some() {
+        target.include_co_authored_by = source.include_co_authored_by;
+    }
+    if source.permissions.is_some() {
+        target.permissions.clone_from(&source.permissions);
+    }
+    if source.preferred_notif_channel.is_some() {
+        target.preferred_notif_channel.clone_from(&source.preferred_notif_channel);
+    }
+
+    deep_merge_json_maps(&mut target.extra, &source.extra);
 }
 
 /// Write Codex configuration in global mode
@@ -665,6 +751,9 @@ fn write_gemini_global(
         }
     };
 
+    let mut settings_to_write = settings_to_write;
+    settings_to_write.mcp_servers = None;
+
     // Write MCP servers to target configuration
     info!("Writing MCP servers to target configuration");
     writer::write_claude_config(target_config_path, claude_config)
@@ -703,6 +792,8 @@ fn merge_gemini_settings(target: &mut Settings, source: &Settings) {
         target.preferred_notif_channel.clone_from(&source.preferred_notif_channel);
     }
     // Note: MCP servers are handled separately in target configuration
+
+    deep_merge_json_maps(&mut target.extra, &source.extra);
 }
 
 /// Write configurations in project-local mode
@@ -754,12 +845,30 @@ fn write_claude_project_local(
                 || settings_to_write.env.is_some()
                 || settings_to_write.include_co_authored_by.is_some()
                 || settings_to_write.permissions.is_some()
-                || settings_to_write.preferred_notif_channel.is_some();
+                || settings_to_write.preferred_notif_channel.is_some()
+                || !settings_to_write.extra.is_empty();
 
             if has_settings {
+                let existing_settings = reader::read_settings(settings_path)
+                    .context("Failed to read existing .claude/settings.json")?;
+
+                let mut merged_settings = existing_settings.unwrap_or_else(|| Settings {
+                    api_key_helper: None,
+                    cleanup_period_days: None,
+                    env: None,
+                    include_co_authored_by: None,
+                    permissions: None,
+                    preferred_notif_channel: None,
+                    mcp_servers: None,
+                    extra: HashMap::new(),
+                });
+
+                merge_claude_code_settings(&mut merged_settings, &settings_to_write);
+                merged_settings.mcp_servers = None;
+
                 info!("Writing settings to .claude/settings.json");
                 ensure_parent_directory_exists(settings_path)?;
-                writer::write_settings(settings_path, &settings_to_write)
+                writer::write_settings(settings_path, &merged_settings)
                     .context("Failed to write .claude/settings.json")?;
             }
         }

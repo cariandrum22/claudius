@@ -201,6 +201,36 @@ agent = "codex"
 
     #[test]
     #[serial]
+    fn test_load_config_with_claude_code_agent() {
+        let _guard = EnvGuard::new();
+
+        // Set XDG_CONFIG_HOME to a temp directory
+        let temp_dir = TempDir::new().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        // Create config directory and file
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_content = r#"
+[default]
+agent = "claude-code"
+"#;
+
+        fs::write(config_dir.join("config.toml"), config_content).unwrap();
+
+        let result = AppConfig::load().unwrap();
+        assert!(result.is_some());
+
+        let config = result.unwrap();
+        assert!(config.default.is_some());
+
+        let default_config = config.default.unwrap();
+        assert_eq!(default_config.agent, Agent::ClaudeCode);
+    }
+
+    #[test]
+    #[serial]
     fn test_load_config_with_gemini_agent() {
         let _guard = EnvGuard::new();
 

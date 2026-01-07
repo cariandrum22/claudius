@@ -24,6 +24,7 @@ pub struct DefaultConfig {
 #[serde(rename_all = "kebab-case")]
 pub enum Agent {
     Claude,
+    ClaudeCode,
     Codex,
     Gemini,
 }
@@ -98,6 +99,10 @@ mod tests {
             "\"claude\""
         );
         assert_eq!(
+            serde_json::to_string(&Agent::ClaudeCode).expect("Failed to serialize Agent::ClaudeCode"),
+            "\"claude-code\""
+        );
+        assert_eq!(
             serde_json::to_string(&Agent::Codex).expect("Failed to serialize Agent::Codex"),
             "\"codex\""
         );
@@ -113,6 +118,11 @@ mod tests {
             serde_json::from_str::<Agent>("\"claude\"")
                 .expect("Failed to deserialize Agent::Claude"),
             Agent::Claude
+        );
+        assert_eq!(
+            serde_json::from_str::<Agent>("\"claude-code\"")
+                .expect("Failed to deserialize Agent::ClaudeCode"),
+            Agent::ClaudeCode
         );
         assert_eq!(
             serde_json::from_str::<Agent>("\"codex\"").expect("Failed to deserialize Agent::Codex"),
