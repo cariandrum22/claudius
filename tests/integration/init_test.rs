@@ -8,15 +8,53 @@ use std::fs;
 mod tests {
     use super::*;
 
+    /// Helper to save and restore environment variables
+    struct EnvGuard {
+        xdg_original: Option<String>,
+        home_original: Option<String>,
+        dir_original: Option<std::path::PathBuf>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            Self {
+                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
+                home_original: std::env::var("HOME").ok(),
+                dir_original: std::env::current_dir().ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.xdg_original {
+                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+
+            match &self.home_original {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+
+            if let Some(dir) = &self.dir_original {
+                let _ = std::env::set_current_dir(dir);
+            }
+        }
+    }
+
     #[test]
     #[serial]
     fn test_init_command_creates_files() {
+        let _env_guard = EnvGuard::new();
+
         let fixture = TestFixture::new().unwrap();
-        fixture.setup_env();
 
         // Run config init command
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.env("XDG_CONFIG_HOME", fixture.config_home())
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
             .args(["config", "init"])
             .assert()
             .success()
@@ -42,8 +80,9 @@ mod tests {
     #[test]
     #[serial]
     fn test_init_command_preserves_existing() {
+        let _env_guard = EnvGuard::new();
+
         let fixture = TestFixture::new().unwrap();
-        fixture.setup_env();
 
         // Create existing file with custom content
         let existing_content = r#"{"mcpServers": {"existing": {"command": "test"}}}"#;
@@ -51,7 +90,9 @@ mod tests {
 
         // Run init without force
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.env("XDG_CONFIG_HOME", fixture.config_home())
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
             .args(["config", "init"])
             .assert()
             .success()
@@ -65,8 +106,9 @@ mod tests {
     #[test]
     #[serial]
     fn test_init_command_force_overwrites() {
+        let _env_guard = EnvGuard::new();
+
         let fixture = TestFixture::new().unwrap();
-        fixture.setup_env();
 
         // Create existing file
         let existing_content = r#"{"mcpServers": {"existing": {"command": "test"}}}"#;
@@ -74,7 +116,9 @@ mod tests {
 
         // Run init with force
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.env("XDG_CONFIG_HOME", fixture.config_home())
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
             .args(["config", "init"])
             .arg("--force")
             .assert()
