@@ -3,6 +3,7 @@ use claudius::{
     codex_settings::{convert_mcp_to_toml, validate_codex_settings, CodexSettings},
     config::{reader, writer, McpServerConfig},
 };
+use serde_json::Value as JsonValue;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::fs;
@@ -170,11 +171,35 @@ env_key = "OPENAI_API_KEY"
             },
         );
 
+        let mut remote_extra = HashMap::new();
+        remote_extra.insert(
+            "bearer_token_env_var".to_string(),
+            JsonValue::String("CODEX_MCP_TOKEN".to_string()),
+        );
+        remote_extra.insert("enabled".to_string(), JsonValue::Bool(false));
+
+        let mut remote_headers = HashMap::new();
+        remote_headers.insert("X-Test".to_string(), "value".to_string());
+
+        mcp_servers.insert(
+            "remote".to_string(),
+            McpServerConfig {
+                command: None,
+                args: vec![],
+                env: HashMap::new(),
+                server_type: Some("streamable_http".to_string()),
+                url: Some("https://example.com/mcp".to_string()),
+                headers: remote_headers,
+                extra: remote_extra,
+            },
+        );
+
         let toml_servers = convert_mcp_to_toml(&mcp_servers);
 
-        anyhow::ensure!(toml_servers.len() == 2, "Expected 2 servers");
+        anyhow::ensure!(toml_servers.len() == 3, "Expected 3 servers");
         anyhow::ensure!(toml_servers.contains_key("filesystem"), "filesystem server not found");
         anyhow::ensure!(toml_servers.contains_key("github"), "github server not found");
+        anyhow::ensure!(toml_servers.contains_key("remote"), "remote server not found");
 
         // Check filesystem server
         if let Some(TomlValue::Table(fs_table)) = toml_servers.get("filesystem") {
@@ -200,6 +225,45 @@ env_key = "OPENAI_API_KEY"
             }
         } else {
             anyhow::bail!("Expected filesystem to be a table");
+        }
+
+        // Check remote server (streamable_http)
+        if let Some(TomlValue::Table(remote_table)) = toml_servers.get("remote") {
+            anyhow::ensure!(
+                remote_table.get("url")
+                    == Some(&TomlValue::String("https://example.com/mcp".to_string())),
+                "URL mismatch"
+            );
+
+            anyhow::ensure!(
+                remote_table.get("bearer_token_env_var")
+                    == Some(&TomlValue::String("CODEX_MCP_TOKEN".to_string())),
+                "Bearer token env var mismatch"
+            );
+
+            if let Some(TomlValue::Table(headers_table)) = remote_table.get("http_headers") {
+                anyhow::ensure!(
+                    headers_table.get("X-Test") == Some(&TomlValue::String("value".to_string())),
+                    "X-Test header mismatch"
+                );
+            } else {
+                anyhow::bail!("Expected http_headers to be a table");
+            }
+
+            anyhow::ensure!(
+                remote_table.get("enabled") == Some(&TomlValue::Boolean(false)),
+                "enabled mismatch"
+            );
+
+            anyhow::ensure!(remote_table.get("env").is_none(), "env must not be set for remote");
+            anyhow::ensure!(
+                remote_table.get("command").is_none(),
+                "command must not be set for remote"
+            );
+            anyhow::ensure!(remote_table.get("args").is_none(), "args must not be set for remote");
+            anyhow::ensure!(remote_table.get("cwd").is_none(), "cwd must not be set for remote");
+        } else {
+            anyhow::bail!("Expected remote to be a table");
         }
 
         Ok(())

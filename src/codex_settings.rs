@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use toml::Value as TomlValue;
 
@@ -196,6 +197,11 @@ pub const KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS: &[&str] = &[
 
 pub const KNOWN_HISTORY_FIELDS: &[&str] = &["persistence", "max_bytes"];
 
+const CODEX_MCP_STDIO_UNSUPPORTED_FIELDS: &[&str] =
+    &["url", "bearer_token_env_var", "http_headers", "env_http_headers"];
+
+const CODEX_MCP_STREAMABLE_HTTP_UNSUPPORTED_FIELDS: &[&str] = &["command", "args", "env", "cwd"];
+
 /// Validates Codex TOML settings and returns warnings for unknown fields
 #[must_use]
 pub fn validate_codex_settings(toml_value: &TomlValue) -> Vec<String> {
@@ -281,6 +287,42 @@ fn validate_simple_table(
     }
 }
 
+fn json_to_toml_value(value: &JsonValue) -> Option<TomlValue> {
+    match value {
+        JsonValue::Null => None,
+        JsonValue::Bool(b) => Some(TomlValue::Boolean(*b)),
+        JsonValue::Number(number) => number
+            .as_i64()
+            .map(TomlValue::Integer)
+            .or_else(|| number.as_u64().and_then(|n| i64::try_from(n).ok()).map(TomlValue::Integer))
+            .or_else(|| number.as_f64().map(TomlValue::Float)),
+        JsonValue::String(s) => Some(TomlValue::String(s.clone())),
+        JsonValue::Array(array) => {
+            Some(TomlValue::Array(array.iter().filter_map(json_to_toml_value).collect()))
+        },
+        JsonValue::Object(object) => Some(TomlValue::Table(
+            object
+                .iter()
+                .filter_map(|(k, v)| json_to_toml_value(v).map(|tv| (k.clone(), tv)))
+                .collect(),
+        )),
+    }
+}
+
+fn extend_toml_table_with_json_extra(
+    table: &mut toml::map::Map<String, TomlValue>,
+    extra: &HashMap<String, JsonValue>,
+    unsupported_fields: &[&str],
+) {
+    extra
+        .iter()
+        .filter(|(key, _)| !unsupported_fields.contains(&key.as_str()))
+        .filter_map(|(key, value)| json_to_toml_value(value).map(|tv| (key.clone(), tv)))
+        .for_each(|(key, value)| {
+            table.insert(key, value);
+        });
+}
+
 /// Convert MCP server configuration from JSON to TOML format
 pub fn convert_mcp_to_toml<S: std::hash::BuildHasher>(
     mcp_servers: &HashMap<String, crate::config::McpServerConfig, S>,
@@ -288,26 +330,48 @@ pub fn convert_mcp_to_toml<S: std::hash::BuildHasher>(
     let mut toml_servers = HashMap::new();
 
     for (name, server) in mcp_servers {
-        let Some(command) = server.command.as_ref() else {
-            continue;
-        };
-
         let mut server_table = toml::map::Map::new();
 
-        server_table.insert("command".to_string(), TomlValue::String(command.clone()));
+        if let Some(url) = server.url.as_ref() {
+            server_table.insert("url".to_string(), TomlValue::String(url.clone()));
 
-        if !server.args.is_empty() {
-            let args: Vec<TomlValue> =
-                server.args.iter().map(|arg| TomlValue::String(arg.clone())).collect();
-            server_table.insert("args".to_string(), TomlValue::Array(args));
-        }
-
-        if !server.env.is_empty() {
-            let mut env_table = toml::map::Map::new();
-            for (k, v) in &server.env {
-                env_table.insert(k.clone(), TomlValue::String(v.clone()));
+            if !server.headers.is_empty() {
+                let mut headers_table = toml::map::Map::new();
+                for (k, v) in &server.headers {
+                    headers_table.insert(k.clone(), TomlValue::String(v.clone()));
+                }
+                server_table.insert("http_headers".to_string(), TomlValue::Table(headers_table));
             }
-            server_table.insert("env".to_string(), TomlValue::Table(env_table));
+
+            extend_toml_table_with_json_extra(
+                &mut server_table,
+                &server.extra,
+                CODEX_MCP_STREAMABLE_HTTP_UNSUPPORTED_FIELDS,
+            );
+        } else if let Some(command) = server.command.as_ref() {
+            server_table.insert("command".to_string(), TomlValue::String(command.clone()));
+
+            if !server.args.is_empty() {
+                let args: Vec<TomlValue> =
+                    server.args.iter().map(|arg| TomlValue::String(arg.clone())).collect();
+                server_table.insert("args".to_string(), TomlValue::Array(args));
+            }
+
+            if !server.env.is_empty() {
+                let mut env_table = toml::map::Map::new();
+                for (k, v) in &server.env {
+                    env_table.insert(k.clone(), TomlValue::String(v.clone()));
+                }
+                server_table.insert("env".to_string(), TomlValue::Table(env_table));
+            }
+
+            extend_toml_table_with_json_extra(
+                &mut server_table,
+                &server.extra,
+                CODEX_MCP_STDIO_UNSUPPORTED_FIELDS,
+            );
+        } else {
+            continue;
         }
 
         toml_servers.insert(name.clone(), TomlValue::Table(server_table));
