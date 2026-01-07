@@ -163,12 +163,16 @@ mod tests {
     fn create_test_codex_settings() -> CodexSettings {
         CodexSettings {
             model: Some("claude-3".to_string()),
+            review_model: None,
             model_provider: Some("anthropic".to_string()),
+            model_context_window: None,
             approval_policy: Some("manual".to_string()),
             disable_response_storage: Some(true),
             notify: Some(vec!["slack".to_string()]),
             model_providers: None,
             shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
             sandbox: None,
             history: None,
             mcp_servers: None,

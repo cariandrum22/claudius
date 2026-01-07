@@ -108,46 +108,64 @@ const DEFAULT_GEMINI_SETTINGS: &str = r#"{
 const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
 # Configure your Codex CLI settings here
 
-# The default model to use (e.g., "openai/gpt-4", "anthropic/claude-3-5-sonnet-20241022")
-# model = "openai/gpt-4"
+# This file mirrors Codex CLI's `config.toml` schema.
+# See the configuration reference for the latest options:
+# https://developers.openai.com/codex/config-reference
+
+# Model selection (examples: "gpt-5-codex", "openai/gpt-4.1", "anthropic/claude-3-5-sonnet")
+# model = "gpt-5-codex"
+# review_model = "gpt-5-codex"
 
 # The model provider to use if not specified in the model name
 # model_provider = "openai"
 
-# Approval policy for commands: "none", "required", or custom script path
-# approval_policy = "none"
-
-# Whether to disable response storage
-# disable_response_storage = false
+# Approval policy for running commands:
+# - "untrusted" | "on-failure" | "on-request" | "never"
+# approval_policy = "on-request"
 
 # List of notification channels
 # notify = ["desktop", "sound"]
 
 # Model provider configurations
 # [model_providers.openai]
+# name = "OpenAI"
 # base_url = "https://api.openai.com"
-# api_key_env = "OPENAI_API_KEY"
+# env_key = "OPENAI_API_KEY"
 
 # [model_providers.anthropic]
+# name = "Anthropic"
 # base_url = "https://api.anthropic.com"
-# api_key_env = "ANTHROPIC_API_KEY"
+# env_key = "ANTHROPIC_API_KEY"
+
+# Example custom headers
+# [model_providers.openai.http_headers]
+# X-Custom-Header = "custom-value"
+
+# Example header values sourced from environment variables
+# [model_providers.openai.env_http_headers]
+# Authorization = "OPENAI_AUTH_HEADER"
 
 # Shell environment policy
 # [shell_environment_policy]
-# inherit = "all"  # Options: "all", "none", "login"
+# inherit = "all"  # Options: "core", "all", "none"
 # ignore_default_excludes = false
 # exclude = ["SECRET_*", "PASSWORD_*"]
 # set = { TERM = "xterm-256color" }
+# experimental_use_profile = false
 
 # Sandbox configuration
-# [sandbox]
-# mode = "none"  # Options: "none", "docker", "firejail"
+# sandbox_mode = "workspace-write"  # "read-only" | "workspace-write" | "danger-full-access"
+#
+# [sandbox_workspace_write]
 # writable_roots = ["/tmp", "/var/tmp"]
-# network_access = true
+# network_access = false
+# exclude_tmpdir_env_var = false
+# exclude_slash_tmp = false
 
 # History configuration
 # [history]
-# persistence = "disk"  # Options: "disk", "memory", "none"
+# persistence = "save-all"  # "save-all" | "none"
+# max_bytes = 10485760  # optional limit for ~/.codex/history.jsonl
 
 # MCP servers will be merged from mcpServers.json
 "#;

@@ -7,12 +7,12 @@ notify = ["desktop"]
 
 [model_providers.openai]
 base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
+env_key = "OPENAI_API_KEY"
 
 [model_providers.anthropic]
 base_url = "https://api.anthropic.com"
-api_key_env = "ANTHROPIC_API_KEY"
-headers = { "X-Custom-Header" = "value" }
+env_key = "ANTHROPIC_API_KEY"
+http_headers = { "X-Custom-Header" = "value" }
 
 [shell_environment_policy]
 inherit = "all"
@@ -20,13 +20,16 @@ ignore_default_excludes = false
 exclude = ["SECRET_*", "PASSWORD_*"]
 set = { TERM = "xterm-256color", LANG = "en_US.UTF-8" }
 
-[sandbox]
-mode = "docker"
+[sandbox_workspace_write]
 writable_roots = ["/tmp", "/var/tmp"]
 network_access = true
+exclude_tmpdir_env_var = false
+exclude_slash_tmp = false
+
+sandbox_mode = "workspace-write"
 
 [history]
-persistence = "disk"
+persistence = "save-all"
 
 # Extra unknown field for testing
 unknown_field = "should trigger warning"

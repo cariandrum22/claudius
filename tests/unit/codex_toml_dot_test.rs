@@ -32,12 +32,16 @@ fn test_mcp_server_name_with_dots_in_toml() {
     // Create CodexSettings with the MCP servers
     let settings = CodexSettings {
         model: Some("claude-3".to_string()),
+        review_model: None,
         model_provider: None,
+        model_context_window: None,
         approval_policy: None,
         disable_response_storage: None,
         notify: None,
         model_providers: None,
         shell_environment_policy: None,
+        sandbox_mode: None,
+        sandbox_workspace_write: None,
         sandbox: None,
         history: None,
         mcp_servers: Some(toml_servers),
@@ -136,12 +140,16 @@ fn test_mcp_server_rename_with_underscores() {
 
     let settings = CodexSettings {
         model: None,
+        review_model: None,
         model_provider: None,
+        model_context_window: None,
         approval_policy: None,
         disable_response_storage: None,
         notify: None,
         model_providers: None,
         shell_environment_policy: None,
+        sandbox_mode: None,
+        sandbox_workspace_write: None,
         sandbox: None,
         history: None,
         mcp_servers: Some(toml_servers),

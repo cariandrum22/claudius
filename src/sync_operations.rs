@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use crate::app_config::{Agent, AppConfig};
-use crate::codex_settings::{convert_mcp_to_toml, CodexSettings};
+use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
 use crate::commands;
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
@@ -9,6 +9,7 @@ use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use toml::Value as TomlValue;
 use tracing::{debug, info, warn};
 
 /// Configuration for sync operation
@@ -310,7 +311,7 @@ fn print_codex_dry_run(
     claude_config: &ClaudeConfig,
     codex_settings: Option<&CodexSettings>,
 ) -> Result<()> {
-    let settings_location = ".claude/settings.toml";
+    let settings_location = ".codex/config.toml";
     println!("\n--- Settings with MCP servers ({settings_location}) ---");
 
     if let Some(mut codex_settings_copy) = codex_settings.cloned() {
@@ -368,8 +369,14 @@ fn merge_codex_settings(target: &mut CodexSettings, source: &CodexSettings) {
     if source.model.is_some() {
         target.model.clone_from(&source.model);
     }
+    if source.review_model.is_some() {
+        target.review_model.clone_from(&source.review_model);
+    }
     if source.model_provider.is_some() {
         target.model_provider.clone_from(&source.model_provider);
+    }
+    if source.model_context_window.is_some() {
+        target.model_context_window = source.model_context_window;
     }
     if source.approval_policy.is_some() {
         target.approval_policy.clone_from(&source.approval_policy);
@@ -381,10 +388,31 @@ fn merge_codex_settings(target: &mut CodexSettings, source: &CodexSettings) {
         target.notify.clone_from(&source.notify);
     }
     if source.model_providers.is_some() {
-        target.model_providers.clone_from(&source.model_providers);
+        let mut merged_providers = target.model_providers.take().unwrap_or_default();
+
+        if let Some(source_providers) = source.model_providers.as_ref() {
+            for (name, provider) in source_providers {
+                match merged_providers.get_mut(name) {
+                    Some(existing_provider) => {
+                        merge_model_provider(existing_provider, provider);
+                    },
+                    None => {
+                        merged_providers.insert(name.clone(), provider.clone());
+                    },
+                }
+            }
+        }
+
+        target.model_providers = Some(merged_providers);
     }
     if source.shell_environment_policy.is_some() {
         target.shell_environment_policy.clone_from(&source.shell_environment_policy);
+    }
+    if source.sandbox_mode.is_some() {
+        target.sandbox_mode.clone_from(&source.sandbox_mode);
+    }
+    if source.sandbox_workspace_write.is_some() {
+        target.sandbox_workspace_write.clone_from(&source.sandbox_workspace_write);
     }
     if source.sandbox.is_some() {
         target.sandbox.clone_from(&source.sandbox);
@@ -393,22 +421,87 @@ fn merge_codex_settings(target: &mut CodexSettings, source: &CodexSettings) {
         target.history.clone_from(&source.history);
     }
     // Note: mcp_servers are handled separately in the calling function
-    // Merge extra fields
+    // Merge extra fields (deep-merge tables to avoid dropping unknown nested keys)
     for (key, value) in &source.extra {
-        target.extra.insert(key.clone(), value.clone());
+        match target.extra.get_mut(key) {
+            Some(existing_value) => {
+                deep_merge_toml_value(existing_value, value);
+            },
+            None => {
+                target.extra.insert(key.clone(), value.clone());
+            },
+        }
     }
+}
+
+fn merge_model_provider(target: &mut ModelProvider, source: &ModelProvider) {
+    if source.name.is_some() {
+        target.name.clone_from(&source.name);
+    }
+
+    if source.base_url.is_some() {
+        target.base_url.clone_from(&source.base_url);
+    }
+
+    if source.env_key.is_some() {
+        target.env_key.clone_from(&source.env_key);
+    }
+
+    if let Some(source_headers) = source.http_headers.as_ref() {
+        let mut merged_headers = target.http_headers.take().unwrap_or_default();
+
+        for (key, value) in source_headers {
+            merged_headers.insert(key.clone(), value.clone());
+        }
+
+        target.http_headers = Some(merged_headers);
+    }
+
+    if let Some(source_headers) = source.env_http_headers.as_ref() {
+        let mut merged_headers = target.env_http_headers.take().unwrap_or_default();
+
+        for (key, value) in source_headers {
+            merged_headers.insert(key.clone(), value.clone());
+        }
+
+        target.env_http_headers = Some(merged_headers);
+    }
+
+    if let Some(source_query_params) = source.query_params.as_ref() {
+        let mut merged_query_params = target.query_params.take().unwrap_or_default();
+
+        for (key, value) in source_query_params {
+            merged_query_params.insert(key.clone(), value.clone());
+        }
+
+        target.query_params = Some(merged_query_params);
+    }
+
+    if source.wire_api.is_some() {
+        target.wire_api.clone_from(&source.wire_api);
+    }
+
+    if source.requires_openai_auth.is_some() {
+        target.requires_openai_auth = source.requires_openai_auth;
+    }
+
+    deep_merge_toml_maps(&mut target.extra, &source.extra);
 }
 
 /// Create a new `CodexSettings` struct with MCP servers
 fn create_codex_settings_with_mcp_servers(claude_config: &ClaudeConfig) -> CodexSettings {
     let mut codex_settings = CodexSettings {
         model: None,
+        review_model: None,
         model_provider: None,
+        model_context_window: None,
         approval_policy: None,
         disable_response_storage: None,
         notify: None,
         model_providers: None,
         shell_environment_policy: None,
+        sandbox_mode: None,
+        sandbox_workspace_write: None,
         sandbox: None,
         history: None,
         mcp_servers: None,
@@ -500,20 +593,21 @@ fn write_codex_global(
         merge_codex_settings(&mut codex_to_write, source_settings);
     }
 
-    // Merge MCP servers - combine existing and new servers
-    if let Some(ref new_mcp_servers) = claude_config.mcp_servers {
-        let new_toml_servers = convert_mcp_to_toml(new_mcp_servers);
+    // Merge MCP servers from (existing target) + (source settings) + (mcpServers.json)
+    let mut merged_mcp_servers = codex_to_write.mcp_servers.take().unwrap_or_default();
 
-        if let Some(existing_mcp) = codex_to_write.mcp_servers.as_mut() {
-            // Merge new servers into existing ones
-            for (name, server) in new_toml_servers {
-                existing_mcp.insert(name, server);
-            }
-        } else {
-            // No existing servers, just use new ones
-            codex_to_write.mcp_servers = Some(new_toml_servers);
+    if let Some(source_settings) = codex_settings {
+        if let Some(source_mcp_servers) = source_settings.mcp_servers.as_ref() {
+            deep_merge_toml_maps(&mut merged_mcp_servers, source_mcp_servers);
         }
     }
+
+    if let Some(ref new_mcp_servers) = claude_config.mcp_servers {
+        let new_toml_servers = convert_mcp_to_toml(new_mcp_servers);
+        deep_merge_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
+    }
+
+    codex_to_write.mcp_servers = (!merged_mcp_servers.is_empty()).then_some(merged_mcp_servers);
 
     info!("Writing settings to ~/.codex/config.toml");
 
@@ -683,7 +777,10 @@ fn write_codex_project_local(
         .map_or_else(|| create_codex_settings_with_mcp_servers(claude_config), Clone::clone);
 
     if let Some(ref mcp_servers) = claude_config.mcp_servers {
-        codex_to_write.mcp_servers = Some(convert_mcp_to_toml(mcp_servers));
+        let new_toml_servers = convert_mcp_to_toml(mcp_servers);
+        let mut merged_mcp_servers = codex_to_write.mcp_servers.take().unwrap_or_default();
+        deep_merge_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
+        codex_to_write.mcp_servers = (!merged_mcp_servers.is_empty()).then_some(merged_mcp_servers);
     }
 
     if let Some(ref settings_path) = config.project_settings_path {
@@ -727,6 +824,35 @@ fn ensure_parent_directory_exists(path: &Path) -> Result<()> {
         std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
     }
     Ok(())
+}
+
+fn deep_merge_toml_maps(target: &mut HashMap<String, TomlValue>, overlay: &HashMap<String, TomlValue>) {
+    for (key, value) in overlay {
+        match target.get_mut(key) {
+            Some(existing) => deep_merge_toml_value(existing, value),
+            None => {
+                target.insert(key.clone(), value.clone());
+            },
+        }
+    }
+}
+
+fn deep_merge_toml_value(target: &mut TomlValue, overlay: &TomlValue) {
+    match (target, overlay) {
+        (TomlValue::Table(target_table), TomlValue::Table(overlay_table)) => {
+            for (key, overlay_value) in overlay_table {
+                match target_table.get_mut(key) {
+                    Some(existing_value) => deep_merge_toml_value(existing_value, overlay_value),
+                    None => {
+                        target_table.insert(key.clone(), overlay_value.clone());
+                    },
+                }
+            }
+        },
+        (target_value, overlay_value) => {
+            *target_value = overlay_value.clone();
+        },
+    }
 }
 
 /// Sync custom commands

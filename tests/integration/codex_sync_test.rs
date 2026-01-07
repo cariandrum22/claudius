@@ -82,14 +82,15 @@ mod tests {
 model_provider = "openai"
 approval_policy = "none"
 
-[model_providers.openai]
-base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
+	[model_providers.openai]
+	base_url = "https://api.openai.com"
+	env_key = "OPENAI_API_KEY"
 
-[sandbox]
-mode = "docker"
-network_access = true
-"#;
+	sandbox_mode = "workspace-write"
+
+	[sandbox_workspace_write]
+	network_access = true
+	"#;
         fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
 
         // Create app config with Codex as default
@@ -164,9 +165,9 @@ agent = "codex"
 
         // Create Codex TOML settings
         let codex_settings_content = r#"model = "anthropic/claude-3"
-disable_response_storage = true
-notify = ["desktop", "sound"]
-"#;
+	check_for_update_on_startup = false
+	notify = ["desktop", "sound"]
+	"#;
         fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
 
         // Create app config with Claude as default (we'll override with Codex)
@@ -198,7 +199,7 @@ agent = "claude"
 
         // Should contain original settings
         anyhow::ensure!(settings_content.contains("model = \"anthropic/claude-3\""));
-        anyhow::ensure!(settings_content.contains("disable_response_storage = true"));
+        anyhow::ensure!(settings_content.contains("check_for_update_on_startup = false"));
         anyhow::ensure!(settings_content.contains("notify = ["));
         anyhow::ensure!(settings_content.contains("\"desktop\""));
         anyhow::ensure!(settings_content.contains("\"sound\""));
@@ -268,7 +269,7 @@ agent = "claude"
         anyhow::ensure!(stdout.contains("args = [\"server.js\"]"));
 
         // Should NOT create actual files in dry-run mode
-        let settings_path = project_dir.join(".claude").join("settings.toml");
+        let settings_path = project_dir.join(".codex").join("config.toml");
         anyhow::ensure!(!settings_path.exists(), "Settings file should not exist in dry-run mode");
 
         Ok(())
@@ -311,9 +312,9 @@ approval_policy = "auto"
 api_key_helper = "/bin/codex-key"
 custom_field = "custom_value"
 
-[history]
-persistence = "ephemeral"
-"#;
+	[history]
+	persistence = "none"
+	"#;
         fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
 
         // Run sync in global mode for Codex
@@ -359,7 +360,7 @@ persistence = "ephemeral"
             "history section should be preserved in output"
         );
         anyhow::ensure!(
-            codex_config_content.contains("persistence = \"ephemeral\""),
+            codex_config_content.contains("persistence = \"none\""),
             "history.persistence should be preserved in output"
         );
         anyhow::ensure!(

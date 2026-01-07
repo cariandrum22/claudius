@@ -20,14 +20,14 @@ mod tests {
 model = "openai/gpt-4"
 model_provider = "openai"
 approval_policy = "none"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
 
 [model_providers.openai]
 base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
-
-[sandbox]
-mode = "docker"
-network_access = true
+env_key = "OPENAI_API_KEY"
 "#;
 
         let temp_dir = TempDir::new()?;
@@ -48,11 +48,18 @@ network_access = true
             "Approval policy mismatch"
         );
         anyhow::ensure!(settings_data.model_providers.is_some(), "Model providers should be Some");
-        anyhow::ensure!(settings_data.sandbox.is_some(), "Sandbox should be Some");
-
-        let sandbox = settings_data.sandbox.unwrap();
-        anyhow::ensure!(sandbox.mode == Some("docker".to_string()), "Sandbox mode mismatch");
-        anyhow::ensure!(sandbox.network_access == Some(true), "Network access mismatch");
+        anyhow::ensure!(
+            settings_data.sandbox_mode == Some("workspace-write".to_string()),
+            "Sandbox mode mismatch"
+        );
+        anyhow::ensure!(
+            settings_data
+                .sandbox_workspace_write
+                .as_ref()
+                .and_then(|s| s.network_access)
+                == Some(true),
+            "Network access mismatch"
+        );
 
         Ok(())
     }
@@ -64,21 +71,30 @@ network_access = true
         model_providers.insert(
             "anthropic".to_string(),
             claudius::codex_settings::ModelProvider {
+                name: None,
                 base_url: Some("https://api.anthropic.com".to_string()),
-                api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
-                headers: None,
+                env_key: Some("ANTHROPIC_API_KEY".to_string()),
+                http_headers: None,
+                env_http_headers: None,
+                query_params: None,
+                wire_api: None,
+                requires_openai_auth: None,
                 extra: HashMap::new(),
             },
         );
 
         let settings = CodexSettings {
             model: Some("anthropic/claude-3".to_string()),
+            review_model: None,
             model_provider: Some("anthropic".to_string()),
+            model_context_window: None,
             approval_policy: Some("required".to_string()),
             disable_response_storage: Some(true),
             notify: Some(vec!["desktop".to_string(), "sound".to_string()]),
             model_providers: Some(model_providers),
             shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
             sandbox: None,
             history: None,
             mcp_servers: None,
@@ -192,8 +208,10 @@ unknown_top_level = "value"
 base_url = "https://api.openai.com"
 unknown_provider_field = "value"
 
-[sandbox]
-mode = "docker"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
 unknown_sandbox_field = true
 "#;
 
@@ -270,12 +288,16 @@ key = "value"
 
         let settings = CodexSettings {
             model: Some("openai/gpt-4".to_string()),
+            review_model: None,
             model_provider: None,
+            model_context_window: None,
             approval_policy: None,
             disable_response_storage: None,
             notify: None,
             model_providers: None,
             shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
             sandbox: None,
             history: None,
             mcp_servers: Some(convert_mcp_to_toml(&mcp_servers)),

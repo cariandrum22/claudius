@@ -8,11 +8,19 @@ pub struct CodexSettings {
     pub model: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_model: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_context_window: Option<i64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
 
+    // Legacy field (not present in the latest Codex CLI config reference).
+    // Kept for backwards compatibility with older Codex configs and existing tests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_response_storage: Option<bool>,
 
@@ -24,6 +32,12 @@ pub struct CodexSettings {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell_environment_policy: Option<ShellEnvironmentPolicy>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_workspace_write: Option<SandboxWorkspaceWrite>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<SandboxConfig>,
@@ -42,13 +56,28 @@ pub struct CodexSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelProvider {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key_env: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "api_key_env")]
+    pub env_key: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", alias = "headers")]
+    pub http_headers: Option<HashMap<String, String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<HashMap<String, String>>,
+    pub env_http_headers: Option<HashMap<String, String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_params: Option<HashMap<String, String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wire_api: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_openai_auth: Option<bool>,
 
     // Catch-all for unknown fields to preserve them (e.g., name, etc.)
     #[serde(flatten)]
@@ -86,34 +115,86 @@ pub struct SandboxConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SandboxWorkspaceWrite {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writable_roots: Vec<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_access: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_tmpdir_env_var: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_slash_tmp: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HistoryConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persistence: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<usize>,
 }
 
 // Known field names for validation
 pub const KNOWN_CODEX_FIELDS: &[&str] = &[
     "model",
+    "review_model",
     "model_provider",
+    "model_context_window",
     "approval_policy",
-    "disable_response_storage",
     "notify",
     "model_providers",
     "shell_environment_policy",
+    "sandbox_mode",
+    "sandbox_workspace_write",
     "sandbox",
     "history",
     "mcp_servers",
+    // Newer Codex CLI fields (non-exhaustive; used only for warning suppression)
+    "check_for_update_on_startup",
+    "instructions",
+    "developer_instructions",
+    "features",
+    "profile",
+    "profiles",
+    "projects",
+    "project_root_markers",
+    "project_doc_max_bytes",
+    "project_doc_fallback_filenames",
+    "tool_output_token_limit",
+    "tui",
+    "hide_agent_reasoning",
+    "show_raw_agent_reasoning",
+    "file_opener",
+    "cli_auth_credentials_store",
+    "forced_chatgpt_workspace_id",
+    "forced_login_method",
+    "chatgpt_base_url",
+    "otel",
+    "oss_provider",
+    // Legacy / compatibility fields
+    "disable_response_storage",
 ];
 
 // We no longer validate model provider fields since they can have arbitrary extra fields
-// pub const KNOWN_MODEL_PROVIDER_FIELDS: &[&str] = &["base_url", "api_key_env", "headers"];
+// pub const KNOWN_MODEL_PROVIDER_FIELDS: &[&str] = &["name", "base_url", "env_key", "http_headers"];
 
 pub const KNOWN_SHELL_ENV_FIELDS: &[&str] =
-    &["inherit", "ignore_default_excludes", "exclude", "set", "include_only"];
+    &["inherit", "ignore_default_excludes", "exclude", "set", "include_only", "experimental_use_profile"];
 
 pub const KNOWN_SANDBOX_FIELDS: &[&str] = &["mode", "writable_roots", "network_access"];
 
-pub const KNOWN_HISTORY_FIELDS: &[&str] = &["persistence"];
+pub const KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS: &[&str] = &[
+    "writable_roots",
+    "network_access",
+    "exclude_tmpdir_env_var",
+    "exclude_slash_tmp",
+];
+
+pub const KNOWN_HISTORY_FIELDS: &[&str] = &["persistence", "max_bytes"];
 
 /// Validates Codex TOML settings and returns warnings for unknown fields
 #[must_use]
@@ -140,6 +221,9 @@ fn validate_nested_codex_field(parent_key: &str, value: &TomlValue, warnings: &m
         "model_providers" => return,
         "shell_environment_policy" => {
             Some((KNOWN_SHELL_ENV_FIELDS, "shell_environment_policy", false))
+        },
+        "sandbox_workspace_write" => {
+            Some((KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS, "sandbox_workspace_write", false))
         },
         "sandbox" => Some((KNOWN_SANDBOX_FIELDS, "sandbox", false)),
         "history" => Some((KNOWN_HISTORY_FIELDS, "history", false)),
