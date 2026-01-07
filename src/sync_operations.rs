@@ -40,6 +40,7 @@ pub struct AgentContext {
     pub is_codex: bool,
     pub is_gemini: bool,
     pub is_claude: bool,
+    pub is_claude_desktop: bool,
     pub is_claude_code: bool,
 }
 
@@ -48,11 +49,11 @@ impl AgentContext {
     pub const fn new(agent: Option<Agent>) -> Self {
         let is_codex = matches!(agent, Some(Agent::Codex));
         let is_gemini = matches!(agent, Some(Agent::Gemini));
+        let is_claude_desktop = matches!(agent, Some(Agent::Claude)) || agent.is_none();
         let is_claude_code = matches!(agent, Some(Agent::ClaudeCode));
-        let is_claude =
-            matches!(agent, Some(Agent::Claude) | Some(Agent::ClaudeCode)) || agent.is_none();
+        let is_claude = is_claude_desktop || is_claude_code;
 
-        Self { agent, is_codex, is_gemini, is_claude, is_claude_code }
+        Self { agent, is_codex, is_gemini, is_claude, is_claude_desktop, is_claude_code }
     }
 }
 
@@ -93,6 +94,8 @@ pub fn read_configurations(
     // Read settings based on agent type
     let (settings, codex_settings) = if agent_context.is_codex {
         read_codex_settings(&config.settings_path)?
+    } else if agent_context.is_claude_desktop {
+        (None, None)
     } else {
         read_regular_settings(&config.settings_path)?
     };
@@ -232,19 +235,15 @@ pub fn merge_all_configs(
     let new_count = claude_config.mcp_servers.as_ref().map_or(0, std::collections::HashMap::len);
     debug!("Merged configuration: {} -> {} server(s)", original_count, new_count);
 
-    // Merge settings for Claude Desktop-style global config (single-file ~/.claude.json)
-    if global && agent_context.is_claude && !agent_context.is_claude_code {
-        if let Some(ref settings) = read_result.settings {
-            debug!("Merging settings");
-            merge_settings(claude_config, settings)?;
-            debug!("Settings merged successfully");
-        }
-    }
-    // For non-Claude in global mode (except Gemini/Codex/Claude Code), merge settings only
-    else if global
+    // For non-Claude agents in global mode (except Gemini/Codex), merge settings into the target JSON.
+    // Claude Desktop uses a dedicated config file containing MCP servers. Claude Code stores settings
+    // separately in ~/.claude/settings.json.
+    if global
         && !agent_context.is_gemini
         && !agent_context.is_codex
         && !agent_context.is_claude
+        && !agent_context.is_claude_code
+        && !agent_context.is_claude_desktop
     {
         if let Some(ref settings) = read_result.settings {
             debug!("Merging settings");
@@ -285,9 +284,7 @@ fn print_project_local_dry_run(
     read_result: &ReadConfigResult,
     agent_context: AgentContext,
 ) -> Result<()> {
-    if agent_context.is_claude {
-        print_claude_dry_run(claude_config, read_result.settings.as_ref())?;
-    } else if agent_context.is_codex {
+    if agent_context.is_codex {
         print_codex_dry_run(claude_config, read_result.codex_settings.as_ref())?;
     } else {
         print_other_agent_dry_run(
@@ -295,21 +292,6 @@ fn print_project_local_dry_run(
             read_result.settings.as_ref(),
             agent_context.is_gemini,
         )?;
-    }
-    Ok(())
-}
-
-/// Print Claude-specific dry run output
-fn print_claude_dry_run(claude_config: &ClaudeConfig, settings: Option<&Settings>) -> Result<()> {
-    let settings_location = ".claude/settings.json";
-    println!("\n--- Settings with MCP servers ({settings_location}) ---");
-
-    if let Some(mut settings_copy) = settings.cloned() {
-        settings_copy.mcp_servers.clone_from(&claude_config.mcp_servers);
-        println!("{}", serde_json::to_string_pretty(&settings_copy)?);
-    } else {
-        let new_settings = create_settings_with_mcp_servers(claude_config);
-        println!("{}", serde_json::to_string_pretty(&new_settings)?);
     }
     Ok(())
 }
@@ -348,27 +330,16 @@ fn print_other_agent_dry_run(
 
     // Print settings if present
     if let Some(settings_ref) = settings {
+        let mut settings_copy = settings_ref.clone();
+        settings_copy.mcp_servers = None;
+
         let settings_location =
             if is_gemini { "./gemini/settings.json" } else { ".claude/settings.json" };
         println!("\n--- Settings ({settings_location}) ---");
-        println!("{}", serde_json::to_string_pretty(&settings_ref)?);
+        println!("{}", serde_json::to_string_pretty(&settings_copy)?);
     }
 
     Ok(())
-}
-
-/// Create a new Settings struct with MCP servers
-fn create_settings_with_mcp_servers(claude_config: &ClaudeConfig) -> Settings {
-    Settings {
-        api_key_helper: None,
-        cleanup_period_days: None,
-        env: None,
-        include_co_authored_by: None,
-        permissions: None,
-        preferred_notif_channel: None,
-        mcp_servers: claude_config.mcp_servers.clone(),
-        extra: HashMap::new(),
-    }
 }
 
 /// Merge source Codex settings into existing settings
@@ -918,9 +889,12 @@ fn write_other_agent_project_local(
     // Write settings if present
     if let Some(settings_ref) = settings {
         if let Some(ref settings_path) = config.project_settings_path {
+            let mut settings_to_write = settings_ref.clone();
+            settings_to_write.mcp_servers = None;
+
             info!("Writing settings to {}", settings_path.display());
             ensure_parent_directory_exists(settings_path)?;
-            writer::write_settings(settings_path, settings_ref)
+            writer::write_settings(settings_path, &settings_to_write)
                 .context("Failed to write settings")?;
         }
     }
@@ -935,7 +909,10 @@ fn ensure_parent_directory_exists(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn deep_merge_toml_maps(target: &mut HashMap<String, TomlValue>, overlay: &HashMap<String, TomlValue>) {
+fn deep_merge_toml_maps(
+    target: &mut HashMap<String, TomlValue>,
+    overlay: &HashMap<String, TomlValue>,
+) {
     for (key, value) in overlay {
         match target.get_mut(key) {
             Some(existing) => deep_merge_toml_value(existing, value),

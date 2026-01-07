@@ -124,13 +124,13 @@ impl Config {
         agent: Option<crate::app_config::Agent>,
     ) -> anyhow::Result<Self> {
         let config_dir = Self::get_config_dir()?;
-        let home_dir = directories::BaseDirs::new()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-            .home_dir()
-            .to_path_buf();
+        let base_dirs = directories::BaseDirs::new()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+        let home_dir = base_dirs.home_dir().to_path_buf();
+        let system_config_dir = base_dirs.config_dir().to_path_buf();
 
         let (target_config_path, project_settings_path, actual_settings_path) =
-            Self::determine_paths(use_global, agent, &config_dir, &home_dir)?;
+            Self::determine_paths(use_global, agent, &config_dir, &home_dir, &system_config_dir)?;
 
         let claude_commands_dir = Self::determine_commands_dir(use_global, &home_dir)?;
 
@@ -153,9 +153,10 @@ impl Config {
         agent: Option<crate::app_config::Agent>,
         config_dir: &Path,
         home_dir: &Path,
+        system_config_dir: &Path,
     ) -> anyhow::Result<(PathBuf, Option<PathBuf>, PathBuf)> {
         if use_global {
-            Ok(Self::determine_global_paths(agent, config_dir, home_dir))
+            Self::determine_global_paths(agent, config_dir, home_dir, system_config_dir)
         } else {
             Self::determine_project_paths(agent, config_dir)
         }
@@ -166,19 +167,25 @@ impl Config {
         agent: Option<crate::app_config::Agent>,
         config_dir: &Path,
         home_dir: &Path,
-    ) -> (PathBuf, Option<PathBuf>, PathBuf) {
-        let path = home_dir.join(".claude.json");
+        system_config_dir: &Path,
+    ) -> anyhow::Result<(PathBuf, Option<PathBuf>, PathBuf)> {
+        let claude_code_path = home_dir.join(".claude.json");
 
         match agent {
+            Some(crate::app_config::Agent::Claude) => Ok((
+                system_config_dir.join("Claude").join("claude_desktop_config.json"),
+                None,
+                config_dir.join("claude.settings.json"),
+            )),
             Some(crate::app_config::Agent::Gemini) => {
                 let gemini_input = config_dir.join("gemini.settings.json");
-                (path, None, gemini_input)
+                Ok((claude_code_path, None, gemini_input))
             },
             Some(crate::app_config::Agent::Codex) => {
                 let codex_input = config_dir.join("codex.settings.toml");
-                (path, None, codex_input)
+                Ok((claude_code_path, None, codex_input))
             },
-            _ => (path, None, config_dir.join("claude.settings.json")),
+            _ => Ok((claude_code_path, None, config_dir.join("claude.settings.json"))),
         }
     }
 

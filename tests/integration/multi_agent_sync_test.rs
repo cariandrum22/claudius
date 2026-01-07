@@ -97,11 +97,12 @@ mod tests {
         // Create target directories
         let home_dir = temp_dir.child("home");
         home_dir.create_dir_all().unwrap();
+        let system_config_dir = config_dir.parent().unwrap();
 
         // Run sync with global flag (no agent specified)
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
+            .env("XDG_CONFIG_HOME", system_config_dir)
             .env("HOME", home_dir.path())
             .args(["config", "sync"])
             .arg("-g")
@@ -109,7 +110,8 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path = home_dir.join(".claude.json");
+        let claude_config_path =
+            system_config_dir.join("Claude").join("claude_desktop_config.json");
         assert!(claude_config_path.exists());
         let claude_config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&claude_config_path).unwrap()).unwrap();
@@ -120,11 +122,7 @@ mod tests {
                 .and_then(|t| t.get("command")),
             Some(&serde_json::Value::String("node".to_string()))
         );
-        // Note: Claude settings might be merged into .claude.json in global mode
-
-        // For Gemini and Codex, the actual files might be created in the real home directory
-        // due to how directories::BaseDirs works. The important thing is that the sync
-        // command succeeds, which it did above.
+        // Claude Desktop config contains MCP servers only.
     }
 
     #[test]
@@ -213,6 +211,7 @@ mod tests {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");
         config_dir.create_dir_all().unwrap();
+        let system_config_dir = config_dir.parent().unwrap();
 
         // Create MCP servers configuration
         let mcp_servers = serde_json::json!({
@@ -255,7 +254,7 @@ mod tests {
         // Run sync with global flag
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
+            .env("XDG_CONFIG_HOME", system_config_dir)
             .env("HOME", home_dir.path())
             .args(["config", "sync"])
             .arg("-g")
@@ -263,7 +262,8 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path = home_dir.join(".claude.json");
+        let claude_config_path =
+            system_config_dir.join("Claude").join("claude_desktop_config.json");
         assert!(claude_config_path.exists());
 
         // Verify Codex configuration was synced

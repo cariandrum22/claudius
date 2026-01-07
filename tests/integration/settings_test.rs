@@ -114,11 +114,10 @@ mod tests {
             )
             .unwrap();
 
-        // Create claude.settings.json (default when no agent specified)
-        let claude_settings_path = fixture.config.join("claude.settings.json");
-        std::fs::write(
-            claude_settings_path,
-            r#"{
+        // Create claude.settings.json (used by Claude Code; Claude Desktop ignores it)
+        fixture
+            .with_claude_settings(
+                r#"{
         "apiKeyHelper": "/bin/generate_api_key.sh",
         "cleanupPeriodDays": 20,
         "env": {"FOO": "bar"},
@@ -127,13 +126,16 @@ mod tests {
             "allow": ["Bash(npm run lint)"]
         }
     }"#,
-        )
-        .unwrap();
+            )
+            .unwrap();
 
-        // Create initial claude.json in home directory
-        fixture.with_existing_global_config(r#"{"existingKey": "value"}"#).unwrap();
+        // Create initial Claude Desktop config to verify key preservation
+        fixture
+            .with_existing_claude_desktop_config(r#"{"existingKey": "value"}"#)
+            .unwrap();
 
-        let claude_file_path = fixture.home_dir().join(".claude.json");
+        let claude_desktop_config_path =
+            fixture.config_home().join("Claude").join("claude_desktop_config.json");
 
         // Run sync with --global flag
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
@@ -142,13 +144,13 @@ mod tests {
             .env("HOME", fixture.home_dir())
             .args(["config", "sync"])
             .arg("--global")
-            .arg("--target-config")
-            .arg(&claude_file_path)
+            .arg("--agent")
+            .arg("claude")
             .assert()
             .success();
 
-        // Verify claude.json contains both mcpServers and settings
-        let content = fixture.read_home_file(".claude.json").unwrap();
+        // Verify Claude Desktop config contains MCP servers and preserves existing keys
+        let content = std::fs::read_to_string(&claude_desktop_config_path).unwrap();
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
 
         // Check MCP servers
@@ -159,27 +161,18 @@ mod tests {
             Some(&serde_json::Value::String("test".to_string()))
         );
 
-        // Check settings
-        assert_eq!(
-            json.get("apiKeyHelper"),
-            Some(&serde_json::Value::String("/bin/generate_api_key.sh".to_string()))
-        );
-        assert_eq!(
-            json.get("cleanupPeriodDays"),
-            Some(&serde_json::Value::Number(serde_json::Number::from(20)))
-        );
-        assert_eq!(
-            json.get("env").and_then(|e| e.get("FOO")),
-            Some(&serde_json::Value::String("bar".to_string()))
-        );
-        assert_eq!(json.get("includeCoAuthoredBy"), Some(&serde_json::Value::Bool(false)));
-        assert_eq!(
-            json.get("permissions").and_then(|p| p.get("allow")).and_then(|a| a.get(0)),
-            Some(&serde_json::Value::String("Bash(npm run lint)".to_string()))
-        );
+        // Settings are not merged into Claude Desktop config
+        assert!(json.get("apiKeyHelper").is_none());
+        assert!(json.get("cleanupPeriodDays").is_none());
+        assert!(json.get("env").is_none());
+        assert!(json.get("includeCoAuthoredBy").is_none());
+        assert!(json.get("permissions").is_none());
 
         // Check existing key preserved
         assert_eq!(json.get("existingKey"), Some(&serde_json::Value::String("value".to_string())));
+
+        // Verify legacy ~/.claude.json was NOT created
+        assert!(!fixture.home_file_exists(".claude.json"));
     }
 
     #[test]
@@ -274,21 +267,15 @@ agent = "claude-code"
             Some(&serde_json::Value::String("/bin/generate_temp_api_key.sh".to_string()))
         );
         assert_eq!(
-            settings_json
-                .get("env")
-                .and_then(|env| env.get("KEEP")),
+            settings_json.get("env").and_then(|env| env.get("KEEP")),
             Some(&serde_json::Value::String("1".to_string()))
         );
         assert_eq!(
-            settings_json
-                .get("sandbox")
-                .and_then(|s| s.get("enabled")),
+            settings_json.get("sandbox").and_then(|s| s.get("enabled")),
             Some(&serde_json::Value::Bool(true))
         );
         assert_eq!(
-            settings_json
-                .get("sandbox")
-                .and_then(|s| s.get("autoAllowBashIfSandboxed")),
+            settings_json.get("sandbox").and_then(|s| s.get("autoAllowBashIfSandboxed")),
             Some(&serde_json::Value::Bool(true))
         );
         assert!(settings_json.get("mcpServers").is_none());

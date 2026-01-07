@@ -180,9 +180,33 @@ mod tests {
         fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
 
         let config = Config::new_with_agent(true, Some(Agent::Claude)).unwrap();
-        // In global mode, settings are merged into claude.json
-        assert!(config.target_config_path.to_string_lossy().contains(".claude.json"));
+        // In global mode, Claude Desktop uses a dedicated config file in the system config dir
+        assert!(
+            config
+                .target_config_path
+                .file_name()
+                .is_some_and(|n| n == "claude_desktop_config.json"),
+            "Expected Claude Desktop global config to be claude_desktop_config.json"
+        );
         // But the settings_path should still reflect the agent
+        assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_global_config_with_claude_code_agent() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        std::env::set_var("HOME", temp_dir.path());
+
+        // Create the claudius config directory and mcpServers.json
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
+
+        let config = Config::new_with_agent(true, Some(Agent::ClaudeCode)).unwrap();
+        assert!(config.target_config_path.to_string_lossy().contains(".claude.json"));
         assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
     }
 }
