@@ -134,9 +134,13 @@ mod tests {
             mcp_servers: Some(HashMap::from([(
                 "server1".to_string(),
                 McpServerConfig {
-                    command: "cmd1".to_string(),
+                    command: Some("cmd1".to_string()),
                     args: vec!["arg1".to_string()],
                     env: HashMap::new(),
+                    server_type: None,
+                    url: None,
+                    headers: HashMap::new(),
+                    extra: HashMap::new(),
                 },
             )])),
             other: HashMap::from([("apiKeyHelper".to_string(), serde_json::json!("/bin/helper"))]),
@@ -153,6 +157,7 @@ mod tests {
                 allow: vec!["Read".to_string()],
                 deny: vec!["Write".to_string()],
                 default_mode: Some("allow".to_string()),
+                extra: HashMap::new(),
             }),
             preferred_notif_channel: Some("email".to_string()),
             mcp_servers: None,
@@ -266,9 +271,13 @@ mod tests {
             mcp_servers: HashMap::from([(
                 "test-server".to_string(),
                 McpServerConfig {
-                    command: "test-cmd".to_string(),
+                    command: Some("test-cmd".to_string()),
                     args: vec!["--arg".to_string()],
                     env: HashMap::from([("ENV_VAR".to_string(), "value".to_string())]),
+                    server_type: None,
+                    url: None,
+                    headers: HashMap::new(),
+                    extra: HashMap::new(),
                 },
             )]),
         };
@@ -283,7 +292,7 @@ mod tests {
 
         assert_eq!(parsed.mcp_servers.len(), 1);
         let server = parsed.mcp_servers.get("test-server").expect("test-server should exist");
-        assert_eq!(server.command, "test-cmd");
+        assert_eq!(server.command.as_deref(), Some("test-cmd"));
         assert_eq!(server.env.get("ENV_VAR"), Some(&"value".to_string()));
     }
 

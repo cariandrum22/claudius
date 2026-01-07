@@ -9,7 +9,15 @@ mod tests {
     use super::*;
 
     fn create_test_server(command: &str) -> McpServerConfig {
-        McpServerConfig { command: command.to_string(), args: vec![], env: HashMap::new() }
+        McpServerConfig {
+            command: Some(command.to_string()),
+            args: vec![],
+            env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
+        }
     }
 
     fn create_claude_config_with_servers(servers: Vec<(&str, &str)>) -> ClaudeConfig {
@@ -56,8 +64,14 @@ mod tests {
         // New servers should be present
         assert!(servers.contains_key("server3"));
         assert!(servers.contains_key("server4"));
-        assert_eq!(servers.get("server3").map(|s| &s.command), Some(&"new-command3".to_string()));
-        assert_eq!(servers.get("server4").map(|s| &s.command), Some(&"new-command4".to_string()));
+        assert_eq!(
+            servers.get("server3").and_then(|s| s.command.as_deref()),
+            Some("new-command3")
+        );
+        assert_eq!(
+            servers.get("server4").and_then(|s| s.command.as_deref()),
+            Some("new-command4")
+        );
 
         // Other config should be preserved
         assert_eq!(claude_config.other.get("theme"), Some(&serde_json::json!("dark")));
@@ -81,13 +95,13 @@ mod tests {
         assert_eq!(servers.len(), 3);
 
         // server1 should remain unchanged
-        assert_eq!(servers.get("server1").map(|s| &s.command), Some(&"old-command1".to_string()));
+        assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("old-command1"));
 
         // server2 should be updated
-        assert_eq!(servers.get("server2").map(|s| &s.command), Some(&"new-command2".to_string()));
+        assert_eq!(servers.get("server2").and_then(|s| s.command.as_deref()), Some("new-command2"));
 
         // server3 should be added
-        assert_eq!(servers.get("server3").map(|s| &s.command), Some(&"new-command3".to_string()));
+        assert_eq!(servers.get("server3").and_then(|s| s.command.as_deref()), Some("new-command3"));
     }
 
     #[test]
@@ -109,13 +123,13 @@ mod tests {
         assert_eq!(servers.len(), 3);
 
         // server1 should remain unchanged
-        assert_eq!(servers.get("server1").map(|s| &s.command), Some(&"old-command1".to_string()));
+        assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("old-command1"));
 
         // server2 should NOT be updated (preserve existing)
-        assert_eq!(servers.get("server2").map(|s| &s.command), Some(&"old-command2".to_string()));
+        assert_eq!(servers.get("server2").and_then(|s| s.command.as_deref()), Some("old-command2"));
 
         // server3 should be added
-        assert_eq!(servers.get("server3").map(|s| &s.command), Some(&"new-command3".to_string()));
+        assert_eq!(servers.get("server3").and_then(|s| s.command.as_deref()), Some("new-command3"));
     }
 
     #[test]
@@ -130,8 +144,8 @@ mod tests {
         assert!(claude_config.mcp_servers.is_some());
         let servers = claude_config.mcp_servers.as_ref().unwrap();
         assert_eq!(servers.len(), 2);
-        assert_eq!(servers.get("server1").map(|s| &s.command), Some(&"command1".to_string()));
-        assert_eq!(servers.get("server2").map(|s| &s.command), Some(&"command2".to_string()));
+        assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("command1"));
+        assert_eq!(servers.get("server2").and_then(|s| s.command.as_deref()), Some("command2"));
     }
 
     #[test]
@@ -148,12 +162,16 @@ mod tests {
         servers.insert(
             "complex-server".to_string(),
             McpServerConfig {
-                command: "node".to_string(),
+                command: Some("node".to_string()),
                 args: vec!["--experimental".to_string(), "server.js".to_string()],
                 env: HashMap::from([
                     ("NODE_ENV".to_string(), "production".to_string()),
                     ("PORT".to_string(), "3000".to_string()),
                 ]),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
@@ -164,7 +182,7 @@ mod tests {
         // Check that server was added correctly
         let merged_servers = claude_config.mcp_servers.as_ref().unwrap();
         let server = merged_servers.get("complex-server").unwrap();
-        assert_eq!(server.command, "node");
+        assert_eq!(server.command.as_deref(), Some("node"));
         assert_eq!(server.args, vec!["--experimental", "server.js"]);
         assert_eq!(server.env.get("NODE_ENV"), Some(&"production".to_string()));
         assert_eq!(server.env.get("PORT"), Some(&"3000".to_string()));
@@ -185,6 +203,6 @@ mod tests {
         // Original servers should remain
         let servers = claude_config.mcp_servers.as_ref().unwrap();
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers.get("server1").map(|s| &s.command), Some(&"command1".to_string()));
+        assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("command1"));
     }
 }

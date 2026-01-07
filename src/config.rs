@@ -10,11 +10,20 @@ pub mod writer;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpServerConfig {
-    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub server_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,6 +54,8 @@ pub struct Permissions {
     pub deny: Vec<String>,
     #[serde(rename = "defaultMode", skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<String>,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

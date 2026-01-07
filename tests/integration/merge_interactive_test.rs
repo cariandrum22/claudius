@@ -197,7 +197,7 @@ mod tests {
             anyhow::ensure!(servers.contains_key("filesystem"));
             anyhow::ensure!(servers.contains_key("github"));
             anyhow::ensure!(
-                servers.get("filesystem").unwrap().command == "new-fs-command",
+                servers.get("filesystem").and_then(|s| s.command.as_deref()) == Some("new-fs-command"),
                 "filesystem command should be updated"
             );
         }
@@ -213,7 +213,7 @@ mod tests {
             anyhow::ensure!(servers.contains_key("filesystem"));
             anyhow::ensure!(servers.contains_key("github"));
             anyhow::ensure!(
-                servers.get("filesystem").unwrap().command == "old-fs-command",
+                servers.get("filesystem").and_then(|s| s.command.as_deref()) == Some("old-fs-command"),
                 "filesystem command should be preserved"
             );
         }

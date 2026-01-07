@@ -147,18 +147,26 @@ env_key = "OPENAI_API_KEY"
         mcp_servers.insert(
             "filesystem".to_string(),
             McpServerConfig {
-                command: "npx".to_string(),
+                command: Some("npx".to_string()),
                 args: vec!["-y".to_string(), "@modelcontextprotocol/server-filesystem".to_string()],
                 env: env.clone(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
         mcp_servers.insert(
             "github".to_string(),
             McpServerConfig {
-                command: "npx".to_string(),
+                command: Some("npx".to_string()),
                 args: vec!["-y".to_string(), "@modelcontextprotocol/server-github".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
@@ -280,9 +288,13 @@ key = "value"
         mcp_servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "python".to_string(),
+                command: Some("python".to_string()),
                 args: vec!["-m".to_string(), "server".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 

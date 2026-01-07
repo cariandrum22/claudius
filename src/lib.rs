@@ -7,6 +7,7 @@ pub mod codex_settings;
 pub mod commands;
 pub mod config;
 pub mod gemini_settings;
+pub(crate) mod json_merge;
 pub mod merge;
 pub mod profiling;
 pub mod secrets;

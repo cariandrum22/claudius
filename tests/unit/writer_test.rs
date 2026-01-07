@@ -17,9 +17,13 @@ mod tests {
         mcp_servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "python".to_string(),
+                command: Some("python".to_string()),
                 args: vec!["-m".to_string(), "server".to_string()],
                 env: HashMap::from([("DEBUG".to_string(), "true".to_string())]),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
@@ -80,7 +84,15 @@ mod tests {
         let config = ClaudeConfig {
             mcp_servers: Some(HashMap::from([(
                 "server1".to_string(),
-                McpServerConfig { command: "cmd".to_string(), args: vec![], env: HashMap::new() },
+                McpServerConfig {
+                    command: Some("cmd".to_string()),
+                    args: vec![],
+                    env: HashMap::new(),
+                    server_type: None,
+                    url: None,
+                    headers: HashMap::new(),
+                    extra: HashMap::new(),
+                },
             )])),
             other: HashMap::new(),
         };
@@ -143,9 +155,13 @@ mod tests {
         mcp_servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "node".to_string(),
+                command: Some("node".to_string()),
                 args: vec!["server.js".to_string()],
                 env: HashMap::from([("PORT".to_string(), "3000".to_string())]),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 

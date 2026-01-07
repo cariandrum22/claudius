@@ -105,9 +105,13 @@ mod tests {
         servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "test-command".to_string(),
+                command: Some("test-command".to_string()),
                 args: vec!["arg1".to_string(), "arg2".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
         McpServersConfig { mcp_servers: servers }
@@ -123,6 +127,7 @@ mod tests {
                 allow: vec!["Read".to_string()],
                 deny: vec!["Write".to_string()],
                 default_mode: Some("allow".to_string()),
+                extra: HashMap::new(),
             }),
             preferred_notif_channel: Some("email".to_string()),
             mcp_servers: None,
@@ -144,8 +149,8 @@ mod tests {
         assert_eq!(result.mcp_servers.len(), 1);
         assert!(result.mcp_servers.contains_key("test-server"));
         assert_eq!(
-            result.mcp_servers.get("test-server").map(|s| &s.command),
-            Some(&"test-command".to_string())
+            result.mcp_servers.get("test-server").and_then(|s| s.command.as_deref()),
+            Some("test-command")
         );
     }
 
@@ -182,7 +187,15 @@ mod tests {
         let config = ClaudeConfig {
             mcp_servers: Some(HashMap::from([(
                 "server1".to_string(),
-                McpServerConfig { command: "cmd1".to_string(), args: vec![], env: HashMap::new() },
+                McpServerConfig {
+                    command: Some("cmd1".to_string()),
+                    args: vec![],
+                    env: HashMap::new(),
+                    server_type: None,
+                    url: None,
+                    headers: HashMap::new(),
+                    extra: HashMap::new(),
+                },
             )])),
             other: HashMap::from([("key".to_string(), serde_json::json!("value"))]),
         };

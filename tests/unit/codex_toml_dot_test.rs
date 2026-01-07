@@ -11,9 +11,13 @@ fn test_mcp_server_name_with_dots_in_toml() {
     mcp_servers.insert(
         "awslabs.aws-documentation-mcp-server".to_string(),
         McpServerConfig {
-            command: "npx".to_string(),
+            command: Some("npx".to_string()),
             args: vec!["-y".to_string(), "@awslabs/mcp-server-aws-docs".to_string()],
             env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
         },
     );
 
@@ -21,9 +25,13 @@ fn test_mcp_server_name_with_dots_in_toml() {
     mcp_servers.insert(
         "simple-server".to_string(),
         McpServerConfig {
-            command: "node".to_string(),
+            command: Some("node".to_string()),
             args: vec!["server.js".to_string()],
             env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
         },
     );
 
@@ -89,7 +97,15 @@ fn test_quoted_key_preservation_in_toml() {
     for name in &test_names {
         mcp_servers.insert(
             name.to_string(),
-            McpServerConfig { command: "test".to_string(), args: vec![], env: HashMap::new() },
+            McpServerConfig {
+                command: Some("test".to_string()),
+                args: vec![],
+                env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
+            },
         );
     }
 
@@ -130,9 +146,13 @@ fn test_mcp_server_rename_with_underscores() {
     mcp_servers.insert(
         "awslabs_aws-documentation-mcp-server".to_string(),
         McpServerConfig {
-            command: "npx".to_string(),
+            command: Some("npx".to_string()),
             args: vec!["-y".to_string(), "@awslabs/mcp-server-aws-docs".to_string()],
             env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
         },
     );
 

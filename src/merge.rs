@@ -1,6 +1,7 @@
 #![allow(clippy::self_named_module_files)]
 
 use crate::config::{ClaudeConfig, McpServersConfig, Settings};
+use crate::json_merge::deep_merge_json_maps;
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -282,6 +283,8 @@ pub fn merge_settings_with_strategy(
         settings.preferred_notif_channel.as_ref().map(|v| Value::String(v.clone())),
     );
 
+    deep_merge_json_maps(&mut claude_config.other, &settings.extra);
+
     Ok(())
 }
 
@@ -323,7 +326,15 @@ mod tests {
     use serde_json::json;
 
     fn create_test_server_config(command: &str) -> McpServerConfig {
-        McpServerConfig { command: command.to_string(), args: vec![], env: HashMap::new() }
+        McpServerConfig {
+            command: Some(command.to_string()),
+            args: vec![],
+            env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
+        }
     }
 
     #[test]
@@ -350,7 +361,7 @@ mod tests {
         assert_eq!(servers.len(), 1);
         assert!(servers.contains_key("new"));
         assert!(!servers.contains_key("existing"));
-        assert_eq!(servers.get("new").map(|s| &s.command), Some(&"new-command".to_string()));
+        assert_eq!(servers.get("new").and_then(|s| s.command.as_deref()), Some("new-command"));
     }
 
     #[test]
@@ -376,10 +387,10 @@ mod tests {
         let servers = claude_config.mcp_servers.expect("MCP servers should be present after merge");
         assert_eq!(servers.len(), 2);
         assert_eq!(
-            servers.get("existing").map(|s| &s.command),
-            Some(&"updated-command".to_string())
+            servers.get("existing").and_then(|s| s.command.as_deref()),
+            Some("updated-command")
         ); // Overwritten
-        assert_eq!(servers.get("new").map(|s| &s.command), Some(&"new-command".to_string()));
+        assert_eq!(servers.get("new").and_then(|s| s.command.as_deref()), Some("new-command"));
     }
 
     #[test]
@@ -404,8 +415,8 @@ mod tests {
 
         let servers = claude_config.mcp_servers.expect("MCP servers should be present after merge");
         assert_eq!(servers.len(), 2);
-        assert_eq!(servers.get("existing").map(|s| &s.command), Some(&"old-command".to_string())); // Preserved
-        assert_eq!(servers.get("new").map(|s| &s.command), Some(&"new-command".to_string()));
+        assert_eq!(servers.get("existing").and_then(|s| s.command.as_deref()), Some("old-command")); // Preserved
+        assert_eq!(servers.get("new").and_then(|s| s.command.as_deref()), Some("new-command"));
     }
 
     #[test]
@@ -424,7 +435,7 @@ mod tests {
 
         let servers = claude_config.mcp_servers.expect("MCP servers should be present after merge");
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers.get("server1").map(|s| &s.command), Some(&"cmd1".to_string()));
+        assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("cmd1"));
     }
 
     #[test]
@@ -440,6 +451,7 @@ mod tests {
                 allow: vec!["Read".to_string()],
                 deny: vec!["Write".to_string()],
                 default_mode: Some("allow".to_string()),
+                extra: HashMap::new(),
             }),
             preferred_notif_channel: Some("email".to_string()),
             mcp_servers: None,
@@ -544,6 +556,7 @@ mod tests {
                 allow: vec!["Bash(ls)".to_string(), "Read(*.txt)".to_string()],
                 deny: vec!["Write(/etc/*)".to_string()],
                 default_mode: Some("deny".to_string()),
+                extra: HashMap::new(),
             }),
             preferred_notif_channel: None,
             mcp_servers: None,

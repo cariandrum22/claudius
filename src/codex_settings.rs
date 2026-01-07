@@ -288,9 +288,13 @@ pub fn convert_mcp_to_toml<S: std::hash::BuildHasher>(
     let mut toml_servers = HashMap::new();
 
     for (name, server) in mcp_servers {
+        let Some(command) = server.command.as_ref() else {
+            continue;
+        };
+
         let mut server_table = toml::map::Map::new();
 
-        server_table.insert("command".to_string(), TomlValue::String(server.command.clone()));
+        server_table.insert("command".to_string(), TomlValue::String(command.clone()));
 
         if !server.args.is_empty() {
             let args: Vec<TomlValue> =
