@@ -2,6 +2,7 @@
 name = "claudius"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
 authors = ["claudius contributors"]
 description = "Comprehensive configuration management tool for Claude Desktop/CLI"
 license = "MIT"

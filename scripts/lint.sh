@@ -59,7 +59,7 @@ echo "------------------"
 run_lint "rustfmt (check)" "cargo fmt -- --check"
 
 # 2. Clippy with all our custom lints
-# Note: Using clippy with all custom lints for Rust 1.86.0
+# Note: Clippy flags are tuned for the project's MSRV (see clippy.toml)
 run_lint "clippy" "cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::pedantic -A clippy::module-name-repetitions -A clippy::must-use-candidate -A clippy::missing-docs-in-private-items"
 
 # 3. Check for TODO/FIXME/HACK comments

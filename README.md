@@ -105,7 +105,7 @@ cargo install --path .
 
 ## Prerequisites
 
-- **Rust**: 1.86.0 or higher
+- **Rust**: 1.92.0 or higher
 - **Nix**: 2.19.0 or higher (optional, for development)
 - **1Password CLI**: For secret management features (optional)
 

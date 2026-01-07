@@ -29,7 +29,7 @@ claudius --list-commands
 ```
 
 ### Prerequisites
-- Rust 1.86.0 or higher
+- Rust 1.92.0 or higher
 - Nix 2.19.0 or higher (optional, for development)
 
 ### Basic Usage
@@ -938,7 +938,7 @@ just --list
 - `just coverage` - Full coverage analysis
 - `just coverage-html` - HTML report only
 - `just coverage-lcov` - LCOV report only
-- `just test-stats` - Test statistics (Rust 1.86.0 compatible)
+- `just test-stats` - Test statistics
 
 #### Utilities
 - `just clean` - Clean build artifacts
@@ -1001,7 +1001,7 @@ For more details, see the [Just documentation](https://just.systems/).
 
 ### Prerequisites
 
-Due to Rust 1.86.0 compatibility constraints, we recommend using one of these approaches:
+We recommend using one of these approaches:
 
 #### Option 1: Use cargo-llvm-cov (Recommended)
 
@@ -1039,7 +1039,7 @@ We've included coverage scripts that work with cargo-llvm-cov:
 
 #### Option 3: Manual coverage with grcov
 
-If you need to stay on Rust 1.86.0:
+If you cannot use cargo-llvm-cov:
 
 1. Install grcov:
 ```bash
@@ -1114,7 +1114,7 @@ Then upload to your coverage service (Codecov, Coveralls, etc.).
 
 #### Rust Version Issues
 
-If you encounter dependency version conflicts due to Rust 1.86.0:
+If you encounter dependency version conflicts:
 
 1. Consider upgrading Rust: `rustup update`
 2. Or use the manual grcov approach described above
@@ -1137,71 +1137,45 @@ Coverage builds are slower than normal builds. For day-to-day development, run t
 
 ### Rust Version Compatibility
 
-This project is currently constrained to **Rust 1.86.0** due to the Nix flake configuration.
-
-### Dependency Version Constraints
-
-To maintain compatibility with Rust 1.86.0, the following dependencies have been downgraded from their latest versions:
-
-| Dependency | Latest Version | Pinned Version | Rust Requirement |
-|------------|-----------------|----------------|------------------|
-| `bstr` | 1.12.0 | 1.6.2 | Latest requires 1.73+ |
-| `predicates` | 3.1.3 | 3.0.1 | Latest requires 1.74+ |
-| `predicates-core` | 1.0.9 | 1.0.5 | Latest requires 1.74+ |
-| `assert_fs` | 1.0.13 | 1.0.7 | Depends on predicates-core |
-| `ignore` | 0.4.23 | 0.4.18 | Latest uses unstable features |
+This project targets **Rust 1.92.0+** (see `clippy.toml` `msrv`). The Nix devShell uses the latest
+stable Rust pinned by `flake.lock`.
 
 ### How to Update Dependencies
 
-If you need to update dependencies while maintaining Rust 1.86.0 compatibility:
-
 ```bash
-# Check which version is compatible
-cargo search <package-name> --limit 20
+# Update Cargo.lock within existing version constraints
+cargo update
 
-# Update to a specific version
-cargo update -p <package>@<current-version> --precise <target-version>
-
-# Example:
-cargo update -p bstr@1.12.0 --precise 1.6.2
+# Check for newer versions (including major updates)
+cargo outdated
 ```
 
-### Testing Compatibility
-
-After any dependency updates, ensure tests still compile and run:
+If you need to pin a specific dependency version:
 
 ```bash
-# Run all tests
+cargo update -p <package> --precise <target-version>
+```
+
+### Testing After Updates
+
+```bash
 cargo test
-
-# If you encounter version conflicts, check the error message for guidance
-# The error will tell you which Rust version is required
 ```
 
-### Coverage Tool Compatibility
+### Coverage Tool Notes
 
-For test coverage with Rust 1.86.0:
+`cargo llvm-cov` is included in the Nix devShell. If you're not using Nix:
 
 ```bash
-# Install compatible version
-cargo install cargo-llvm-cov --version 0.5.31
-
-# Latest versions (0.6+) require Rust 1.81+
+cargo install cargo-llvm-cov
 ```
 
-### Future Upgrades
+### Upgrading Tooling
 
-To use the latest versions of all dependencies, you would need to:
-
-1. Update the Rust version in `flake.nix`
-2. Run `cargo update` to get latest compatible versions
-3. Update any code that may have breaking changes
-
-### Notes
-
-- The project builds and runs successfully with these constraints
-- All tests pass with the downgraded dependencies
-- No functionality is lost with these versions
+```bash
+# Update Nix inputs (Rust toolchain, dev tools, hooks)
+nix flake update
+```
 
 
 ---
