@@ -23,6 +23,7 @@ Configuration files are stored in:
 Target files:
   • ./.mcp.json (MCP servers in project-local mode, default)
   • ./.claude/settings.json (Settings in project-local mode)
+  • ./.gemini/settings.json (Gemini project-local config)
   • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop global config)
   • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
   • ~/.codex/config.toml (Codex global config)
@@ -101,8 +102,9 @@ This command:
   2. Reads settings.json for Claude settings (if exists)
   3. Writes configurations to:
      - Project-local mode (default):
-       • ./.mcp.json for MCP servers
-       • ./.claude/settings.json for settings
+       • Claude Desktop/Code: ./.mcp.json (MCP servers) + ./.claude/settings.json (settings)
+       • Codex: ./.codex/config.toml
+       • Gemini: ./.gemini/settings.json
      - Global mode (--global):
        • Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
        • Claude Code: ~/.claude.json + ~/.claude/settings.json

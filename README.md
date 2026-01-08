@@ -197,13 +197,13 @@ Synchronize all agent configurations to target files.
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
 - Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
 - Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
-- Gemini (`--agent gemini`): MCP servers → `./.mcp.json`, settings → `./gemini/settings.json`
+- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 
 **Global mode (`--global`):**
 - Claude Desktop (`--agent claude`): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
 - Claude Code (`--agent claude-code`): MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`, commands → `~/.claude/commands/`
 - Codex (`--agent codex`): `~/.codex/config.toml`
-- Gemini (`--agent gemini`): MCP servers → `~/.claude.json`, settings → `~/.gemini/settings.json`
+- Gemini (`--agent gemini`): `~/.gemini/settings.json`
 
 ```bash
 # Basic sync to project-local files

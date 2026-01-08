@@ -94,13 +94,15 @@ Project Directory (default):
 ├── .claude/
 │   ├── settings.json          # Project-local Claude Code settings (when using --agent claude-code)
 │   └── commands/              # Project-local slash commands
+├── .gemini/
+│   └── settings.json          # Project-local Gemini settings + MCP servers (when using --agent gemini)
 └── CLAUDE.md                  # Project-specific instructions
 
 Global targets (--global):
 ├── Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
 ├── Claude Code: ~/.claude.json + ~/.claude/settings.json
 ├── Codex: ~/.codex/config.toml
-├── Gemini: ~/.claude.json + ~/.gemini/settings.json
+├── Gemini: ~/.gemini/settings.json
 └── Commands: ~/.claude/commands
 ```
 
@@ -119,7 +121,7 @@ Global targets (--global):
 - Claude Desktop: MCP servers → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json`
 - Claude Code: MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
 - Codex: settings + MCP servers → `~/.codex/config.toml`
-- Gemini: MCP servers → `~/.claude.json`, settings → `~/.gemini/settings.json`
+- Gemini: settings + MCP servers → `~/.gemini/settings.json`
 
 ## Command Reference
 
@@ -160,13 +162,13 @@ Synchronize configurations to target files.
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
 - Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
 - Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
-- Gemini (`--agent gemini`): MCP servers → `./.mcp.json`, settings → `./gemini/settings.json`
+- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 
 **Global mode (--global):**
 - Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
 - Claude Code (`--agent claude-code`) → `~/.claude.json` + `~/.claude/settings.json`
 - Codex (`--agent codex`) → `~/.codex/config.toml`
-- Gemini (`--agent gemini`) → `~/.claude.json` + `~/.gemini/settings.json`
+- Gemini (`--agent gemini`) → `~/.gemini/settings.json`
 - Commands → `~/.claude/commands/`
 
 ```bash
