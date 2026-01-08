@@ -1,3 +1,4 @@
+use crate::config::McpServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -5,6 +6,9 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_file_name: Option<String>,
 
@@ -96,6 +100,7 @@ pub struct Telemetry {
 
 // Known field names for validation
 pub const KNOWN_GEMINI_FIELDS: &[&str] = &[
+    "mcpServers",
     "contextFileName",
     "bugCommand",
     "fileFiltering",

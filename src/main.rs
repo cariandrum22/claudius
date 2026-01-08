@@ -565,9 +565,8 @@ fn execute_sync_operation(
     let read_result = read_configurations(config, &paths.mcp_servers, agent_context)?;
 
     debug!("Reading target configuration");
-    let mut claude_config = if global && (agent_context.is_codex || agent_context.is_gemini) {
-        // For Codex/Gemini in global mode, don't read from ~/.claude.json
-        // Start with empty config - the actual existing config will be read in write_*_global functions
+    let mut claude_config = if global && agent_context.is_codex {
+        // For Codex in global mode, don't read from paths.target_config (Codex uses ~/.codex/config.toml).
         claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() }
     } else {
         reader::read_claude_config(&paths.target_config)

@@ -179,7 +179,7 @@ impl Config {
             )),
             Some(crate::app_config::Agent::Gemini) => {
                 let gemini_input = config_dir.join("gemini.settings.json");
-                Ok((claude_code_path, None, gemini_input))
+                Ok((home_dir.join(".gemini").join("settings.json"), None, gemini_input))
             },
             Some(crate::app_config::Agent::Codex) => {
                 let codex_input = config_dir.join("codex.settings.toml");
@@ -198,10 +198,11 @@ impl Config {
         let mcp_path = current_dir.join(".mcp.json");
 
         match agent {
-            Some(crate::app_config::Agent::Gemini) => {
-                let settings_path = current_dir.join("gemini").join("settings.json");
-                Ok((mcp_path, Some(settings_path), config_dir.join("gemini.settings.json")))
-            },
+            Some(crate::app_config::Agent::Gemini) => Ok((
+                current_dir.join(".gemini").join("settings.json"),
+                None,
+                config_dir.join("gemini.settings.json"),
+            )),
             Some(crate::app_config::Agent::Codex) => {
                 let settings_path = current_dir.join(".codex").join("config.toml");
                 Ok((mcp_path, Some(settings_path), config_dir.join("codex.settings.toml")))

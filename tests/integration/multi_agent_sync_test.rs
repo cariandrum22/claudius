@@ -151,13 +151,19 @@ mod tests {
             .assert()
             .success();
 
-        // Verify MCP servers were synced
-        let claude_config_path = home_dir.join(".claude.json");
-        assert!(claude_config_path.exists(), "Claude config should exist for MCP servers");
+        // Verify Gemini settings were synced (Gemini CLI stores MCP servers in the same file)
+        let gemini_settings_path = home_dir.join(".gemini/settings.json");
+        assert!(gemini_settings_path.exists(), "Gemini settings should exist");
 
-        // Note: Due to how directories::BaseDirs works in tests, Gemini and Codex files
-        // might be created in the actual home directory rather than the test directory.
-        // The important verification is that the sync command succeeded above.
+        let gemini_config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&gemini_settings_path).unwrap()).unwrap();
+        assert_eq!(
+            gemini_config
+                .get("mcpServers")
+                .and_then(|s| s.get("test-server"))
+                .and_then(|t| t.get("command")),
+            Some(&serde_json::Value::String("node".to_string()))
+        );
     }
 
     #[test]

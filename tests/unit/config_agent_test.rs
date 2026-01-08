@@ -109,19 +109,9 @@ mod tests {
         let config = Config::new_with_agent(false, Some(Agent::Gemini)).unwrap();
         // In local mode, gemini uses settings from config dir
         assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
-        // But project settings path should be ./gemini/settings.json
-        assert!(config
-            .project_settings_path
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains("gemini/settings.json"));
-        assert!(!config
-            .project_settings_path
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains(".claude"));
+        // Gemini CLI stores settings and MCP servers in .gemini/settings.json
+        assert!(config.target_config_path.to_string_lossy().contains(".gemini/settings.json"));
+        assert!(config.project_settings_path.is_none());
     }
 
     #[test]
@@ -140,6 +130,8 @@ mod tests {
         let config = Config::new_with_agent(true, Some(Agent::Gemini)).unwrap();
         // In global mode, gemini reads from config_dir/gemini.settings.json
         assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
+        // Gemini CLI stores settings and MCP servers in ~/.gemini/settings.json
+        assert!(config.target_config_path.to_string_lossy().contains(".gemini/settings.json"));
     }
 
     #[test]

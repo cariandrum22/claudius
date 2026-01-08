@@ -32,13 +32,9 @@ mod tests {
         fixture
             .with_gemini_settings(
                 r#"{
-        "apiKeyHelper": "/bin/generate_api_key.sh",
-        "cleanupPeriodDays": 20,
-        "env": {"FOO": "bar"},
-        "includeCoAuthoredBy": false,
-        "permissions": {
-            "allow": ["Bash(npm run lint)"]
-        }
+        "contextFileName": "GEMINI.md",
+        "autoAccept": true,
+        "theme": "dark"
     }"#,
             )
             .unwrap();
@@ -53,43 +49,28 @@ mod tests {
             .assert()
             .success();
 
-        // Verify .mcp.json contains only mcpServers
-        let mcp_content = fixture.read_project_file(".mcp.json").unwrap();
-        let mcp_json: serde_json::Value = serde_json::from_str(&mcp_content).unwrap();
+        // Gemini CLI stores settings and MCP servers together in .gemini/settings.json
+        assert!(!fixture.project_file_exists(".mcp.json"));
+
+        let settings_content = fixture.read_project_file(".gemini/settings.json").unwrap();
+        let settings_json: serde_json::Value = serde_json::from_str(&settings_content).unwrap();
 
         assert_eq!(
-            mcp_json
+            settings_json
                 .get("mcpServers")
                 .and_then(|s| s.get("test-server"))
                 .and_then(|t| t.get("command")),
             Some(&serde_json::Value::String("test".to_string()))
         );
-        assert!(mcp_json.get("apiKeyHelper").is_none());
-        assert!(mcp_json.get("cleanupPeriodDays").is_none());
-
-        // Verify gemini/settings.json contains settings (for gemini agent)
-        let settings_content = fixture.read_project_file("gemini/settings.json").unwrap();
-        let settings_json: serde_json::Value = serde_json::from_str(&settings_content).unwrap();
 
         assert_eq!(
-            settings_json.get("apiKeyHelper"),
-            Some(&serde_json::Value::String("/bin/generate_api_key.sh".to_string()))
+            settings_json.get("contextFileName"),
+            Some(&serde_json::Value::String("GEMINI.md".to_string()))
         );
+        assert_eq!(settings_json.get("autoAccept"), Some(&serde_json::Value::Bool(true)));
         assert_eq!(
-            settings_json.get("cleanupPeriodDays"),
-            Some(&serde_json::Value::Number(serde_json::Number::from(20)))
-        );
-        assert_eq!(
-            settings_json.get("env").and_then(|e| e.get("FOO")),
-            Some(&serde_json::Value::String("bar".to_string()))
-        );
-        assert_eq!(settings_json.get("includeCoAuthoredBy"), Some(&serde_json::Value::Bool(false)));
-        assert_eq!(
-            settings_json
-                .get("permissions")
-                .and_then(|p| p.get("allow"))
-                .and_then(|a| a.get(0)),
-            Some(&serde_json::Value::String("Bash(npm run lint)".to_string()))
+            settings_json.get("theme"),
+            Some(&serde_json::Value::String("dark".to_string()))
         );
     }
 
@@ -312,8 +293,10 @@ agent = "claude-code"
             .assert()
             .success();
 
-        // Verify .mcp.json created
-        let content = fixture.read_project_file(".mcp.json").unwrap();
+        // Gemini CLI stores settings and MCP servers together in .gemini/settings.json
+        assert!(!fixture.project_file_exists(".mcp.json"));
+
+        let content = fixture.read_project_file(".gemini/settings.json").unwrap();
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
 
         // Check MCP servers
@@ -327,8 +310,6 @@ agent = "claude-code"
         // Check no settings added
         assert!(json.get("apiKeyHelper").is_none());
         assert!(json.get("cleanupPeriodDays").is_none());
-
-        // Check gemini/settings.json was not created
         assert!(!fixture.project_file_exists("gemini/settings.json"));
     }
 

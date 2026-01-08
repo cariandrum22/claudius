@@ -8,6 +8,7 @@ use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
 use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
@@ -235,11 +236,18 @@ pub fn merge_all_configs(
     let new_count = claude_config.mcp_servers.as_ref().map_or(0, std::collections::HashMap::len);
     debug!("Merged configuration: {} -> {} server(s)", original_count, new_count);
 
-    // For non-Claude agents in global mode (except Gemini/Codex), merge settings into the target JSON.
-    // Claude Desktop uses a dedicated config file containing MCP servers. Claude Code stores settings
-    // separately in ~/.claude/settings.json.
+    if agent_context.is_gemini {
+        if let Some(settings) = read_result.settings.as_ref() {
+            debug!("Merging Gemini settings");
+            merge_gemini_settings_into_config(claude_config, settings)?;
+            debug!("Gemini settings merged successfully");
+        }
+    }
+
+    // For non-Claude agents in global mode (except Codex), merge settings into the target JSON.
+    // Claude Desktop uses a dedicated config file containing MCP servers. Claude Code stores
+    // settings separately in ~/.claude/settings.json. Codex stores settings in ~/.codex/config.toml.
     if global
-        && !agent_context.is_gemini
         && !agent_context.is_codex
         && !agent_context.is_claude
         && !agent_context.is_claude_code
@@ -251,6 +259,30 @@ pub fn merge_all_configs(
             debug!("Settings merged successfully");
         }
     }
+
+    Ok(())
+}
+
+fn merge_gemini_settings_into_config(
+    claude_config: &mut ClaudeConfig,
+    settings: &Settings,
+) -> Result<()> {
+    if let Some(mcp_servers) = settings.mcp_servers.as_ref() {
+        let settings_mcp = McpServersConfig { mcp_servers: mcp_servers.clone() };
+        merge_configs(claude_config, &settings_mcp, MergeStrategy::default())?;
+    }
+
+    let mut settings_value: Value = serde_json::to_value(settings)
+        .context("Failed to serialize Gemini settings for merging")?;
+    let Value::Object(map) = &mut settings_value else {
+        return Ok(());
+    };
+
+    map.remove("mcpServers");
+
+    let overlay: HashMap<String, Value> =
+        map.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    deep_merge_json_maps(&mut claude_config.other, &overlay);
 
     Ok(())
 }
@@ -286,13 +318,17 @@ fn print_project_local_dry_run(
 ) -> Result<()> {
     if agent_context.is_codex {
         print_codex_dry_run(claude_config, read_result.codex_settings.as_ref())?;
+    } else if agent_context.is_gemini {
+        print_gemini_dry_run(claude_config)?;
     } else {
-        print_other_agent_dry_run(
-            claude_config,
-            read_result.settings.as_ref(),
-            agent_context.is_gemini,
-        )?;
+        print_other_agent_dry_run(claude_config, read_result.settings.as_ref())?;
     }
+    Ok(())
+}
+
+fn print_gemini_dry_run(claude_config: &ClaudeConfig) -> Result<()> {
+    println!("\n--- Gemini settings (.gemini/settings.json) ---");
+    println!("{}", serde_json::to_string_pretty(&claude_config)?);
     Ok(())
 }
 
@@ -320,7 +356,6 @@ fn print_codex_dry_run(
 fn print_other_agent_dry_run(
     claude_config: &ClaudeConfig,
     settings: Option<&Settings>,
-    is_gemini: bool,
 ) -> Result<()> {
     // Print MCP servers
     println!("\n--- MCP servers (.mcp.json) ---");
@@ -333,8 +368,7 @@ fn print_other_agent_dry_run(
         let mut settings_copy = settings_ref.clone();
         settings_copy.mcp_servers = None;
 
-        let settings_location =
-            if is_gemini { "./gemini/settings.json" } else { ".claude/settings.json" };
+        let settings_location = ".claude/settings.json";
         println!("\n--- Settings ({settings_location}) ---");
         println!("{}", serde_json::to_string_pretty(&settings_copy)?);
     }
@@ -535,8 +569,6 @@ fn write_global_configurations(
 ) -> Result<()> {
     if agent_context.is_claude_code {
         write_claude_code_global(claude_config, target_config_path, read_result.settings.as_ref())?;
-    } else if agent_context.is_gemini {
-        write_gemini_global(claude_config, target_config_path, read_result.settings.as_ref())?;
     } else if agent_context.is_codex {
         write_codex_global(claude_config, target_config_path, read_result.codex_settings.as_ref())?;
     } else {
@@ -678,95 +710,6 @@ fn write_codex_global(
     Ok(())
 }
 
-/// Write Gemini configuration in global mode
-fn write_gemini_global(
-    claude_config: &ClaudeConfig,
-    target_config_path: &Path,
-    settings: Option<&Settings>,
-) -> Result<()> {
-    // For Gemini, we write MCP servers to target path and settings separately
-    let gemini_settings_path = directories::BaseDirs::new()
-        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-        .home_dir()
-        .join(".gemini")
-        .join("settings.json");
-
-    // Read existing Gemini settings
-    let existing_settings = reader::read_settings(&gemini_settings_path)
-        .context("Failed to read existing Gemini settings")?;
-
-    // Merge or use settings
-    let settings_to_write = if let Some(mut existing) = existing_settings {
-        if let Some(source) = settings {
-            // Merge source settings into existing (field by field)
-            merge_gemini_settings(&mut existing, source);
-            existing
-        } else {
-            // Keep existing settings
-            existing
-        }
-    } else if let Some(source) = settings {
-        // Use source settings
-        source.clone()
-    } else {
-        // No settings to write - create minimal settings
-        Settings {
-            api_key_helper: None,
-            cleanup_period_days: None,
-            env: None,
-            include_co_authored_by: None,
-            permissions: None,
-            preferred_notif_channel: None,
-            mcp_servers: None,
-            extra: HashMap::new(),
-        }
-    };
-
-    let mut settings_to_write = settings_to_write;
-    settings_to_write.mcp_servers = None;
-
-    // Write MCP servers to target configuration
-    info!("Writing MCP servers to target configuration");
-    writer::write_claude_config(target_config_path, claude_config)
-        .context("Failed to write configuration")?;
-
-    // Write merged settings
-    info!("Writing settings to ~/.gemini/settings.json");
-    if let Some(parent) = gemini_settings_path.parent() {
-        std::fs::create_dir_all(parent).context("Failed to create .gemini directory")?;
-    }
-    writer::write_settings(&gemini_settings_path, &settings_to_write)
-        .context("Failed to write ~/.gemini/settings.json")?;
-
-    Ok(())
-}
-
-/// Merge Gemini settings (field by field merge)
-fn merge_gemini_settings(target: &mut Settings, source: &Settings) {
-    // Merge each field from source into target
-    if source.api_key_helper.is_some() {
-        target.api_key_helper.clone_from(&source.api_key_helper);
-    }
-    if source.cleanup_period_days.is_some() {
-        target.cleanup_period_days = source.cleanup_period_days;
-    }
-    if source.env.is_some() {
-        target.env.clone_from(&source.env);
-    }
-    if source.include_co_authored_by.is_some() {
-        target.include_co_authored_by = source.include_co_authored_by;
-    }
-    if source.permissions.is_some() {
-        target.permissions.clone_from(&source.permissions);
-    }
-    if source.preferred_notif_channel.is_some() {
-        target.preferred_notif_channel.clone_from(&source.preferred_notif_channel);
-    }
-    // Note: MCP servers are handled separately in target configuration
-
-    deep_merge_json_maps(&mut target.extra, &source.extra);
-}
-
 /// Write configurations in project-local mode
 fn write_project_local_configurations(
     config: &Config,
@@ -777,6 +720,8 @@ fn write_project_local_configurations(
 ) -> Result<()> {
     if agent_context.is_claude {
         write_claude_project_local(config, claude_config, read_result.settings.as_ref())?;
+    } else if agent_context.is_gemini {
+        write_gemini_project_local(target_config_path, claude_config)?;
     } else if agent_context.is_codex {
         write_codex_project_local(config, claude_config, read_result.codex_settings.as_ref())?;
     } else {
@@ -787,6 +732,16 @@ fn write_project_local_configurations(
             read_result.settings.as_ref(),
         )?;
     }
+    Ok(())
+}
+
+fn write_gemini_project_local(
+    target_config_path: &Path,
+    claude_config: &ClaudeConfig,
+) -> Result<()> {
+    info!("Writing Gemini settings to {}", target_config_path.display());
+    writer::write_claude_config(target_config_path, claude_config)
+        .context("Failed to write .gemini/settings.json")?;
     Ok(())
 }
 
