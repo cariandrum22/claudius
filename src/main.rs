@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     }
 
     let Some(command) = cli.command else {
-        Cli::command().print_help().expect("failed to print top-level help");
+        Cli::command().print_help().context("failed to print top-level help")?;
         println!();
         return Ok(());
     };
@@ -150,8 +150,7 @@ fn print_available_commands() {
         let about = subcommand
             .get_about()
             .or_else(|| subcommand.get_long_about())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| String::from("(no description)"));
+            .map_or_else(|| String::from("(no description)"), std::string::ToString::to_string);
         println!("  {:<10} {}", name, about.trim());
 
         let nested: Vec<String> =
