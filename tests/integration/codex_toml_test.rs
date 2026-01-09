@@ -54,10 +54,7 @@ env_key = "OPENAI_API_KEY"
             "Sandbox mode mismatch"
         );
         anyhow::ensure!(
-            settings_data
-                .sandbox_workspace_write
-                .as_ref()
-                .and_then(|s| s.network_access)
+            settings_data.sandbox_workspace_write.as_ref().and_then(|s| s.network_access)
                 == Some(true),
             "Network access mismatch"
         );

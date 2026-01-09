@@ -112,7 +112,8 @@ mod tests {
             "\"claude\""
         );
         assert_eq!(
-            serde_json::to_string(&Agent::ClaudeCode).expect("Failed to serialize Agent::ClaudeCode"),
+            serde_json::to_string(&Agent::ClaudeCode)
+                .expect("Failed to serialize Agent::ClaudeCode"),
             "\"claude-code\""
         );
         assert_eq!(

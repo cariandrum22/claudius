@@ -64,14 +64,8 @@ mod tests {
         // New servers should be present
         assert!(servers.contains_key("server3"));
         assert!(servers.contains_key("server4"));
-        assert_eq!(
-            servers.get("server3").and_then(|s| s.command.as_deref()),
-            Some("new-command3")
-        );
-        assert_eq!(
-            servers.get("server4").and_then(|s| s.command.as_deref()),
-            Some("new-command4")
-        );
+        assert_eq!(servers.get("server3").and_then(|s| s.command.as_deref()), Some("new-command3"));
+        assert_eq!(servers.get("server4").and_then(|s| s.command.as_deref()), Some("new-command4"));
 
         // Other config should be preserved
         assert_eq!(claude_config.other.get("theme"), Some(&serde_json::json!("dark")));

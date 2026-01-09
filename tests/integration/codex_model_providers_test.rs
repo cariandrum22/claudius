@@ -677,19 +677,19 @@ approval_policy = "none"
         anyhow::ensure!(settings_content.contains("model_provider = \"openai\""));
 
         // Should contain model_providers
-	        anyhow::ensure!(settings_content.contains("[model_providers.openai]"));
-	        anyhow::ensure!(settings_content.contains("base_url = \"https://api.openai.com/v1\""));
-	        anyhow::ensure!(settings_content.contains("env_key = \"OPENAI_API_KEY\""));
+        anyhow::ensure!(settings_content.contains("[model_providers.openai]"));
+        anyhow::ensure!(settings_content.contains("base_url = \"https://api.openai.com/v1\""));
+        anyhow::ensure!(settings_content.contains("env_key = \"OPENAI_API_KEY\""));
 
         // Check headers
-	        anyhow::ensure!(settings_content.contains("[model_providers.openai.http_headers]"));
-	        anyhow::ensure!(settings_content.contains("X-OpenAI-Beta = \"assistants=v2\""));
-	        anyhow::ensure!(settings_content.contains("X-Custom-Org = \"$OPENAI_ORG_ID\""));
+        anyhow::ensure!(settings_content.contains("[model_providers.openai.http_headers]"));
+        anyhow::ensure!(settings_content.contains("X-OpenAI-Beta = \"assistants=v2\""));
+        anyhow::ensure!(settings_content.contains("X-Custom-Org = \"$OPENAI_ORG_ID\""));
 
-	        // Check anthropic provider
-	        anyhow::ensure!(settings_content.contains("[model_providers.anthropic]"));
-	        anyhow::ensure!(settings_content.contains("[model_providers.anthropic.http_headers]"));
-	        anyhow::ensure!(settings_content.contains("anthropic-version = \"2023-06-01\""));
+        // Check anthropic provider
+        anyhow::ensure!(settings_content.contains("[model_providers.anthropic]"));
+        anyhow::ensure!(settings_content.contains("[model_providers.anthropic.http_headers]"));
+        anyhow::ensure!(settings_content.contains("anthropic-version = \"2023-06-01\""));
 
         // Should contain MCP servers
         anyhow::ensure!(settings_content.contains("[mcp_servers.test-server]"));

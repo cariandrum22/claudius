@@ -183,17 +183,19 @@ pub const KNOWN_CODEX_FIELDS: &[&str] = &[
 // We no longer validate model provider fields since they can have arbitrary extra fields
 // pub const KNOWN_MODEL_PROVIDER_FIELDS: &[&str] = &["name", "base_url", "env_key", "http_headers"];
 
-pub const KNOWN_SHELL_ENV_FIELDS: &[&str] =
-    &["inherit", "ignore_default_excludes", "exclude", "set", "include_only", "experimental_use_profile"];
+pub const KNOWN_SHELL_ENV_FIELDS: &[&str] = &[
+    "inherit",
+    "ignore_default_excludes",
+    "exclude",
+    "set",
+    "include_only",
+    "experimental_use_profile",
+];
 
 pub const KNOWN_SANDBOX_FIELDS: &[&str] = &["mode", "writable_roots", "network_access"];
 
-pub const KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS: &[&str] = &[
-    "writable_roots",
-    "network_access",
-    "exclude_tmpdir_env_var",
-    "exclude_slash_tmp",
-];
+pub const KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS: &[&str] =
+    &["writable_roots", "network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp"];
 
 pub const KNOWN_HISTORY_FIELDS: &[&str] = &["persistence", "max_bytes"];
 
