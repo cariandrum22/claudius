@@ -220,7 +220,7 @@ impl VariableGraph {
 
         // Warn about unresolved references
         if !unresolved_refs.is_empty() {
-            warn!("Variable {} contains unresolved references: {:?}", var_name, unresolved_refs);
+            warn!("Variable {var_name} contains unresolved references: {unresolved_refs:?}");
         }
 
         // Update the node with resolved value
@@ -248,17 +248,13 @@ impl VariableGraph {
                     .as_str();
 
                 // Try to resolve the reference
-                self.lookup_variable_value(var_ref, external_values).map_or_else(
-                    || {
-                        // If not found, keep track and preserve the reference
-                        unresolved_refs.push(var_ref.to_string());
-                        caps.get(0)
-                            .expect("regex match guarantees capture group 0 (full match) exists")
-                            .as_str()
-                            .to_string()
-                    },
-                    |resolved_value| resolved_value,
-                )
+                self.lookup_variable_value(var_ref, external_values).unwrap_or_else(|| {
+                    unresolved_refs.push(var_ref.to_string());
+                    caps.get(0)
+                        .expect("regex match guarantees capture group 0 (full match) exists")
+                        .as_str()
+                        .to_string()
+                })
             })
             .to_string();
 

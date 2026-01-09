@@ -5,6 +5,7 @@ use clap::{CommandFactory, Parser};
 #[cfg(feature = "profiling")]
 use claudius::profiling::profile_flamegraph;
 use claudius::{
+    agent_paths,
     app_config::AppConfig,
     bootstrap,
     cli::{self, Cli},
@@ -13,7 +14,7 @@ use claudius::{
     secrets::SecretResolver,
     sync_operations::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
-        sync_commands_if_exists, write_configurations, AgentContext,
+        sync_commands_if_exists, write_configurations, AgentContext, CodexGlobalSyncOptions,
     },
     template::{
         append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
@@ -111,6 +112,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
         cli::Commands::Config(subcommand) => match subcommand {
             cli::ConfigCommands::Init(args) => run_init(args.force, app_config),
             cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
+            cli::ConfigCommands::Validate(args) => run_config_validate(args, app_config),
         },
         cli::Commands::Command(subcommand) => match subcommand {
             cli::CommandCommands::Sync(args) => run_sync_commands(args.global),
@@ -220,19 +222,303 @@ fn run_sync_commands(global: bool) -> Result<()> {
 }
 
 fn run_config_sync(args: cli::ConfigSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
-    let cli::ConfigSyncArgs { config, dry_run, backup, target_config, global, agent } = args;
+    let options = build_sync_options(args, app_config)?;
+    run_sync(&options, app_config)
+}
 
-    run_sync(
-        &SyncOptions {
-            config_path: config,
-            target_config_path: target_config,
-            dry_run,
-            backup,
-            global,
-            agent_override: agent,
+fn build_sync_options(
+    args: cli::ConfigSyncArgs,
+    app_config: Option<&AppConfig>,
+) -> Result<SyncOptions> {
+    let cli::ConfigSyncArgs {
+        config,
+        dry_run,
+        backup,
+        target_config,
+        global,
+        agent,
+        scope,
+        codex_requirements,
+        codex_managed_config,
+        gemini_system,
+    } = args;
+
+    let effective_agent = determine_agent(agent, app_config);
+    validate_sync_agent_flags(
+        effective_agent,
+        scope,
+        codex_requirements,
+        codex_managed_config,
+        gemini_system,
+    )?;
+
+    let effective_global = compute_effective_global(global, scope);
+    if codex_requirements && !effective_global {
+        anyhow::bail!(
+            "--codex-requirements requires --global (Codex requirements are system-wide)"
+        );
+    }
+
+    if codex_managed_config && !effective_global {
+        anyhow::bail!(
+            "--codex-managed-config requires --global (Codex managed_config.toml is system-wide)",
+        );
+    }
+
+    if gemini_system && !effective_global {
+        anyhow::bail!("--gemini-system requires --global (Gemini system settings are system-wide)");
+    }
+
+    let effective_target_config = target_config
+        .or_else(|| gemini_system.then_some(agent_paths::gemini_cli_system_settings_path()));
+
+    Ok(SyncOptions {
+        config_path: config,
+        target_config_path: effective_target_config,
+        dry_run,
+        backup,
+        global: effective_global,
+        agent_override: agent,
+        claude_code_scope: scope,
+        codex_requirements,
+        codex_managed_config,
+        gemini_system,
+    })
+}
+
+fn validate_sync_agent_flags(
+    effective_agent: Option<claudius::app_config::Agent>,
+    scope: Option<claudius::app_config::ClaudeCodeScope>,
+    codex_requirements: bool,
+    codex_managed_config: bool,
+    gemini_system: bool,
+) -> Result<()> {
+    if scope.is_some() && effective_agent != Some(claudius::app_config::Agent::ClaudeCode) {
+        anyhow::bail!("--scope is only supported with --agent claude-code");
+    }
+
+    if codex_requirements && effective_agent != Some(claudius::app_config::Agent::Codex) {
+        anyhow::bail!("--codex-requirements is only supported with --agent codex");
+    }
+
+    if codex_managed_config && effective_agent != Some(claudius::app_config::Agent::Codex) {
+        anyhow::bail!("--codex-managed-config is only supported with --agent codex");
+    }
+
+    if gemini_system && effective_agent != Some(claudius::app_config::Agent::Gemini) {
+        anyhow::bail!("--gemini-system is only supported with --agent gemini");
+    }
+
+    Ok(())
+}
+
+fn compute_effective_global(
+    global: bool,
+    scope: Option<claudius::app_config::ClaudeCodeScope>,
+) -> bool {
+    scope.map_or(global, |claude_scope| match claude_scope {
+        claudius::app_config::ClaudeCodeScope::Managed
+        | claudius::app_config::ClaudeCodeScope::User => true,
+        claudius::app_config::ClaudeCodeScope::Project
+        | claudius::app_config::ClaudeCodeScope::Local => false,
+    })
+}
+
+fn run_config_validate(
+    args: cli::ConfigValidateArgs,
+    app_config: Option<&AppConfig>,
+) -> Result<()> {
+    use claudius::app_config::Agent;
+
+    let cli::ConfigValidateArgs { agent, strict } = args;
+    let effective_agent =
+        agent.or_else(|| app_config.and_then(|cfg| cfg.default.as_ref()).map(|d| d.agent));
+
+    let config_dir =
+        Config::get_config_dir().context("Failed to determine Claudius config directory")?;
+
+    let mut warnings = Vec::new();
+
+    // MCP servers (required)
+    let mcp_servers_path = config_dir.join("mcpServers.json");
+    let mcp_servers = reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
+        format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
+    })?;
+
+    for (name, server) in &mcp_servers.mcp_servers {
+        if server.command.is_none() && server.url.is_none() {
+            warnings.push(format!(
+                "{}: mcpServers.{name} must define either command or url",
+                mcp_servers_path.display(),
+            ));
+        }
+    }
+
+    match effective_agent {
+        Some(Agent::Claude | Agent::ClaudeCode) => {
+            warnings.extend(validate_claude_settings_sources(&config_dir)?);
         },
-        app_config,
-    )
+        Some(Agent::Codex) => {
+            warnings.extend(validate_codex_sources(&config_dir)?);
+        },
+        Some(Agent::Gemini) => {
+            warnings.extend(validate_gemini_sources(&config_dir)?);
+        },
+        None => {
+            warnings.extend(validate_claude_settings_sources(&config_dir)?);
+            warnings.extend(validate_codex_sources(&config_dir)?);
+            warnings.extend(validate_gemini_sources(&config_dir)?);
+        },
+    }
+
+    if warnings.is_empty() {
+        println!("Configuration validation passed");
+        return Ok(());
+    }
+
+    println!("Configuration validation warnings ({}):", warnings.len());
+    for warning in &warnings {
+        println!("  - {warning}");
+    }
+
+    if strict {
+        anyhow::bail!("Validation failed due to warnings (--strict)");
+    }
+
+    Ok(())
+}
+
+fn validate_claude_settings_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let claude_settings_path = config_dir.join("claude.settings.json");
+    let legacy_settings_path = config_dir.join("settings.json");
+
+    let settings_candidate = if claude_settings_path.exists() {
+        Some(claude_settings_path)
+    } else if legacy_settings_path.exists() {
+        Some(legacy_settings_path)
+    } else {
+        None
+    };
+
+    let Some(settings_path) = settings_candidate else {
+        return Ok(Vec::new());
+    };
+
+    let content = std::fs::read_to_string(&settings_path)
+        .with_context(|| format!("Failed to read {}", settings_path.display()))?;
+    let json_value: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON from {}", settings_path.display()))?;
+
+    let mut warnings = claudius::validation::validate_claude_settings(&json_value)
+        .into_iter()
+        .map(|w| format!("{}: {w}", settings_path.display()))
+        .collect::<Vec<_>>();
+
+    // Ensure Settings struct deserialization succeeds (we preserve unknown fields via `extra`).
+    let _: claudius::config::Settings = serde_json::from_value(json_value).with_context(|| {
+        format!("Failed to deserialize Settings from {}", settings_path.display())
+    })?;
+
+    // Legacy settings.json is not agent-specific, so annotate which file was used.
+    if settings_path.file_name().and_then(|n| n.to_str()) == Some("settings.json") {
+        warnings.push(format!(
+            "{}: Using legacy settings.json (consider migrating to claude.settings.json)",
+            settings_path.display(),
+        ));
+    }
+
+    Ok(warnings)
+}
+
+fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+
+    let codex_settings_path = config_dir.join("codex.settings.toml");
+    if codex_settings_path.exists() {
+        warnings.extend(validate_codex_settings_like_file(&codex_settings_path)?);
+    }
+
+    let codex_requirements_path = config_dir.join("codex.requirements.toml");
+    if codex_requirements_path.exists() {
+        validate_toml_parse_file(&codex_requirements_path)?;
+    }
+
+    if let Some((managed_config_path, is_legacy)) = select_codex_managed_config_source(config_dir) {
+        warnings.extend(validate_codex_settings_like_file(&managed_config_path)?);
+
+        if is_legacy {
+            warnings.push(format!(
+                "{}: Using legacy managed_config.toml (consider migrating to codex.managed_config.toml)",
+                managed_config_path.display(),
+            ));
+        }
+    }
+
+    Ok(warnings)
+}
+
+fn validate_toml_parse_file(path: &std::path::Path) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let _: toml::Value =
+        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
+    Ok(())
+}
+
+fn validate_codex_settings_like_file(path: &std::path::Path) -> Result<Vec<String>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let value: toml::Value =
+        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
+
+    let warnings = claudius::codex_settings::validate_codex_settings(&value)
+        .into_iter()
+        .map(|w| format!("{}: {w}", path.display()))
+        .collect::<Vec<_>>();
+
+    let _: claudius::codex_settings::CodexSettings = toml::from_str(&content)
+        .with_context(|| format!("Failed to deserialize {}", path.display()))?;
+
+    Ok(warnings)
+}
+
+fn select_codex_managed_config_source(
+    config_dir: &std::path::Path,
+) -> Option<(std::path::PathBuf, bool)> {
+    let codex_managed_config_path = config_dir.join("codex.managed_config.toml");
+    if codex_managed_config_path.exists() {
+        return Some((codex_managed_config_path, false));
+    }
+
+    let legacy_managed_config_path = config_dir.join("managed_config.toml");
+    legacy_managed_config_path
+        .exists()
+        .then_some((legacy_managed_config_path, true))
+}
+
+fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+
+    let gemini_settings_path = config_dir.join("gemini.settings.json");
+    if !gemini_settings_path.exists() {
+        return Ok(warnings);
+    }
+
+    let content = std::fs::read_to_string(&gemini_settings_path)
+        .with_context(|| format!("Failed to read {}", gemini_settings_path.display()))?;
+    let json_value: serde_json::Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON from {}", gemini_settings_path.display()))?;
+
+    warnings.extend(
+        claudius::gemini_settings::validate_gemini_settings(&json_value)
+            .into_iter()
+            .map(|w| format!("{}: {w}", gemini_settings_path.display())),
+    );
+
+    let _: claudius::gemini_settings::GeminiSettings = serde_json::from_value(json_value)
+        .with_context(|| format!("Failed to deserialize {}", gemini_settings_path.display()))?;
+
+    Ok(warnings)
 }
 
 fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>) -> Result<()> {
@@ -271,7 +557,7 @@ fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>)
 
 #[derive(Default)]
 struct RulesTree {
-    directories: BTreeMap<String, RulesTree>,
+    directories: BTreeMap<String, Self>,
     files: BTreeSet<String>,
 }
 
@@ -286,7 +572,7 @@ fn insert_rule_path(node: &mut RulesTree, components: &[&str]) {
 }
 
 fn print_rules_tree(node: &RulesTree, prefix: &str) {
-    let total = node.directories.len() + node.files.len();
+    let total = node.directories.len().saturating_add(node.files.len());
     if total == 0 {
         return;
     }
@@ -294,7 +580,7 @@ fn print_rules_tree(node: &RulesTree, prefix: &str) {
     let mut index = 0_usize;
 
     for (dir, child) in &node.directories {
-        index += 1;
+        index = index.saturating_add(1);
         let is_last = index == total;
         let connector = if is_last { "└── " } else { "├── " };
         println!("{prefix}{connector}{dir}/");
@@ -303,7 +589,7 @@ fn print_rules_tree(node: &RulesTree, prefix: &str) {
     }
 
     for file in &node.files {
-        index += 1;
+        index = index.saturating_add(1);
         let is_last = index == total;
         let connector = if is_last { "└── " } else { "├── " };
         println!("{prefix}{connector}{file}");
@@ -413,6 +699,10 @@ struct SyncOptions {
     backup: bool,
     global: bool,
     agent_override: Option<claudius::app_config::Agent>,
+    claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
+    codex_requirements: bool,
+    codex_managed_config: bool,
+    gemini_system: bool,
 }
 
 fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()> {
@@ -421,6 +711,10 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
         && options.agent_override.is_none()
         && options.config_path.is_none()
         && options.target_config_path.is_none()
+        && options.claude_code_scope.is_none()
+        && !options.codex_requirements
+        && !options.codex_managed_config
+        && !options.gemini_system
         && app_config.is_none_or(|cfg| cfg.default.is_none())
     {
         sync_all_available_agents(options, app_config)
@@ -432,20 +726,23 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
             options.global,
             options.config_path.clone(),
             options.target_config_path.clone(),
+            options.claude_code_scope,
         )?;
 
         // Log configuration paths
         log_sync_paths(&paths, options.global, &config);
 
         // Execute sync operation
-        execute_sync_operation(
-            &config,
-            &paths,
-            agent_context,
-            options.backup,
-            options.dry_run,
-            options.global,
-        )
+        let flags = SyncExecutionFlags {
+            backup: options.backup,
+            dry_run: options.dry_run,
+            codex_global: CodexGlobalSyncOptions {
+                requirements: options.codex_requirements,
+                managed_config: options.codex_managed_config,
+            },
+        };
+
+        execute_sync_operation(&config, &paths, agent_context, flags)
     }
 }
 
@@ -485,20 +782,20 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
             true,
             options.config_path.clone(),
             options.target_config_path.clone(),
+            None,
         )?;
 
         // Log configuration paths
         log_sync_paths(&paths, true, &config);
 
         // Execute sync operation for this agent
-        execute_sync_operation(
-            &config,
-            &paths,
-            agent_context,
-            options.backup,
-            options.dry_run,
-            true,
-        )?;
+        let flags = SyncExecutionFlags {
+            backup: options.backup,
+            dry_run: options.dry_run,
+            codex_global: CodexGlobalSyncOptions::default(),
+        };
+
+        execute_sync_operation(&config, &paths, agent_context, flags)?;
     }
 
     // Sync commands once after all agents
@@ -518,18 +815,39 @@ fn setup_sync_context(
     global: bool,
     config_opt: Option<std::path::PathBuf>,
     target_config_opt: Option<std::path::PathBuf>,
+    claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
 ) -> Result<(AgentContext, Config, SyncPaths)> {
     let agent = determine_agent(agent_override, app_config);
     if let Some(a) = agent {
         debug!("Using agent: {:?}", a);
     }
 
-    let agent_context = AgentContext::new(agent);
+    if claude_code_scope.is_some() && agent != Some(claudius::app_config::Agent::ClaudeCode) {
+        anyhow::bail!("--scope is only supported with --agent claude-code");
+    }
+
+    let agent_context = AgentContext::new(agent, claude_code_scope);
     let config = Config::new_with_agent(global, agent)?;
+
+    let default_target_config = match agent_context.claude_code_scope {
+        Some(claudius::app_config::ClaudeCodeScope::Managed)
+            if agent_context.is_claude_code && global =>
+        {
+            agent_paths::claude_code_managed_mcp_path()
+        },
+        Some(claudius::app_config::ClaudeCodeScope::Local)
+            if agent_context.is_claude_code && !global =>
+        {
+            let base_dirs = directories::BaseDirs::new()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+            base_dirs.home_dir().join(".claude.json")
+        },
+        _ => config.target_config_path.clone(),
+    };
 
     let paths = SyncPaths {
         mcp_servers: config_opt.unwrap_or_else(|| config.mcp_servers_path.clone()),
-        target_config: target_config_opt.unwrap_or_else(|| config.target_config_path.clone()),
+        target_config: target_config_opt.unwrap_or(default_target_config),
     };
 
     Ok((agent_context, config, paths))
@@ -552,20 +870,25 @@ fn log_sync_paths(paths: &SyncPaths, global: bool, config: &Config) {
     debug!("Settings file: {}", config.settings_path.display());
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SyncExecutionFlags {
+    backup: bool,
+    dry_run: bool,
+    codex_global: CodexGlobalSyncOptions,
+}
+
 /// Execute the main sync operation
 fn execute_sync_operation(
     config: &Config,
     paths: &SyncPaths,
     agent_context: AgentContext,
-    backup: bool,
-    dry_run: bool,
-    global: bool,
+    flags: SyncExecutionFlags,
 ) -> Result<()> {
     // Read configurations
     let read_result = read_configurations(config, &paths.mcp_servers, agent_context)?;
 
     debug!("Reading target configuration");
-    let mut claude_config = if global && agent_context.is_codex {
+    let mut claude_config = if config.is_global && agent_context.is_codex {
         // For Codex in global mode, don't read from paths.target_config (Codex uses ~/.codex/config.toml).
         claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() }
     } else {
@@ -574,12 +897,27 @@ fn execute_sync_operation(
     };
 
     // Process configurations
-    handle_backup(backup, &paths.target_config)?;
-    merge_all_configs(&mut claude_config, &read_result, agent_context, global)?;
+    if flags.backup {
+        handle_backup(
+            config,
+            &paths.target_config,
+            &read_result,
+            agent_context,
+            flags.codex_global,
+        )?;
+    }
+    merge_all_configs(&mut claude_config, &read_result, agent_context, config.is_global)?;
 
     // Output results
-    if dry_run {
-        handle_dry_run(&claude_config, &read_result, agent_context, global)
+    if flags.dry_run {
+        handle_dry_run(
+            config,
+            &paths.target_config,
+            &claude_config,
+            &read_result,
+            agent_context,
+            flags.codex_global,
+        )
     } else {
         write_configurations(
             config,
@@ -587,7 +925,7 @@ fn execute_sync_operation(
             &paths.target_config,
             &read_result,
             agent_context,
-            global,
+            flags.codex_global,
         )?;
         sync_commands_if_exists(config);
         Ok(())
@@ -750,6 +1088,9 @@ fn copy_rules(
     Ok(copied_rules)
 }
 
+const CLAUDIUS_RULES_SECTION_START: &str = "<!-- CLAUDIUS_RULES_START -->";
+const CLAUDIUS_RULES_SECTION_END: &str = "<!-- CLAUDIUS_RULES_END -->";
+
 fn add_reference_directive(
     target_dir: &std::path::Path,
     rules_dir: &std::path::Path,
@@ -773,77 +1114,103 @@ fn add_reference_directive(
         String::new()
     };
 
-    // Define section markers
-    const SECTION_START: &str = "<!-- CLAUDIUS_RULES_START -->";
-    const SECTION_END: &str = "<!-- CLAUDIUS_RULES_END -->";
+    let reference_directive = build_reference_directive(&relative_rules_path, copied_rules)?;
 
-    // Check if section already exists
-    let section_exists = existing_content.contains(SECTION_START);
+    if existing_content.contains(CLAUDIUS_RULES_SECTION_START) {
+        let new_content = replace_existing_reference_section(
+            &existing_content,
+            &reference_directive,
+            context_filename,
+        )?;
 
-    // Build the list of rule files with descriptions
+        fs::write(&context_file_path, new_content)
+            .with_context(|| format!("Failed to update {}", context_file_path.display()))?;
+        println!("Updated reference directive in {context_filename}");
+        return Ok(());
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&context_file_path)
+        .with_context(|| format!("Failed to open {}", context_file_path.display()))?;
+
+    file.write_all(reference_directive.as_bytes())?;
+    println!("Added reference directive to {context_filename}");
+    Ok(())
+}
+
+fn build_reference_directive(
+    relative_rules_path: &std::path::Path,
+    copied_rules: &[String],
+) -> Result<String> {
+    let rule_list = build_installed_rules_list(relative_rules_path, copied_rules)?;
+
+    Ok(format!(
+        "\n{section_start}\n\
+# External Rule References\n\
+\n\
+The following rules from `{rules_dir}` are installed:\n\
+\n\
+{rule_list}\
+\n\
+Read these files to understand the project conventions and guidelines.\n\
+{section_end}\n",
+        section_start = CLAUDIUS_RULES_SECTION_START,
+        section_end = CLAUDIUS_RULES_SECTION_END,
+        rules_dir = relative_rules_path.display(),
+        rule_list = rule_list,
+    ))
+}
+
+fn build_installed_rules_list(
+    relative_rules_path: &std::path::Path,
+    copied_rules: &[String],
+) -> Result<String> {
+    use std::fmt::Write as _;
+
     let mut rule_list = String::new();
     for rule_name in copied_rules {
         let rule_path = relative_rules_path.join(format!("{rule_name}.md"));
         let rule_path_str = rule_path.to_string_lossy().replace('\\', "/");
-        rule_list.push_str(&format!("- `{}`: {}\n", rule_path_str, rule_name.replace('/', " / ")));
+        writeln!(&mut rule_list, "- `{rule_path_str}`: {}", rule_name.replace('/', " / "),)
+            .map_err(|e| anyhow::anyhow!("Failed to format rules list: {e}"))?;
     }
 
-    // Build the reference directive
-    let reference_directive = format!(
-        "\n{}\n\
-# External Rule References\n\
-\n\
-The following rules from `{}` are installed:\n\
-\n\
-{}\
-\n\
-Read these files to understand the project conventions and guidelines.\n\
-{}\n",
-        SECTION_START,
-        relative_rules_path.display(),
-        rule_list,
-        SECTION_END
-    );
+    Ok(rule_list)
+}
 
-    if section_exists {
-        // Section exists - update it
-        if let Some(start_pos) = existing_content.find(SECTION_START) {
-            if let Some(end_pos) = existing_content.find(SECTION_END) {
-                // Calculate end position including the marker
-                let end_with_marker = end_pos + SECTION_END.len();
+fn replace_existing_reference_section(
+    existing_content: &str,
+    reference_directive: &str,
+    context_filename: &str,
+) -> Result<String> {
+    let Some(start_pos) = existing_content.find(CLAUDIUS_RULES_SECTION_START) else {
+        return Ok(existing_content.to_string());
+    };
 
-                // Build new content
-                let new_content = format!(
-                    "{}{}{}",
-                    &existing_content[..start_pos],
-                    reference_directive.trim_start(),
-                    &existing_content[end_with_marker..]
-                );
+    let remaining = existing_content
+        .get(start_pos..)
+        .ok_or_else(|| anyhow::anyhow!("Invalid section start boundary in {context_filename}"))?;
+    let Some(end_rel) = remaining.find(CLAUDIUS_RULES_SECTION_END) else {
+        anyhow::bail!("Found section start marker but no end marker in {context_filename}");
+    };
 
-                // Write the updated content
-                fs::write(&context_file_path, new_content)
-                    .with_context(|| format!("Failed to update {}", context_file_path.display()))?;
-                println!("Updated reference directive in {context_filename}");
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Found section start marker but no end marker in {}",
-                    context_filename
-                ));
-            }
-        }
-    } else {
-        // Section doesn't exist - append it
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&context_file_path)
-            .with_context(|| format!("Failed to open {}", context_file_path.display()))?;
+    let end_pos = start_pos
+        .checked_add(end_rel)
+        .ok_or_else(|| anyhow::anyhow!("Section end marker position overflow"))?;
+    let end_with_marker = end_pos
+        .checked_add(CLAUDIUS_RULES_SECTION_END.len())
+        .ok_or_else(|| anyhow::anyhow!("Section end marker position overflow"))?;
 
-        file.write_all(reference_directive.as_bytes())?;
-        println!("Added reference directive to {context_filename}");
-    }
+    let prefix = existing_content
+        .get(..start_pos)
+        .ok_or_else(|| anyhow::anyhow!("Invalid section start boundary in {context_filename}"))?;
+    let suffix = existing_content
+        .get(end_with_marker..)
+        .ok_or_else(|| anyhow::anyhow!("Invalid section end boundary in {context_filename}"))?;
 
-    Ok(())
+    Ok(format!("{prefix}{}{suffix}", reference_directive.trim_start()))
 }
 
 fn run_install_context(

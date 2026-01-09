@@ -432,14 +432,47 @@ mod tests {
 
         // Create a valid Gemini settings JSON
         let content = json!({
-            // Add fields based on what GeminiSettings expects
-            // This is a placeholder - adjust based on actual GeminiSettings structure
+            "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+            "general": {
+                "preferredEditor": "code"
+            },
+            "ui": {
+                "theme": "GitHub"
+            },
+            "tools": {
+                "autoAccept": true
+            },
+            "privacy": {
+                "usageStatisticsEnabled": true
+            },
+            "telemetry": {
+                "enabled": false
+            },
+            "mcpServers": {
+                "server": {
+                    "command": "node",
+                    "args": ["server.js"]
+                }
+            }
         });
 
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
-        let (_settings, _result) = validate_and_parse_gemini_settings(&file_path)
+        let (settings_opt, result) = validate_and_parse_gemini_settings(&file_path)
             .expect("Failed to validate and parse gemini settings");
-        // Assertions would depend on GeminiSettings structure
+        assert!(result.warnings.is_empty());
+
+        let settings = settings_opt.expect("Settings should be present");
+        assert_eq!(
+            settings.schema.as_deref(),
+            Some("https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json")
+        );
+        assert!(
+            settings
+                .mcp_servers
+                .as_ref()
+                .is_some_and(|servers| servers.contains_key("server")),
+            "Expected mcpServers.server to be present"
+        );
     }
 }

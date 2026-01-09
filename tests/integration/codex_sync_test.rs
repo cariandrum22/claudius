@@ -9,17 +9,17 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg: Option<String>,
+        xdg_config_home: Option<String>,
         home: Option<String>,
-        dir: Option<std::path::PathBuf>,
+        current_dir: Option<std::path::PathBuf>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg: std::env::var("XDG_CONFIG_HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
                 home: std::env::var("HOME").ok(),
-                dir: std::env::current_dir().ok(),
+                current_dir: std::env::current_dir().ok(),
             }
         }
     }
@@ -27,7 +27,7 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
@@ -37,7 +37,7 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
             // Restore current directory
-            if let Some(dir) = &self.dir {
+            if let Some(dir) = &self.current_dir {
                 let _ = std::env::set_current_dir(dir);
             }
         }
@@ -271,6 +271,486 @@ agent = "claude"
         // Should NOT create actual files in dry-run mode
         let settings_path = project_dir.join(".codex").join("config.toml");
         anyhow::ensure!(!settings_path.exists(), "Settings file should not exist in dry-run mode");
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_project_local_backup_targets_codex_toml_only() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let project_dir = temp_dir.path().join("project");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&project_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+
+        let mcp_servers_content = r#"{
+  "mcpServers": {
+    "simple": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {}
+    }
+  }
+}"#;
+        fs::write(claudius_dir.join("mcpServers.json"), mcp_servers_content)?;
+
+        // Create both possible target files. Codex project-local writes to .codex/config.toml, not .mcp.json.
+        fs::write(project_dir.join(".mcp.json"), r#"{"mcpServers":{}}"#)?;
+
+        let codex_dir = project_dir.join(".codex");
+        fs::create_dir_all(&codex_dir)?;
+        fs::write(codex_dir.join("config.toml"), r#"model = "old-model""#)?;
+
+        std::env::set_current_dir(&project_dir)?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["config", "sync", "--agent", "codex", "--backup"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let codex_entries: Vec<_> = fs::read_dir(&codex_dir)?
+            .map(|entry| entry.map(|e| e.file_name()))
+            .collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+
+        anyhow::ensure!(
+            codex_entries
+                .iter()
+                .any(|name| name.to_string_lossy().starts_with("config.toml.backup.")),
+            "Expected .codex/config.toml backup to exist",
+        );
+
+        let root_entries: Vec<_> = fs::read_dir(&project_dir)?
+            .map(|entry| entry.map(|e| e.file_name()))
+            .collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+
+        anyhow::ensure!(
+            !root_entries
+                .iter()
+                .any(|name| name.to_string_lossy().starts_with(".mcp.json.backup.")),
+            "Did not expect .mcp.json to be backed up for Codex project-local sync",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_global_dry_run_writes_nothing() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        let mcp_servers_content = r#"{
+  "mcpServers": {
+    "simple": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {}
+    }
+  }
+}"#;
+        fs::write(claudius_dir.join("mcpServers.json"), mcp_servers_content)?;
+
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["config", "sync", "--global", "--agent", "codex", "--dry-run"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(
+            stdout.contains("Settings with MCP servers"),
+            "Expected TOML dry-run output"
+        );
+        anyhow::ensure!(
+            stdout.contains("model = \"gpt-5-codex\""),
+            "Expected model in dry-run output"
+        );
+        anyhow::ensure!(
+            stdout.contains("[mcp_servers.simple]"),
+            "Expected mcp_servers table in dry-run output"
+        );
+
+        anyhow::ensure!(
+            !home_dir.join(".codex").join("config.toml").exists(),
+            "Did not expect ~/.codex/config.toml to be created in dry-run mode",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_requirements_sync_writes_requirements_toml() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(
+            claudius_dir.join("codex.requirements.toml"),
+            r#"allowed_approval_policies = ["untrusted", "on-request"]
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+"#,
+        )?;
+
+        let requirements_target_path =
+            temp_dir.path().join("etc").join("codex").join("requirements.toml");
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_REQUIREMENTS_PATH", &requirements_target_path)
+            .args(["config", "sync", "--global", "--agent", "codex", "--codex-requirements"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        anyhow::ensure!(
+            requirements_target_path.exists(),
+            "requirements.toml should exist after sync",
+        );
+
+        let content = fs::read_to_string(&requirements_target_path)?;
+        anyhow::ensure!(content.contains("allowed_approval_policies"));
+        anyhow::ensure!(content.contains("\"untrusted\""));
+        anyhow::ensure!(content.contains("allowed_sandbox_modes"));
+        anyhow::ensure!(content.contains("\"workspace-write\""));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_requirements_dry_run_prints_and_writes_nothing() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(
+            claudius_dir.join("codex.requirements.toml"),
+            r#"allowed_approval_policies = ["on-request"]"#,
+        )?;
+
+        let requirements_target_path =
+            temp_dir.path().join("etc").join("codex").join("requirements.toml");
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_REQUIREMENTS_PATH", &requirements_target_path)
+            .args([
+                "config",
+                "sync",
+                "--global",
+                "--agent",
+                "codex",
+                "--codex-requirements",
+                "--dry-run",
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(stdout.contains("requirements.toml"));
+        anyhow::ensure!(stdout.contains("allowed_approval_policies"));
+
+        anyhow::ensure!(
+            !requirements_target_path.exists(),
+            "requirements.toml should not be created in dry-run mode",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_requirements_backup_creates_backup_file() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(
+            claudius_dir.join("codex.requirements.toml"),
+            r#"allowed_sandbox_modes = ["read-only"]"#,
+        )?;
+
+        let requirements_target_path =
+            temp_dir.path().join("etc").join("codex").join("requirements.toml");
+        fs::create_dir_all(requirements_target_path.parent().unwrap())?;
+        fs::write(&requirements_target_path, r#"allowed_approval_policies = ["untrusted"]"#)?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_REQUIREMENTS_PATH", &requirements_target_path)
+            .args([
+                "config",
+                "sync",
+                "--global",
+                "--agent",
+                "codex",
+                "--codex-requirements",
+                "--backup",
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let target_dir = requirements_target_path.parent().unwrap();
+        let entries: Vec<_> = fs::read_dir(target_dir)?
+            .map(|entry| entry.map(|e| e.file_name()))
+            .collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+
+        anyhow::ensure!(
+            entries
+                .iter()
+                .any(|name| name.to_string_lossy().starts_with("requirements.toml.backup.")),
+            "Expected requirements.toml backup to exist",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_managed_config_sync_writes_managed_config_toml() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(
+            claudius_dir.join("codex.managed_config.toml"),
+            r#"approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+"#,
+        )?;
+
+        let managed_target_path =
+            temp_dir.path().join("etc").join("codex").join("managed_config.toml");
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_MANAGED_CONFIG_PATH", &managed_target_path)
+            .args(["config", "sync", "--global", "--agent", "codex", "--codex-managed-config"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        anyhow::ensure!(
+            managed_target_path.exists(),
+            "managed_config.toml should exist after sync",
+        );
+
+        let content = fs::read_to_string(&managed_target_path)?;
+        anyhow::ensure!(content.contains("approval_policy"));
+        anyhow::ensure!(content.contains("\"on-request\""));
+        anyhow::ensure!(content.contains("sandbox_mode"));
+        anyhow::ensure!(content.contains("\"workspace-write\""));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_managed_config_dry_run_prints_and_writes_nothing() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(
+            claudius_dir.join("codex.managed_config.toml"),
+            r#"approval_policy = "on-request""#,
+        )?;
+
+        let managed_target_path =
+            temp_dir.path().join("etc").join("codex").join("managed_config.toml");
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_MANAGED_CONFIG_PATH", &managed_target_path)
+            .args([
+                "config",
+                "sync",
+                "--global",
+                "--agent",
+                "codex",
+                "--codex-managed-config",
+                "--dry-run",
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(stdout.contains("managed_config.toml"));
+        anyhow::ensure!(stdout.contains("approval_policy"));
+
+        anyhow::ensure!(
+            !managed_target_path.exists(),
+            "managed_config.toml should not be created in dry-run mode",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_managed_config_backup_creates_backup_file() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers":{}}"#)?;
+        fs::write(claudius_dir.join("codex.settings.toml"), r#"model = "gpt-5-codex""#)?;
+        fs::write(claudius_dir.join("codex.managed_config.toml"), r#"sandbox_mode = "read-only""#)?;
+
+        let managed_target_path =
+            temp_dir.path().join("etc").join("codex").join("managed_config.toml");
+        fs::create_dir_all(managed_target_path.parent().unwrap())?;
+        fs::write(&managed_target_path, r#"approval_policy = "untrusted""#)?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .env("CLAUDIUS_CODEX_MANAGED_CONFIG_PATH", &managed_target_path)
+            .args([
+                "config",
+                "sync",
+                "--global",
+                "--agent",
+                "codex",
+                "--codex-managed-config",
+                "--backup",
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let target_dir = managed_target_path.parent().unwrap();
+        let entries: Vec<_> = fs::read_dir(target_dir)?
+            .map(|entry| entry.map(|e| e.file_name()))
+            .collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+
+        anyhow::ensure!(
+            entries
+                .iter()
+                .any(|name| name.to_string_lossy().starts_with("managed_config.toml.backup.")),
+            "Expected managed_config.toml backup to exist",
+        );
 
         Ok(())
     }
@@ -614,19 +1094,28 @@ args = ["cmd"]
 }"#;
         fs::write(claudius_dir.join("mcpServers.json"), mcp_servers_content)?;
 
-        // Create source settings with some fields
+        // Create source Gemini settings with some fields (Gemini CLI v2+ schema)
         let source_settings_content = r#"{
-  "apiKeyHelper": "/bin/gemini-key",
-  "cleanupPeriodDays": 30
+  "general": {
+    "preferredEditor": "code"
+  },
+  "privacy": {
+    "usageStatisticsEnabled": true
+  }
 }"#;
         fs::write(claudius_dir.join("gemini.settings.json"), source_settings_content)?;
 
         // Create existing Gemini settings with other fields
         let existing_settings_content = r#"{
-  "preferredNotifChannel": "email",
-  "includeCoAuthoredBy": true,
-  "env": {
-    "EXISTING_VAR": "existing_value"
+  "general": {
+    "vimMode": true
+  },
+  "ui": {
+    "theme": "GitHub",
+    "hideTips": true
+  },
+  "tools": {
+    "sandbox": "docker"
   }
 }"#;
         fs::write(gemini_dir.join("settings.json"), existing_settings_content)?;
@@ -651,25 +1140,41 @@ args = ["cmd"]
 
         // Verify that both source and existing settings are preserved
         anyhow::ensure!(
-            settings.get("apiKeyHelper").and_then(|v| v.as_str()) == Some("/bin/gemini-key"),
-            "apiKeyHelper from source should be preserved"
+            settings
+                .get("general")
+                .and_then(|v| v.get("preferredEditor"))
+                .and_then(|v| v.as_str())
+                == Some("code"),
+            "general.preferredEditor from source should be preserved"
         );
         anyhow::ensure!(
-            settings.get("cleanupPeriodDays").and_then(|v| v.as_i64()) == Some(30),
-            "cleanupPeriodDays from source should be preserved"
+            settings
+                .get("privacy")
+                .and_then(|v| v.get("usageStatisticsEnabled"))
+                .and_then(serde_json::Value::as_bool)
+                == Some(true),
+            "privacy.usageStatisticsEnabled from source should be preserved"
         );
         anyhow::ensure!(
-            settings.get("preferredNotifChannel").and_then(|v| v.as_str()) == Some("email"),
-            "preferredNotifChannel from existing should be preserved"
+            settings
+                .get("general")
+                .and_then(|v| v.get("vimMode"))
+                .and_then(serde_json::Value::as_bool)
+                == Some(true),
+            "general.vimMode from existing should be preserved"
         );
         anyhow::ensure!(
-            settings.get("includeCoAuthoredBy").and_then(|v| v.as_bool()) == Some(true),
-            "includeCoAuthoredBy from existing should be preserved"
+            settings
+                .get("ui")
+                .and_then(|v| v.get("hideTips"))
+                .and_then(serde_json::Value::as_bool)
+                == Some(true),
+            "ui.hideTips from existing should be preserved"
         );
         anyhow::ensure!(
-            settings.get("env").and_then(|v| v.get("EXISTING_VAR")).and_then(|v| v.as_str())
-                == Some("existing_value"),
-            "env from existing should be preserved"
+            settings.get("tools").and_then(|v| v.get("sandbox")).and_then(|v| v.as_str())
+                == Some("docker"),
+            "tools.sandbox from existing should be preserved"
         );
 
         Ok(())

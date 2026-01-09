@@ -8,15 +8,15 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg_original: Option<String>,
-        home_original: Option<String>,
+        xdg_config_home: Option<String>,
+        home: Option<String>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
-                home_original: std::env::var("HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
+                home: std::env::var("HOME").ok(),
             }
         }
     }
@@ -24,12 +24,12 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg_original {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
             // Restore HOME
-            match &self.home_original {
+            match &self.home {
                 Some(value) => std::env::set_var("HOME", value),
                 None => std::env::remove_var("HOME"),
             }
@@ -64,8 +64,12 @@ mod tests {
         .unwrap();
 
         let gemini_settings = serde_json::json!({
-            "apiKeyHelper": "/bin/gemini-key",
-            "preferredNotifChannel": "email"
+            "general": {
+                "preferredEditor": "code"
+            },
+            "ui": {
+                "theme": "GitHub"
+            }
         });
         fs::write(
             config_dir.join("gemini.settings.json"),
@@ -219,39 +223,8 @@ mod tests {
         config_dir.create_dir_all().unwrap();
         let system_config_dir = config_dir.parent().unwrap();
 
-        // Create MCP servers configuration
-        let mcp_servers = serde_json::json!({
-        "mcpServers": {
-            "test-server": {
-                "command": "node",
-                "args": ["test-server.js"]
-            }
-        }
-        });
-        fs::write(
-            config_dir.join("mcpServers.json"),
-            serde_json::to_string_pretty(&mcp_servers).unwrap(),
-        )
-        .unwrap();
-
-        // Create settings only for Claude and Codex (not Gemini)
-        let claude_settings = serde_json::json!({
-        "apiKeyHelper": "/bin/claude-key"
-        });
-        fs::write(
-            config_dir.join("claude.settings.json"),
-            serde_json::to_string_pretty(&claude_settings).unwrap(),
-        )
-        .unwrap();
-
-        let codex_settings = toml::toml! {
-        api_key_helper = "/bin/codex-key"
-        };
-        fs::write(
-            config_dir.join("codex.settings.toml"),
-            toml::to_string_pretty(&codex_settings).unwrap(),
-        )
-        .unwrap();
+        setup_test_config(&config_dir);
+        fs::remove_file(config_dir.join("gemini.settings.json")).unwrap();
 
         // Create target directories
         let home_dir = temp_dir.child("home");

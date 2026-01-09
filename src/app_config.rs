@@ -29,6 +29,19 @@ pub enum Agent {
     Gemini,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClaudeCodeScope {
+    /// System-level managed configuration (managed-settings.json / managed-mcp.json).
+    Managed,
+    /// User configuration in the home directory (~/.claude/*).
+    User,
+    /// Project configuration committed with the repo (.claude/*, .mcp.json).
+    Project,
+    /// Local (per-repo, per-user) configuration (.claude/*.local.* and ~/.claude.json per-project).
+    Local,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SecretManagerConfig {

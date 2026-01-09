@@ -89,18 +89,27 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 /// Bootstrap Claudius configuration directory with default files
 /// Default Gemini settings content
 const DEFAULT_GEMINI_SETTINGS: &str = r#"{
-  "contextFileName": "GEMINI.md",
-  "autoAccept": false,
-  "theme": "Default",
-  "sandbox": false,
-  "checkpointing": {
-    "enabled": false
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "general": {
+    "preferredEditor": "code"
+  },
+  "ui": {
+    "theme": "GitHub",
+    "hideTips": false
+  },
+  "tools": {
+    "autoAccept": false,
+    "sandbox": false
+  },
+  "context": {
+    "fileName": ["GEMINI.md"]
+  },
+  "privacy": {
+    "usageStatisticsEnabled": true
   },
   "telemetry": {
     "enabled": false
-  },
-  "usageStatisticsEnabled": true,
-  "hideTips": false
+  }
 }
 "#;
 
@@ -170,11 +179,46 @@ const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
 # MCP servers will be merged from mcpServers.json
 "#;
 
+/// Default Codex requirements.toml content (admin-enforced constraints)
+const DEFAULT_CODEX_REQUIREMENTS: &str = r#"# Codex requirements.toml
+# Admin-enforced constraints that users cannot override.
+#
+# This file mirrors Codex CLI's `requirements.toml` schema.
+# See the configuration reference for the latest options:
+# https://developers.openai.com/codex/config-reference
+#
+# Example:
+# allowed_approval_policies = ["untrusted", "on-request", "on-failure"]
+# allowed_sandbox_modes = ["read-only", "workspace-write"]
+"#;
+
+/// Default Codex `managed_config.toml` content (admin-managed defaults)
+const DEFAULT_CODEX_MANAGED_CONFIG: &str = r#"# Codex managed_config.toml
+# Admin-managed defaults applied when Codex starts.
+#
+# Managed defaults are starting values that Codex reapplies when it launches. Users can still
+# change settings during a session; the managed defaults are restored next time Codex starts.
+#
+# Managed config location (per Codex docs):
+# - Linux/macOS (Unix): /etc/codex/managed_config.toml
+# - Windows/non-Unix: ~/.codex/managed_config.toml
+#
+# See:
+# https://developers.openai.com/codex/security#managed-defaults-managed_configtoml
+#
+# Example:
+# approval_policy = "on-request"
+# sandbox_mode = "workspace-write"
+#
+# [sandbox_workspace_write]
+# network_access = false
+"#;
+
 /// Create a file with content if it doesn't exist or force is true
 fn create_file_if_needed(path: &Path, content: &str, force: bool, description: &str) -> Result<()> {
     if force || !path.exists() {
         fs::write(path, content)
-            .with_context(|| format!("Failed to create {}: {}", description, path.display()))?;
+            .with_context(|| format!("Failed to create {description}: {}", path.display()))?;
         info!("Created {}", description);
     } else {
         info!("{} already exists, skipping", description);
@@ -193,6 +237,48 @@ fn create_directory(path: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
+fn prompt_yes_no(prompt: &str) -> Result<bool> {
+    use std::io::{self, Write};
+
+    eprint!("{prompt}");
+    io::stderr().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    Ok(input.trim().eq_ignore_ascii_case("y"))
+}
+
+fn maybe_backup_context_file(path: &Path, label: &str) -> Result<()> {
+    let metadata = fs::metadata(path)?;
+    let file_size = metadata.len();
+
+    // Only offer backup if file has substantial content (>100 bytes).
+    if file_size <= 100 {
+        return Ok(());
+    }
+
+    let should_backup = prompt_yes_no(&format!(
+        "\nThe {label} file contains {file_size} bytes of data. Create a backup? [y/N]: ",
+    ))?;
+
+    if !should_backup {
+        return Ok(());
+    }
+
+    let backup_path = path.with_extension("md.bak");
+    let real_path = metadata
+        .is_symlink()
+        .then(|| fs::read_link(path))
+        .transpose()?
+        .unwrap_or_else(|| path.to_path_buf());
+
+    fs::copy(&real_path, &backup_path)
+        .with_context(|| format!("Failed to create backup: {}", backup_path.display()))?;
+    info!("Created backup: {}", backup_path.display());
+    Ok(())
+}
+
 /// Initialize MCP servers configuration
 fn init_mcp_servers(config_dir: &Path, force: bool) -> Result<()> {
     let mcp_servers_path = config_dir.join("mcpServers.json");
@@ -201,16 +287,35 @@ fn init_mcp_servers(config_dir: &Path, force: bool) -> Result<()> {
 
 /// Initialize agent-specific settings files
 fn init_agent_settings(config_dir: &Path, force: bool) -> Result<()> {
-    let agent_settings = vec![
-        ("claude.settings.json", DEFAULT_SETTINGS),
+    // Migrate legacy settings.json to claude.settings.json if needed.
+    let legacy_settings_path = config_dir.join("settings.json");
+    let claude_settings_path = config_dir.join("claude.settings.json");
+
+    if !force && !claude_settings_path.exists() && legacy_settings_path.exists() {
+        fs::copy(&legacy_settings_path, &claude_settings_path).with_context(|| {
+            format!("Failed to migrate legacy settings.json to {}", claude_settings_path.display())
+        })?;
+        info!("Migrated legacy settings.json to claude.settings.json");
+    } else {
+        create_file_if_needed(
+            &claude_settings_path,
+            DEFAULT_SETTINGS,
+            force,
+            "claude.settings.json",
+        )?;
+    }
+
+    let agent_settings = [
         ("codex.settings.toml", DEFAULT_CODEX_SETTINGS),
+        ("codex.requirements.toml", DEFAULT_CODEX_REQUIREMENTS),
+        ("codex.managed_config.toml", DEFAULT_CODEX_MANAGED_CONFIG),
         ("gemini.settings.json", DEFAULT_GEMINI_SETTINGS),
     ];
 
-    for (filename, content) in agent_settings {
+    agent_settings.into_iter().try_for_each(|(filename, content)| {
         let settings_path = config_dir.join(filename);
-        create_file_if_needed(&settings_path, content, force, filename)?;
-    }
+        create_file_if_needed(&settings_path, content, force, filename)
+    })?;
     Ok(())
 }
 
@@ -270,63 +375,23 @@ fn init_context_files(target_dir: &Path, default_context: Option<&str>, force: b
     let secondary_exists = secondary_path.exists();
 
     if primary_exists || secondary_exists {
-        // Files exist - need user confirmation to overwrite
         if !force {
             eprintln!("\nWarning: Context files already exist:");
             if primary_exists {
-                eprintln!("  - {} (primary)", primary_file);
+                eprintln!("  - {primary_file} (primary)");
             }
             if secondary_exists {
-                eprintln!("  - {} (secondary)", secondary_file);
+                eprintln!("  - {secondary_file} (secondary)");
             }
 
-            eprint!("\nDo you want to overwrite them? [y/N]: ");
-            use std::io::{self, Write};
-            io::stderr().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-
-            if !input.trim().eq_ignore_ascii_case("y") {
+            if !prompt_yes_no("\nDo you want to overwrite them? [y/N]: ")? {
                 info!("Skipping context file initialization");
                 return Ok(());
             }
         }
 
-        // Check if primary file has valid data and offer backup
         if primary_exists && !force {
-            let metadata = fs::metadata(&primary_path)?;
-            let file_size = metadata.len();
-
-            // Only offer backup if file has substantial content (>100 bytes)
-            if file_size > 100 {
-                eprint!(
-                    "\nThe {} file contains {} bytes of data. Create a backup? [y/N]: ",
-                    primary_file, file_size
-                );
-                use std::io::{self, Write};
-                io::stderr().flush()?;
-
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-
-                if input.trim().eq_ignore_ascii_case("y") {
-                    // Create backup with .bak extension
-                    let backup_path = primary_path.with_extension("md.bak");
-
-                    // If primary is a symlink, resolve and backup the real file
-                    let real_path = if metadata.is_symlink() {
-                        fs::read_link(&primary_path)?
-                    } else {
-                        primary_path.clone()
-                    };
-
-                    fs::copy(&real_path, &backup_path).with_context(|| {
-                        format!("Failed to create backup: {}", backup_path.display())
-                    })?;
-                    info!("Created backup: {}", backup_path.display());
-                }
-            }
+            maybe_backup_context_file(&primary_path, primary_file)?;
         }
 
         // Remove existing files
@@ -347,7 +412,7 @@ fn init_context_files(target_dir: &Path, default_context: Option<&str>, force: b
 
     // Create symlink from secondary to primary
     unix_fs::symlink(&primary_path, &secondary_path).with_context(|| {
-        format!("Failed to create symlink from {} to {}", secondary_file, primary_file)
+        format!("Failed to create symlink from {secondary_file} to {primary_file}")
     })?;
     info!("Created symlink: {} -> {}", secondary_file, primary_file);
 
@@ -418,6 +483,11 @@ mod tests {
         // Check all files and directories exist
         assert!(config_dir.exists());
         assert!(config_dir.join("mcpServers.json").exists());
+        assert!(config_dir.join("claude.settings.json").exists());
+        assert!(config_dir.join("codex.settings.toml").exists());
+        assert!(config_dir.join("codex.requirements.toml").exists());
+        assert!(config_dir.join("codex.managed_config.toml").exists());
+        assert!(config_dir.join("gemini.settings.json").exists());
         assert!(config_dir.join("settings.json").exists());
         assert!(config_dir.join("config.toml").exists());
         assert!(config_dir.join("commands").exists());
@@ -429,6 +499,27 @@ mod tests {
         let mcp_content = fs::read_to_string(config_dir.join("mcpServers.json"))
             .expect("mcpServers.json should be readable");
         assert!(mcp_content.contains("filesystem"));
+    }
+
+    #[test]
+    fn test_bootstrap_migrates_legacy_settings_json() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+
+        fs::create_dir_all(&config_dir).expect("Failed to create config directory");
+        let legacy_content = r#"{"apiKeyHelper":"/bin/legacy-helper","custom":{"nested":true}}"#;
+        fs::write(config_dir.join("settings.json"), legacy_content)
+            .expect("Failed to write legacy settings.json");
+
+        bootstrap_config(&config_dir, false).expect("bootstrap_config should succeed");
+
+        let migrated = fs::read_to_string(config_dir.join("claude.settings.json"))
+            .expect("claude.settings.json should be readable");
+        assert_eq!(migrated, legacy_content);
+
+        let legacy = fs::read_to_string(config_dir.join("settings.json"))
+            .expect("settings.json should be readable");
+        assert_eq!(legacy, legacy_content);
     }
 
     #[test]

@@ -16,7 +16,12 @@ It helps you:
 Configuration files are stored in:
   • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
     - mcpServers.json: MCP server definitions
-    - settings.json: General Claude settings
+    - claude.settings.json: Claude/Claude Code settings (optional)
+    - codex.settings.toml: Codex settings (optional)
+    - codex.requirements.toml: Codex requirements (admin-enforced, optional)
+    - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
+    - gemini.settings.json: Gemini settings (optional)
+    - settings.json: Legacy Claude settings (backward compatible)
     - commands/: Custom slash commands (*.md)
     - rules/: CLAUDE.md templates (*.md)
 
@@ -26,8 +31,12 @@ Target files:
   • ./.gemini/settings.json (Gemini project-local config)
   • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop global config)
   • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
+  • System-level managed-settings.json / managed-mcp.json (Claude Code managed scope)
   • ~/.codex/config.toml (Codex global config)
+  • /etc/codex/requirements.toml (Codex requirements, admin-enforced)
+  • /etc/codex/managed_config.toml (Codex managed defaults)
   • ~/.gemini/settings.json (Gemini global config)
+  • /etc/gemini-cli/settings.json (Gemini CLI system settings)
   • ./CLAUDE.md (project instructions)",
     version,
     author
@@ -79,7 +88,12 @@ pub enum ConfigCommands {
 
 This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
   • mcpServers.json - MCP server configuration template
-  • settings.json - Claude settings template
+  • claude.settings.json - Claude/Claude Code settings template
+  • codex.settings.toml - Codex settings template
+  • codex.requirements.toml - Codex requirements template (admin-enforced)
+  • codex.managed_config.toml - Codex managed defaults template (admin-managed)
+  • gemini.settings.json - Gemini settings template
+  • settings.json - Legacy Claude settings (backward compatible)
   • commands/ - Directory for custom slash commands
   • rules/ - Directory for CLAUDE.md rules
 
@@ -99,17 +113,25 @@ Examples:
 
 This command:
   1. Reads mcpServers.json for MCP server definitions
-  2. Reads settings.json for Claude settings (if exists)
+  2. Reads agent settings (if present):
+     - claude.settings.json (or legacy settings.json)
+     - codex.settings.toml
+     - codex.requirements.toml (optional; used with --codex-requirements)
+     - codex.managed_config.toml (optional; used with --codex-managed-config)
+     - gemini.settings.json
   3. Writes configurations to:
      - Project-local mode (default):
        • Claude Desktop/Code: ./.mcp.json (MCP servers) + ./.claude/settings.json (settings)
+       • Claude Code local scope (--scope local): ~/.claude.json (per-project MCP) + ./.claude/settings.local.json
        • Codex: ./.codex/config.toml
        • Gemini: ./.gemini/settings.json
      - Global mode (--global):
        • Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
        • Claude Code: ~/.claude.json + ~/.claude/settings.json
+       • Claude Code managed scope (--scope managed): managed-settings.json + managed-mcp.json (system dirs)
        • Codex: ~/.codex/config.toml
        • Gemini: ~/.gemini/settings.json
+       • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
   4. Syncs custom commands from commands/ to ~/.claude/commands/
 
 Examples:
@@ -129,6 +151,23 @@ Examples:
   claudius config sync --backup"
     )]
     Sync(ConfigSyncArgs),
+
+    /// Validate configuration source files without writing anything
+    #[command(
+        long_about = "Validate Claudius configuration source files without writing anything.
+
+This command checks:
+  • mcpServers.json (required) - MCP server definitions
+  • claude.settings.json / settings.json (optional) - Claude/Claude Code settings
+  • codex.settings.toml (optional) - Codex settings
+  • codex.requirements.toml (optional) - Codex admin-enforced requirements
+  • codex.managed_config.toml (optional) - Codex admin-managed defaults
+  • gemini.settings.json (optional) - Gemini settings
+
+Use --agent to validate a specific agent's settings.
+Use --strict to fail on warnings."
+    )]
+    Validate(ConfigValidateArgs),
 }
 
 #[derive(Subcommand, Debug, Clone, Copy)]
@@ -289,6 +328,42 @@ pub struct ConfigSyncArgs {
     /// Specify the agent to use (overrides config file)
     #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]
     pub agent: Option<crate::app_config::Agent>,
+
+    /// Claude Code configuration scope (only valid with --agent claude-code)
+    #[arg(long, value_enum, help = "Claude Code scope: managed, user, project, or local")]
+    pub scope: Option<crate::app_config::ClaudeCodeScope>,
+
+    /// Also sync Codex admin-enforced requirements.toml (global Codex only)
+    #[arg(
+        long,
+        help = "Also sync /etc/codex/requirements.toml (admin-enforced; global Codex only)"
+    )]
+    pub codex_requirements: bool,
+
+    /// Also sync Codex managed defaults (global Codex only)
+    #[arg(
+        long,
+        help = "Also sync /etc/codex/managed_config.toml (managed defaults; global Codex only)"
+    )]
+    pub codex_managed_config: bool,
+
+    /// Target Gemini CLI system settings file (admin-managed; global Gemini only)
+    #[arg(
+        long,
+        help = "Target Gemini CLI system settings file (e.g. /etc/gemini-cli/settings.json; global Gemini only)"
+    )]
+    pub gemini_system: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct ConfigValidateArgs {
+    /// Validate a specific agent (defaults to all available source files)
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Treat warnings as errors (exit non-zero)
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Args, Debug, Clone, Copy)]

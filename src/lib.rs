@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+pub mod agent_paths;
 pub mod app_config;
 pub mod bootstrap;
 pub mod cli;

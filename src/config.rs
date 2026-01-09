@@ -156,7 +156,7 @@ impl Config {
         system_config_dir: &Path,
     ) -> anyhow::Result<(PathBuf, Option<PathBuf>, PathBuf)> {
         if use_global {
-            Self::determine_global_paths(agent, config_dir, home_dir, system_config_dir)
+            Ok(Self::determine_global_paths(agent, config_dir, home_dir, system_config_dir))
         } else {
             Self::determine_project_paths(agent, config_dir)
         }
@@ -168,24 +168,25 @@ impl Config {
         config_dir: &Path,
         home_dir: &Path,
         system_config_dir: &Path,
-    ) -> anyhow::Result<(PathBuf, Option<PathBuf>, PathBuf)> {
+    ) -> (PathBuf, Option<PathBuf>, PathBuf) {
         let claude_code_path = home_dir.join(".claude.json");
+        let claude_settings_input = Self::resolve_claude_settings_source_path(config_dir);
 
         match agent {
-            Some(crate::app_config::Agent::Claude) => Ok((
+            Some(crate::app_config::Agent::Claude) => (
                 system_config_dir.join("Claude").join("claude_desktop_config.json"),
                 None,
-                config_dir.join("claude.settings.json"),
-            )),
+                claude_settings_input,
+            ),
             Some(crate::app_config::Agent::Gemini) => {
                 let gemini_input = config_dir.join("gemini.settings.json");
-                Ok((home_dir.join(".gemini").join("settings.json"), None, gemini_input))
+                (home_dir.join(".gemini").join("settings.json"), None, gemini_input)
             },
             Some(crate::app_config::Agent::Codex) => {
                 let codex_input = config_dir.join("codex.settings.toml");
-                Ok((claude_code_path, None, codex_input))
+                (home_dir.join(".codex").join("config.toml"), None, codex_input)
             },
-            _ => Ok((claude_code_path, None, config_dir.join("claude.settings.json"))),
+            _ => (claude_code_path, None, claude_settings_input),
         }
     }
 
@@ -196,6 +197,7 @@ impl Config {
     ) -> anyhow::Result<(PathBuf, Option<PathBuf>, PathBuf)> {
         let current_dir = std::env::current_dir()?;
         let mcp_path = current_dir.join(".mcp.json");
+        let claude_settings_input = Self::resolve_claude_settings_source_path(config_dir);
 
         match agent {
             Some(crate::app_config::Agent::Gemini) => Ok((
@@ -209,9 +211,23 @@ impl Config {
             },
             _ => {
                 let settings_path = current_dir.join(".claude").join("settings.json");
-                Ok((mcp_path, Some(settings_path), config_dir.join("claude.settings.json")))
+                Ok((mcp_path, Some(settings_path), claude_settings_input))
             },
         }
+    }
+
+    fn resolve_claude_settings_source_path(config_dir: &Path) -> PathBuf {
+        let preferred = config_dir.join("claude.settings.json");
+        if preferred.exists() {
+            return preferred;
+        }
+
+        let legacy = config_dir.join("settings.json");
+        if legacy.exists() {
+            return legacy;
+        }
+
+        preferred
     }
 
     /// Determine commands directory based on mode
@@ -232,7 +248,7 @@ impl Config {
 
         Self {
             mcp_servers_path: mcp_servers.into(),
-            settings_path: config_dir.join("settings.json"),
+            settings_path: config_dir.join("claude.settings.json"),
             target_config_path: target_config.into(),
             project_settings_path: None,
             rules_dir: config_dir.join("rules"),
@@ -294,8 +310,10 @@ impl Config {
         let config_dir = Self::get_config_dir()?;
         let mut agents = Vec::new();
 
-        // Check for Claude settings
-        if config_dir.join("claude.settings.json").exists() {
+        // Check for Claude settings (legacy settings.json is still supported).
+        if config_dir.join("claude.settings.json").exists()
+            || config_dir.join("settings.json").exists()
+        {
             agents.push(crate::app_config::Agent::Claude);
         }
 

@@ -300,8 +300,8 @@ fn json_to_toml_value(value: &JsonValue) -> Option<TomlValue> {
         JsonValue::Array(array) => {
             Some(TomlValue::Array(array.iter().filter_map(json_to_toml_value).collect()))
         },
-        JsonValue::Object(object) => Some(TomlValue::Table(
-            object
+        JsonValue::Object(json_object) => Some(TomlValue::Table(
+            json_object
                 .iter()
                 .filter_map(|(k, v)| json_to_toml_value(v).map(|tv| (k.clone(), tv)))
                 .collect(),

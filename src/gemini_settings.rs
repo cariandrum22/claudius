@@ -6,125 +6,131 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiSettings {
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_file_name: Option<String>,
+    pub general: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bug_command: Option<BugCommand>,
+    pub ui: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_filtering: Option<FileFiltering>,
+    pub tools: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub core_tools: Option<Vec<String>>,
+    pub context: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude_tools: Option<Vec<String>>,
+    pub privacy: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_accept: Option<bool>,
+    pub security: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub theme: Option<String>,
+    pub telemetry: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sandbox: Option<bool>,
+    pub model: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_discovery_command: Option<String>,
+    pub model_configs: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_command: Option<String>,
+    pub output: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub checkpointing: Option<Checkpointing>,
+    pub advanced: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_editor: Option<String>,
+    pub admin: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub telemetry: Option<Telemetry>,
+    pub experimental: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage_statistics_enabled: Option<bool>,
+    pub extensions: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hide_tips: Option<bool>,
+    pub hooks: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ide: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_write_todos: Option<Value>,
 
     // Catch-all for unknown fields to preserve them
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct BugCommand {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_template: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct FileFiltering {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub respect_git_ignore: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enable_recursive_file_search: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Checkpointing {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Telemetry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub otlp_endpoint: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_prompts: Option<bool>,
-}
-
-// Known field names for validation
+// Known field names for validation (Gemini CLI v2+ settings schema).
 pub const KNOWN_GEMINI_FIELDS: &[&str] = &[
+    "$schema",
+    "admin",
+    "advanced",
+    "context",
+    "experimental",
+    "extensions",
+    "general",
+    "hooks",
+    "ide",
+    "mcp",
     "mcpServers",
-    "contextFileName",
-    "bugCommand",
-    "fileFiltering",
-    "coreTools",
-    "excludeTools",
-    "autoAccept",
-    "theme",
-    "sandbox",
-    "toolDiscoveryCommand",
-    "toolCallCommand",
-    "checkpointing",
-    "preferredEditor",
+    "model",
+    "modelConfigs",
+    "output",
+    "privacy",
+    "security",
+    "skills",
     "telemetry",
-    "usageStatisticsEnabled",
-    "hideTips",
+    "tools",
+    "ui",
+    "useWriteTodos",
 ];
 
-pub const KNOWN_BUG_COMMAND_FIELDS: &[&str] = &["urlTemplate"];
+pub const KNOWN_GEMINI_MCP_SERVER_FIELDS: &[&str] = &[
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "httpUrl",
+    "headers",
+    "tcp",
+    "type",
+    "timeout",
+    "trust",
+    "description",
+    "includeTools",
+    "excludeTools",
+    "extension",
+    "oauth",
+    "authProviderType",
+    "targetAudience",
+    "targetServiceAccount",
+];
 
-pub const KNOWN_FILE_FILTERING_FIELDS: &[&str] = &["respectGitIgnore", "enableRecursiveFileSearch"];
-
-pub const KNOWN_CHECKPOINTING_FIELDS: &[&str] = &["enabled"];
-
-pub const KNOWN_TELEMETRY_FIELDS: &[&str] = &["enabled", "target", "otlpEndpoint", "logPrompts"];
+pub const KNOWN_GEMINI_TELEMETRY_FIELDS: &[&str] = &[
+    "enabled",
+    "target",
+    "otlpEndpoint",
+    "otlpProtocol",
+    "logPrompts",
+    "outfile",
+    "useCollector",
+    "useCliAuth",
+];
 
 /// Validates a JSON value and returns warnings for unknown fields
 #[must_use]
@@ -146,19 +152,64 @@ pub fn validate_gemini_settings(json: &Value) -> Vec<String> {
 
 /// Validate nested objects based on the parent field name
 fn validate_nested_object(parent_key: &str, value: &Value, warnings: &mut Vec<String>) {
-    let (known_fields, field_name) = match parent_key {
-        "bugCommand" => (KNOWN_BUG_COMMAND_FIELDS, "bugCommand"),
-        "fileFiltering" => (KNOWN_FILE_FILTERING_FIELDS, "fileFiltering"),
-        "checkpointing" => (KNOWN_CHECKPOINTING_FIELDS, "checkpointing"),
-        "telemetry" => (KNOWN_TELEMETRY_FIELDS, "telemetry"),
-        _ => return,
+    match parent_key {
+        "mcpServers" => validate_gemini_mcp_servers(value, warnings),
+        "telemetry" => validate_known_object_fields(
+            value,
+            KNOWN_GEMINI_TELEMETRY_FIELDS,
+            "telemetry",
+            warnings,
+        ),
+        _ => {},
+    }
+}
+
+fn validate_gemini_mcp_servers(value: &Value, warnings: &mut Vec<String>) {
+    let Value::Object(servers) = value else {
+        return;
     };
 
-    if let Value::Object(nested_map) = value {
-        for (nested_key, _) in nested_map {
-            if !known_fields.contains(&nested_key.as_str()) {
-                warnings.push(format!("Unknown field '{nested_key}' in {field_name}"));
+    for (server_name, server_value) in servers {
+        let Value::Object(server_map) = server_value else {
+            continue;
+        };
+
+        for (server_key, server_field_value) in server_map {
+            if !KNOWN_GEMINI_MCP_SERVER_FIELDS.contains(&server_key.as_str()) {
+                warnings.push(format!("Unknown field '{server_key}' in mcpServers.{server_name}"));
+                continue;
             }
+
+            if server_key == "type" {
+                let Value::String(kind) = server_field_value else {
+                    continue;
+                };
+
+                if matches!(kind.as_str(), "stdio" | "sse" | "http") {
+                    continue;
+                }
+
+                warnings.push(format!(
+                    "Unknown mcpServers.{server_name}.type value '{kind}' (expected: stdio|sse|http)"
+                ));
+            }
+        }
+    }
+}
+
+fn validate_known_object_fields(
+    value: &Value,
+    known_fields: &[&str],
+    field_name: &str,
+    warnings: &mut Vec<String>,
+) {
+    let Value::Object(map) = value else {
+        return;
+    };
+
+    for (key, _) in map {
+        if !known_fields.contains(&key.as_str()) {
+            warnings.push(format!("Unknown field '{key}' in {field_name}"));
         }
     }
 }
