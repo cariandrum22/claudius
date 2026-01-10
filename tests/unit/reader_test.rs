@@ -29,7 +29,7 @@ mod tests {
         assert!(config.mcp_servers.contains_key("test-server"));
 
         let server = config.mcp_servers.get("test-server").unwrap();
-        assert_eq!(server.command, "node");
+        assert_eq!(server.command.as_deref(), Some("node"));
         assert_eq!(server.args, vec!["index.js"]);
         assert_eq!(server.env.get("PORT"), Some(&"8080".to_string()));
     }

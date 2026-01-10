@@ -6,17 +6,32 @@ use std::fs;
 mod tests {
     use super::*;
 
+    fn claude_desktop_config_path(
+        system_config_dir: &std::path::Path,
+        home_dir: &std::path::Path,
+    ) -> std::path::PathBuf {
+        if cfg!(target_os = "macos") {
+            home_dir
+                .join("Library")
+                .join("Application Support")
+                .join("Claude")
+                .join("claude_desktop_config.json")
+        } else {
+            system_config_dir.join("Claude").join("claude_desktop_config.json")
+        }
+    }
+
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg_original: Option<String>,
-        home_original: Option<String>,
+        xdg_config_home: Option<String>,
+        home: Option<String>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg_original: std::env::var("XDG_CONFIG_HOME").ok(),
-                home_original: std::env::var("HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
+                home: std::env::var("HOME").ok(),
             }
         }
     }
@@ -24,12 +39,12 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg_original {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
             // Restore HOME
-            match &self.home_original {
+            match &self.home {
                 Some(value) => std::env::set_var("HOME", value),
                 None => std::env::remove_var("HOME"),
             }
@@ -64,8 +79,12 @@ mod tests {
         .unwrap();
 
         let gemini_settings = serde_json::json!({
-            "apiKeyHelper": "/bin/gemini-key",
-            "preferredNotifChannel": "email"
+            "general": {
+                "preferredEditor": "code"
+            },
+            "ui": {
+                "theme": "GitHub"
+            }
         });
         fs::write(
             config_dir.join("gemini.settings.json"),
@@ -97,11 +116,12 @@ mod tests {
         // Create target directories
         let home_dir = temp_dir.child("home");
         home_dir.create_dir_all().unwrap();
+        let system_config_dir = config_dir.parent().unwrap();
 
         // Run sync with global flag (no agent specified)
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
+            .env("XDG_CONFIG_HOME", system_config_dir)
             .env("HOME", home_dir.path())
             .args(["config", "sync"])
             .arg("-g")
@@ -109,7 +129,7 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path = home_dir.join(".claude.json");
+        let claude_config_path = claude_desktop_config_path(system_config_dir, home_dir.path());
         assert!(claude_config_path.exists());
         let claude_config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&claude_config_path).unwrap()).unwrap();
@@ -120,11 +140,7 @@ mod tests {
                 .and_then(|t| t.get("command")),
             Some(&serde_json::Value::String("node".to_string()))
         );
-        // Note: Claude settings might be merged into .claude.json in global mode
-
-        // For Gemini and Codex, the actual files might be created in the real home directory
-        // due to how directories::BaseDirs works. The important thing is that the sync
-        // command succeeds, which it did above.
+        // Claude Desktop config contains MCP servers only.
     }
 
     #[test]
@@ -153,13 +169,19 @@ mod tests {
             .assert()
             .success();
 
-        // Verify MCP servers were synced
-        let claude_config_path = home_dir.join(".claude.json");
-        assert!(claude_config_path.exists(), "Claude config should exist for MCP servers");
+        // Verify Gemini settings were synced (Gemini CLI stores MCP servers in the same file)
+        let gemini_settings_path = home_dir.join(".gemini/settings.json");
+        assert!(gemini_settings_path.exists(), "Gemini settings should exist");
 
-        // Note: Due to how directories::BaseDirs works in tests, Gemini and Codex files
-        // might be created in the actual home directory rather than the test directory.
-        // The important verification is that the sync command succeeded above.
+        let gemini_config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&gemini_settings_path).unwrap()).unwrap();
+        assert_eq!(
+            gemini_config
+                .get("mcpServers")
+                .and_then(|s| s.get("test-server"))
+                .and_then(|t| t.get("command")),
+            Some(&serde_json::Value::String("node".to_string()))
+        );
     }
 
     #[test]
@@ -213,40 +235,10 @@ mod tests {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let config_dir = temp_dir.child("config/claudius");
         config_dir.create_dir_all().unwrap();
+        let system_config_dir = config_dir.parent().unwrap();
 
-        // Create MCP servers configuration
-        let mcp_servers = serde_json::json!({
-        "mcpServers": {
-            "test-server": {
-                "command": "node",
-                "args": ["test-server.js"]
-            }
-        }
-        });
-        fs::write(
-            config_dir.join("mcpServers.json"),
-            serde_json::to_string_pretty(&mcp_servers).unwrap(),
-        )
-        .unwrap();
-
-        // Create settings only for Claude and Codex (not Gemini)
-        let claude_settings = serde_json::json!({
-        "apiKeyHelper": "/bin/claude-key"
-        });
-        fs::write(
-            config_dir.join("claude.settings.json"),
-            serde_json::to_string_pretty(&claude_settings).unwrap(),
-        )
-        .unwrap();
-
-        let codex_settings = toml::toml! {
-        api_key_helper = "/bin/codex-key"
-        };
-        fs::write(
-            config_dir.join("codex.settings.toml"),
-            toml::to_string_pretty(&codex_settings).unwrap(),
-        )
-        .unwrap();
+        setup_test_config(&config_dir);
+        fs::remove_file(config_dir.join("gemini.settings.json")).unwrap();
 
         // Create target directories
         let home_dir = temp_dir.child("home");
@@ -255,7 +247,7 @@ mod tests {
         // Run sync with global flag
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(temp_dir.path())
-            .env("XDG_CONFIG_HOME", config_dir.parent().unwrap())
+            .env("XDG_CONFIG_HOME", system_config_dir)
             .env("HOME", home_dir.path())
             .args(["config", "sync"])
             .arg("-g")
@@ -263,7 +255,7 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path = home_dir.join(".claude.json");
+        let claude_config_path = claude_desktop_config_path(system_config_dir, home_dir.path());
         assert!(claude_config_path.exists());
 
         // Verify Codex configuration was synced

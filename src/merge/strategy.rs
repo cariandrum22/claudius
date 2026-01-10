@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MergeStrategy {
     /// Replace all existing MCP servers with new ones
     Replace,
@@ -7,11 +7,6 @@ pub enum MergeStrategy {
     /// Merge new servers, preserving existing ones with same name
     MergePreserveExisting,
     /// Merge with interactive conflict resolution
+    #[default]
     InteractiveMerge,
-}
-
-impl Default for MergeStrategy {
-    fn default() -> Self {
-        Self::InteractiveMerge
-    }
 }

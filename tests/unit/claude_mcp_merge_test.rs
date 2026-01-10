@@ -12,9 +12,13 @@ mod tests {
         mcp_servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "node".to_string(),
+                command: Some("node".to_string()),
                 args: vec!["server.js".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
@@ -27,6 +31,7 @@ mod tests {
                 allow: vec!["Read".to_string()],
                 deny: vec!["Write".to_string()],
                 default_mode: Some("allow".to_string()),
+                extra: HashMap::new(),
             }),
             preferred_notif_channel: Some("chat".to_string()),
             mcp_servers: Some(mcp_servers.clone()),
@@ -43,9 +48,13 @@ mod tests {
         mcp_servers.insert(
             "filesystem".to_string(),
             McpServerConfig {
-                command: "npx".to_string(),
+                command: Some("npx".to_string()),
                 args: vec!["-y".to_string(), "@modelcontextprotocol/server-filesystem".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
@@ -88,7 +97,7 @@ mod tests {
         assert!(mcp_servers.contains_key("server1"));
 
         let server = mcp_servers.get("server1").unwrap();
-        assert_eq!(server.command, "python");
+        assert_eq!(server.command.as_deref(), Some("python"));
         assert_eq!(server.args.len(), 2);
     }
 

@@ -14,17 +14,17 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg: Option<String>,
+        xdg_config_home: Option<String>,
         home: Option<String>,
-        dir: Option<std::path::PathBuf>,
+        current_dir: Option<std::path::PathBuf>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg: std::env::var("XDG_CONFIG_HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
                 home: std::env::var("HOME").ok(),
-                dir: std::env::current_dir().ok(),
+                current_dir: std::env::current_dir().ok(),
             }
         }
     }
@@ -32,7 +32,7 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
@@ -42,7 +42,7 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
             // Restore current directory
-            if let Some(dir) = &self.dir {
+            if let Some(dir) = &self.current_dir {
                 let _ = std::env::set_current_dir(dir);
             }
         }
@@ -444,7 +444,7 @@ context-file = "CUSTOM.md"
 
     #[test]
     #[serial]
-    fn test_project_local_sync() {
+    fn test_project_local_sync_claude_code() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
@@ -467,6 +467,8 @@ context-file = "CUSTOM.md"
             .env("HOME", fixture.home_dir())
             .arg("--debug")
             .args(["config", "sync"])
+            .arg("--agent")
+            .arg("claude-code")
             .output()
             .unwrap();
 
@@ -492,6 +494,49 @@ context-file = "CUSTOM.md"
         // Verify .claude/settings.json was created
         let settings_json = project_dir.join(".claude").join("settings.json");
         assert!(settings_json.exists(), ".claude/settings.json should exist");
+
+        // Verify global claude.json was NOT created
+        let global_claude = fixture.home_dir().join(".claude.json");
+        assert!(!global_claude.exists(), "Global claude.json should not exist");
+    }
+
+    #[test]
+    #[serial]
+    fn test_project_local_sync_claude_desktop() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        // Create MCP servers config
+        fixture
+            .with_mcp_servers(r#"{"mcpServers": {"test": {"command": "test-cmd", "args": []}}}"#)
+            .unwrap();
+
+        // Create claude.settings.json (ignored by Claude Desktop)
+        fixture.with_claude_settings(r#"{"env": {"TEST_VAR": "test_value"}}"#).unwrap();
+
+        let project_dir = &fixture.project;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .current_dir(project_dir)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "sync"])
+            .output()
+            .unwrap();
+
+        assert!(output.status.success(), "sync command failed");
+
+        // Verify .mcp.json was created
+        let mcp_json = project_dir.join(".mcp.json");
+        assert!(mcp_json.exists(), ".mcp.json should exist in project directory");
+
+        // Claude Desktop does not use project-local settings.json
+        let settings_json = project_dir.join(".claude").join("settings.json");
+        assert!(
+            !settings_json.exists(),
+            ".claude/settings.json should not exist for Claude Desktop"
+        );
 
         // Verify global claude.json was NOT created
         let global_claude = fixture.home_dir().join(".claude.json");

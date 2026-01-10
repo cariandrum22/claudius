@@ -29,7 +29,7 @@ claudius --list-commands
 ```
 
 ### Prerequisites
-- Rust 1.86.0 or higher
+- Rust 1.92.0 or higher
 - Nix 2.19.0 or higher (optional, for development)
 
 ### Basic Usage
@@ -59,7 +59,7 @@ claudius context append security
 
 ### 2. Multi-Project Support
 - **Project-Local Configurations**: Each project can have its own `.mcp.json` and `.claude/settings.json`
-- **Global Configurations**: Maintain system-wide settings in `~/.claude.json`
+- **Global Configurations**: Maintain system-wide settings in the agent’s global config files (e.g. Claude Desktop: `claude_desktop_config.json`, Claude Code: `~/.claude.json` + `~/.claude/settings.json`)
 - **Configuration Separation**: MCP servers and settings are managed in separate files for project-local mode
 
 ### 3. Team Collaboration
@@ -92,14 +92,18 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 Project Directory (default):
 ├── .mcp.json                  # Project-local MCP servers configuration
 ├── .claude/
-│   ├── settings.json          # Project-local Claude settings
+│   ├── settings.json          # Project-local Claude Code settings (when using --agent claude-code)
 │   └── commands/              # Project-local slash commands
+├── .gemini/
+│   └── settings.json          # Project-local Gemini settings + MCP servers (when using --agent gemini)
 └── CLAUDE.md                  # Project-specific instructions
 
-Home Directory (--global):
-├── .claude.json               # Global Claude configuration
-└── .claude/
-    └── commands/              # Global slash commands
+Global targets (--global):
+├── Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
+├── Claude Code: ~/.claude.json + ~/.claude/settings.json
+├── Codex: ~/.codex/config.toml
+├── Gemini: ~/.gemini/settings.json
+└── Commands: ~/.claude/commands
 ```
 
 ### Data Flow
@@ -114,13 +118,10 @@ Home Directory (--global):
 ```
 
 **Global Mode (--global):**
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│ Config Sources  │────▶│    Claudius      │────▶│ ~/.claude.json  │
-│ • mcpServers    │     │ • Read configs   │     │ (all merged)    │
-│ • settings      │     │ • Merge data     │     │                 │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-```
+- Claude Desktop: MCP servers → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json`
+- Claude Code: MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
+- Codex: settings + MCP servers → `~/.codex/config.toml`
+- Gemini: settings + MCP servers → `~/.gemini/settings.json`
 
 ## Command Reference
 
@@ -158,20 +159,27 @@ Creates default:
 Synchronize configurations to target files.
 
 **Project-local mode (default):**
-- MCP servers → `./.mcp.json`
-- Settings → `./.claude/settings.json`
-- Commands → `./.claude/commands/`
+- Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
+- Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
+- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 
 **Global mode (--global):**
-- Everything → `~/.claude.json`
+- Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
+- Claude Code (`--agent claude-code`) → `~/.claude.json` + `~/.claude/settings.json`
+- Codex (`--agent codex`) → `~/.codex/config.toml`
+- Gemini (`--agent gemini`) → `~/.gemini/settings.json`
 - Commands → `~/.claude/commands/`
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
 claudius config sync
 
-# Sync to global ~/.claude.json
-claudius config sync --global
+# Sync Claude Desktop global config
+claudius config sync --global --agent claude
+
+# Sync Claude Code global config
+claudius config sync --global --agent claude-code
 
 # Preview changes
 claudius config sync --dry-run
@@ -279,7 +287,7 @@ Claudius supports its own configuration file at `$XDG_CONFIG_HOME/claudius/confi
 ```toml
 # Default agent configuration (optional)
 [default]
-agent = "claude"  # or "codex" or "gemini"
+agent = "claude"  # or "claude-code" or "codex" or "gemini"
 context-file = "CLAUDE.md"  # optional custom filename
 
 # Secret Manager Configuration (optional)
@@ -672,7 +680,7 @@ claudius/
 1. **Parallel Test Execution**: Some tests modify environment variables
    - Solution: Tests use `serial_test` crate for sequential execution
 
-2. **File Permissions**: .claude.json must be writable
+2. **File Permissions**: target config files must be writable (`~/.claude.json`, `~/.claude/settings.json`, and/or `claude_desktop_config.json`)
    - Solution: Check permissions before operations
 
 3. **JSON Formatting**: Order preservation using serde_json
@@ -938,7 +946,7 @@ just --list
 - `just coverage` - Full coverage analysis
 - `just coverage-html` - HTML report only
 - `just coverage-lcov` - LCOV report only
-- `just test-stats` - Test statistics (Rust 1.86.0 compatible)
+- `just test-stats` - Test statistics
 
 #### Utilities
 - `just clean` - Clean build artifacts
@@ -1001,7 +1009,7 @@ For more details, see the [Just documentation](https://just.systems/).
 
 ### Prerequisites
 
-Due to Rust 1.86.0 compatibility constraints, we recommend using one of these approaches:
+We recommend using one of these approaches:
 
 #### Option 1: Use cargo-llvm-cov (Recommended)
 
@@ -1039,7 +1047,7 @@ We've included coverage scripts that work with cargo-llvm-cov:
 
 #### Option 3: Manual coverage with grcov
 
-If you need to stay on Rust 1.86.0:
+If you cannot use cargo-llvm-cov:
 
 1. Install grcov:
 ```bash
@@ -1114,7 +1122,7 @@ Then upload to your coverage service (Codecov, Coveralls, etc.).
 
 #### Rust Version Issues
 
-If you encounter dependency version conflicts due to Rust 1.86.0:
+If you encounter dependency version conflicts:
 
 1. Consider upgrading Rust: `rustup update`
 2. Or use the manual grcov approach described above
@@ -1137,71 +1145,45 @@ Coverage builds are slower than normal builds. For day-to-day development, run t
 
 ### Rust Version Compatibility
 
-This project is currently constrained to **Rust 1.86.0** due to the Nix flake configuration.
-
-### Dependency Version Constraints
-
-To maintain compatibility with Rust 1.86.0, the following dependencies have been downgraded from their latest versions:
-
-| Dependency | Latest Version | Pinned Version | Rust Requirement |
-|------------|-----------------|----------------|------------------|
-| `bstr` | 1.12.0 | 1.6.2 | Latest requires 1.73+ |
-| `predicates` | 3.1.3 | 3.0.1 | Latest requires 1.74+ |
-| `predicates-core` | 1.0.9 | 1.0.5 | Latest requires 1.74+ |
-| `assert_fs` | 1.0.13 | 1.0.7 | Depends on predicates-core |
-| `ignore` | 0.4.23 | 0.4.18 | Latest uses unstable features |
+This project targets **Rust 1.92.0+** (see `clippy.toml` `msrv`). The Nix devShell uses the latest
+stable Rust pinned by `flake.lock`.
 
 ### How to Update Dependencies
 
-If you need to update dependencies while maintaining Rust 1.86.0 compatibility:
-
 ```bash
-# Check which version is compatible
-cargo search <package-name> --limit 20
+# Update Cargo.lock within existing version constraints
+cargo update
 
-# Update to a specific version
-cargo update -p <package>@<current-version> --precise <target-version>
-
-# Example:
-cargo update -p bstr@1.12.0 --precise 1.6.2
+# Check for newer versions (including major updates)
+cargo outdated
 ```
 
-### Testing Compatibility
-
-After any dependency updates, ensure tests still compile and run:
+If you need to pin a specific dependency version:
 
 ```bash
-# Run all tests
+cargo update -p <package> --precise <target-version>
+```
+
+### Testing After Updates
+
+```bash
 cargo test
-
-# If you encounter version conflicts, check the error message for guidance
-# The error will tell you which Rust version is required
 ```
 
-### Coverage Tool Compatibility
+### Coverage Tool Notes
 
-For test coverage with Rust 1.86.0:
+`cargo llvm-cov` is included in the Nix devShell. If you're not using Nix:
 
 ```bash
-# Install compatible version
-cargo install cargo-llvm-cov --version 0.5.31
-
-# Latest versions (0.6+) require Rust 1.81+
+cargo install cargo-llvm-cov
 ```
 
-### Future Upgrades
+### Upgrading Tooling
 
-To use the latest versions of all dependencies, you would need to:
-
-1. Update the Rust version in `flake.nix`
-2. Run `cargo update` to get latest compatible versions
-3. Update any code that may have breaking changes
-
-### Notes
-
-- The project builds and runs successfully with these constraints
-- All tests pass with the downgraded dependencies
-- No functionality is lost with these versions
+```bash
+# Update Nix inputs (Rust toolchain, dev tools, hooks)
+nix flake update
+```
 
 
 ---

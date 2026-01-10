@@ -105,7 +105,7 @@ cargo install --path .
 
 ## Prerequisites
 
-- **Rust**: 1.86.0 or higher
+- **Rust**: 1.92.0 or higher
 - **Nix**: 2.19.0 or higher (optional, for development)
 - **1Password CLI**: For secret management features (optional)
 
@@ -128,7 +128,11 @@ claudius --list-commands
 
 2. **Edit configuration files:**
    - Edit `~/.config/claudius/mcpServers.json` to define your MCP servers
-   - Edit `~/.config/claudius/settings.json` to configure agent settings
+   - Edit `~/.config/claudius/claude.settings.json` to configure Claude/Claude Code settings
+   - Edit `~/.config/claudius/codex.settings.toml` to configure Codex settings
+   - (Optional) Edit `~/.config/claudius/codex.requirements.toml` for Codex admin-enforced constraints
+   - (Optional) Edit `~/.config/claudius/codex.managed_config.toml` for Codex admin-managed defaults
+   - Edit `~/.config/claudius/gemini.settings.json` to configure Gemini settings
    - Add custom commands to `~/.config/claudius/commands/`
    - Add context rules to `~/.config/claudius/rules/`
 
@@ -137,8 +141,11 @@ claudius --list-commands
    # To project-local files (.mcp.json and .claude/settings.json)
    claudius config sync
    
-   # To global ~/.claude.json
-   claudius config sync --global
+   # To Claude Desktop global config
+   claudius config sync --global --agent claude
+
+   # To Claude Code global config
+   claudius config sync --global --agent claude-code
 
    # Sync only custom commands
    claudius commands sync
@@ -181,7 +188,11 @@ claudius config init --force
 
 This creates:
 - `mcpServers.json` with example filesystem MCP server
-- `settings.json` with default agent settings
+- `claude.settings.json` with default Claude/Claude Code settings
+- `codex.settings.toml` with default Codex settings
+- `codex.requirements.toml` with default Codex requirements (admin-enforced)
+- `codex.managed_config.toml` with default Codex managed defaults (admin-managed)
+- `gemini.settings.json` with default Gemini settings
 - `config.toml` with Claudius application settings (optional)
 - `commands/example.md` - Example custom slash command
 - `rules/example.md` - Example context file rule template
@@ -191,18 +202,25 @@ This creates:
 Synchronize all agent configurations to target files.
 
 **Project-local mode (default):**
-- MCP servers → `./.mcp.json`
-- Settings → `./.claude/settings.json`
-- Commands → `./.claude/commands/`
+- Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
+- Claude Code (`--agent claude-code`):
+  - Project scope (default / `--scope project`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`
+  - Local scope (`--scope local`): MCP servers → `~/.claude.json` (per-project), settings → `./.claude/settings.local.json`
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
+- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 
 **Global mode (`--global`):**
-- Everything → `~/.claude.json`
-- Commands → `~/.claude/commands/`
-
-**Agent-specific modes:**
-- Claude (default): `.claude.json` or `.mcp.json`
-- Codex: `.codex/config.toml`
-- Gemini: `.gemini/settings.json`
+- Claude Desktop (`--agent claude`): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
+- Claude Code (`--agent claude-code`):
+  - User scope (default / `--scope user`): MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
+  - Managed scope (`--scope managed`): MCP servers → `managed-mcp.json`, settings → `managed-settings.json` (system directories)
+- Codex (`--agent codex`):
+  - User config: `~/.codex/config.toml`
+  - (Optional) Admin-enforced: `/etc/codex/requirements.toml` (`--codex-requirements`)
+  - (Optional) Managed defaults: `/etc/codex/managed_config.toml` (`--codex-managed-config`)
+- Gemini (`--agent gemini`):
+  - User settings: `~/.gemini/settings.json`
+  - System settings: `/etc/gemini-cli/settings.json` (`--gemini-system`, path varies by OS)
 
 ```bash
 # Basic sync to project-local files
@@ -221,8 +239,36 @@ claudius config sync --backup
 claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
 
 # Use specific agent
+claudius config sync --agent claude-code
 claudius config sync --agent codex
 claudius config sync --agent gemini
+
+# Claude Code scope selection
+claudius config sync --agent claude-code --scope managed
+claudius config sync --agent claude-code --scope local
+
+# Codex admin-managed files (system-wide)
+claudius config sync --global --agent codex --codex-requirements --codex-managed-config
+
+# Gemini system settings (system-wide)
+claudius config sync --global --agent gemini --gemini-system
+```
+
+### `claudius config validate`
+
+Validate configuration source files without writing anything.
+
+```bash
+# Validate all available source files
+claudius config validate
+
+# Validate only a specific agent
+claudius config validate --agent claude-code
+claudius config validate --agent codex
+claudius config validate --agent gemini
+
+# Fail on warnings
+claudius config validate --strict
 ```
 
 ### `claudius commands sync`
@@ -240,7 +286,7 @@ claudius commands sync --global
 
 ### `claudius context append`
 
-Append instructions or rules to project's context file (CLAUDE.md, CODEX.md, or GEMINI.md).
+Append instructions or rules to the agent's context file (CLAUDE.md for Claude/Claude Code, AGENTS.md for Codex/Gemini).
 
 ```bash
 # Append a predefined rule
@@ -325,7 +371,12 @@ Features:
 ~/.config/claudius/
 ├── config.toml        # Claudius app configuration (optional)
 ├── mcpServers.json    # MCP server definitions
-├── settings.json      # General agent settings (optional)
+├── claude.settings.json # Claude/Claude Code settings (optional)
+├── codex.settings.toml  # Codex settings (optional)
+├── codex.requirements.toml # Codex requirements (admin-enforced, optional)
+├── codex.managed_config.toml # Codex managed defaults (admin-managed, optional)
+├── gemini.settings.json # Gemini settings (optional)
+├── settings.json      # Legacy alias for claude.settings.json (backward compatible)
 ├── commands/          # Custom slash commands
 │   └── *.md          # Command files
 └── rules/            # Context file templates
@@ -350,9 +401,9 @@ Define your MCP servers:
 }
 ```
 
-### settings.json (Optional)
+### claude.settings.json (Optional)
 
-Configure general agent settings:
+Configure Claude/Claude Code settings:
 
 ```json
 {
@@ -369,6 +420,55 @@ Configure general agent settings:
 }
 ```
 
+### codex.settings.toml (Optional)
+
+Configure Codex CLI settings (merged into `.codex/config.toml` or `~/.codex/config.toml`):
+
+```toml
+# model = "gpt-5-codex"
+# approval_policy = "on-request"
+```
+
+### codex.requirements.toml (Optional)
+
+Admin-enforced constraints for Codex (synced with `--codex-requirements`):
+
+- Target (Unix): `/etc/codex/requirements.toml`
+- Override target path: `CLAUDIUS_CODEX_REQUIREMENTS_PATH`
+
+```toml
+# allowed_approval_policies = ["untrusted", "on-request", "on-failure"]
+# allowed_sandbox_modes = ["read-only", "workspace-write"]
+```
+
+### codex.managed_config.toml (Optional)
+
+Admin-managed defaults for Codex (synced with `--codex-managed-config`):
+
+- Target (Unix): `/etc/codex/managed_config.toml`
+- Override target path: `CLAUDIUS_CODEX_MANAGED_CONFIG_PATH`
+
+```toml
+# approval_policy = "on-request"
+# sandbox_mode = "workspace-write"
+```
+
+### gemini.settings.json (Optional)
+
+Configure Gemini CLI settings (category-based schema):
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "general": {},
+  "ui": {},
+  "tools": {},
+  "context": {},
+  "privacy": {},
+  "telemetry": {}
+}
+```
+
 ### config.toml (Optional)
 
 Configure Claudius application settings:
@@ -376,7 +476,7 @@ Configure Claudius application settings:
 ```toml
 # Default agent configuration (optional)
 [default]
-agent = "claude"  # or "codex" or "gemini"
+agent = "claude"  # or "claude-code" or "codex" or "gemini"
 context-file = "CLAUDE.md"  # optional custom filename
 
 # Secret Manager Configuration (optional)
@@ -418,8 +518,8 @@ echo "# Security Rules\n\nAlways validate input..." > ~/.config/claudius/rules/s
 claudius context append security
 
 # Apply to agent-specific context files
-claudius context append security --agent codex   # → CODEX.md
-claudius context append security --agent gemini  # → GEMINI.md
+claudius context append security --agent codex   # → AGENTS.md
+claudius context append security --agent gemini  # → AGENTS.md
 ```
 
 ### Context Management Strategies
@@ -436,8 +536,12 @@ Claudius offers two ways to manage project context:
 
 ## Environment Variables
 
-- `CLAUDIUS_CONFIG` - Default path for MCP servers configuration
-- `CLAUDE_CONFIG_PATH` - Default path for claude.json
+- `CLAUDIUS_CONFIG` - Default path for MCP servers configuration source (`mcpServers.json`)
+- `TARGET_CONFIG_PATH` - Override target config path for `claudius config sync`
+- `CLAUDIUS_CLAUDE_CODE_MANAGED_DIR` - Override Claude Code managed config directory
+- `CLAUDIUS_CODEX_REQUIREMENTS_PATH` - Override Codex `requirements.toml` target path
+- `CLAUDIUS_CODEX_MANAGED_CONFIG_PATH` - Override Codex `managed_config.toml` target path
+- `GEMINI_CLI_SYSTEM_SETTINGS_PATH` - Override Gemini CLI system settings path (used with `--gemini-system`)
 - `XDG_CONFIG_HOME` - Base directory for configuration files
 - `CLAUDIUS_SECRET_*` - Environment variables for secret injection (prefix is removed)
 - `CLAUDIUS_TEST_MOCK_OP` - Enable mock mode for 1Password CLI (for testing)
@@ -569,7 +673,8 @@ claudius secrets run -- ./my-app
 2. **Team members clone and sync:**
    ```bash
    git clone team-configs ~/.config/claudius
-   claudius config sync --global
+   claudius config sync --global --agent claude
+   claudius config sync --global --agent claude-code
    ```
 
 ## Troubleshooting
@@ -585,8 +690,10 @@ claudius config sync --config /custom/path/mcpServers.json
 
 ### Permission errors
 ```bash
-# Check file permissions (example for Claude agent)
-ls -la ~/.claude.json
+# Check file permissions
+ls -la ~/.claude.json                    # Claude Code MCP servers
+ls -la ~/.claude/settings.json           # Claude Code settings
+ls -la "$XDG_CONFIG_HOME/Claude/claude_desktop_config.json"  # Claude Desktop
 ls -la ./.mcp.json
 
 # Use sudo if needed (not recommended)
@@ -640,7 +747,7 @@ Key features in v0.1.0:
 - Secret management with 1Password integration
 - DAG-based variable expansion for nested environment variables
 - Project-local and global configuration modes
-- Context file templates (CLAUDE.md, CODEX.md, GEMINI.md)
+- Context file templates (CLAUDE.md and AGENTS.md)
 - Secure command execution with automatic secret resolution
 - Comprehensive test coverage and Nix flake support
 
@@ -651,6 +758,16 @@ This is a personal utility I developed for multi-agent configuration management,
 ### AI-Generated Code Notice
 
 This project represents an experiment in AI-assisted software development. A significant portion of the code, particularly the initial implementation, was generated by Claude Code and other AI assistants. This collaborative approach between human and AI demonstrates new possibilities in software development workflows.
+
+#### AI Tools and Providers
+
+This repository has been developed with assistance from AI coding tools (not runtime dependencies), primarily:
+
+- OpenAI ChatGPT (GPT-5 series) — design discussions, implementation suggestions, and documentation drafts
+- OpenAI Codex CLI — coding-agent workflows for refactors, feature work, and test setup
+- Anthropic Claude Code — substantial implementation contributions and iterative improvements
+
+All AI-assisted changes are reviewed by maintainers and validated via formatting, linting, and tests. AI output can be incorrect; please file issues if you spot problems. We avoid including secrets or sensitive data in prompts.
 
 ### Copyright Statement
 

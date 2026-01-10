@@ -3,7 +3,7 @@
 
 # Deny dangerous and problematic patterns
 avoid-breaking-exported-api = false
-msrv = "1.86.0"
+msrv = "1.92.0"
 
 # Threshold configurations
 cognitive-complexity-threshold = 20

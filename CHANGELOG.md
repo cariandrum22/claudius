@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Codex: optional global sync for admin files `requirements.toml` (`--codex-requirements`) and `managed_config.toml` (`--codex-managed-config`)
+- Gemini: optional global sync to the system settings file (`--gemini-system`)
+- `codex.managed_config.toml` template + validation support
+
+### Changed
+- Context files standardized on `CLAUDE.md` (Claude/Claude Code) and `AGENTS.md` (Codex/Gemini)
+
 ## [0.1.0] - 2025-07-23
 
 ### Added

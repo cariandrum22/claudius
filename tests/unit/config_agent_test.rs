@@ -10,17 +10,17 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg: Option<String>,
+        xdg_config_home: Option<String>,
         home: Option<String>,
-        dir: Option<std::path::PathBuf>,
+        current_dir: Option<std::path::PathBuf>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg: std::env::var("XDG_CONFIG_HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
                 home: std::env::var("HOME").ok(),
-                dir: std::env::current_dir().ok(),
+                current_dir: std::env::current_dir().ok(),
             }
         }
     }
@@ -28,7 +28,7 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
@@ -38,7 +38,7 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
             // Restore current directory
-            if let Some(dir) = &self.dir {
+            if let Some(dir) = &self.current_dir {
                 let _ = std::env::set_current_dir(dir);
             }
         }
@@ -109,19 +109,9 @@ mod tests {
         let config = Config::new_with_agent(false, Some(Agent::Gemini)).unwrap();
         // In local mode, gemini uses settings from config dir
         assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
-        // But project settings path should be ./gemini/settings.json
-        assert!(config
-            .project_settings_path
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains("gemini/settings.json"));
-        assert!(!config
-            .project_settings_path
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains(".claude"));
+        // Gemini CLI stores settings and MCP servers in .gemini/settings.json
+        assert!(config.target_config_path.to_string_lossy().contains(".gemini/settings.json"));
+        assert!(config.project_settings_path.is_none());
     }
 
     #[test]
@@ -140,6 +130,8 @@ mod tests {
         let config = Config::new_with_agent(true, Some(Agent::Gemini)).unwrap();
         // In global mode, gemini reads from config_dir/gemini.settings.json
         assert!(config.settings_path.to_string_lossy().contains("gemini.settings.json"));
+        // Gemini CLI stores settings and MCP servers in ~/.gemini/settings.json
+        assert!(config.target_config_path.to_string_lossy().contains(".gemini/settings.json"));
     }
 
     #[test]
@@ -180,9 +172,72 @@ mod tests {
         fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
 
         let config = Config::new_with_agent(true, Some(Agent::Claude)).unwrap();
-        // In global mode, settings are merged into claude.json
-        assert!(config.target_config_path.to_string_lossy().contains(".claude.json"));
+        // In global mode, Claude Desktop uses a dedicated config file in the system config dir
+        assert!(
+            config
+                .target_config_path
+                .file_name()
+                .is_some_and(|n| n == "claude_desktop_config.json"),
+            "Expected Claude Desktop global config to be claude_desktop_config.json"
+        );
         // But the settings_path should still reflect the agent
         assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_global_config_with_claude_code_agent() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        std::env::set_var("HOME", temp_dir.path());
+
+        // Create the claudius config directory and mcpServers.json
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
+
+        let config = Config::new_with_agent(true, Some(Agent::ClaudeCode)).unwrap();
+        assert!(config.target_config_path.to_string_lossy().contains(".claude.json"));
+        assert!(config.settings_path.to_string_lossy().contains("claude.settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_falls_back_to_legacy_settings_json() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        // Create the claudius config directory and required files.
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
+        fs::write(config_dir.join("settings.json"), r#"{"apiKeyHelper":"/bin/legacy"}"#).unwrap();
+
+        // Create a project directory and change to it.
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&project_dir).unwrap();
+        std::env::set_current_dir(&project_dir).unwrap();
+
+        let config = Config::new_with_agent(false, Some(Agent::ClaudeCode)).unwrap();
+        assert!(config.settings_path.to_string_lossy().ends_with("settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_detect_available_agents_accepts_legacy_settings_json() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("settings.json"), r#"{"apiKeyHelper":"/bin/legacy"}"#).unwrap();
+
+        let agents = Config::detect_available_agents().unwrap();
+        assert!(agents.contains(&Agent::Claude));
     }
 }

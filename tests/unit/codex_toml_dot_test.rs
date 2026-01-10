@@ -1,164 +1,126 @@
-use claudius::codex_settings::{convert_mcp_to_toml, CodexSettings};
-use claudius::config::McpServerConfig;
-use std::collections::HashMap;
-use toml::Value as TomlValue;
+#[cfg(test)]
+mod tests {
+    use claudius::codex_settings::{convert_mcp_to_toml, CodexSettings};
+    use claudius::config::McpServerConfig;
+    use std::collections::HashMap;
+    use toml::Value as TomlValue;
 
-#[test]
-fn test_mcp_server_name_with_dots_in_toml() {
-    let mut mcp_servers = HashMap::new();
-
-    // Server name with dots like "awslabs.aws-documentation-mcp-server"
-    mcp_servers.insert(
-        "awslabs.aws-documentation-mcp-server".to_string(),
-        McpServerConfig {
-            command: "npx".to_string(),
-            args: vec!["-y".to_string(), "@awslabs/mcp-server-aws-docs".to_string()],
-            env: HashMap::new(),
-        },
-    );
-
-    // Server name without dots for comparison
-    mcp_servers.insert(
-        "simple-server".to_string(),
-        McpServerConfig {
-            command: "node".to_string(),
-            args: vec!["server.js".to_string()],
-            env: HashMap::new(),
-        },
-    );
-
-    let toml_servers = convert_mcp_to_toml(&mcp_servers);
-
-    // Create CodexSettings with the MCP servers
-    let settings = CodexSettings {
-        model: Some("claude-3".to_string()),
-        model_provider: None,
-        approval_policy: None,
-        disable_response_storage: None,
-        notify: None,
-        model_providers: None,
-        shell_environment_policy: None,
-        sandbox: None,
-        history: None,
-        mcp_servers: Some(toml_servers),
-        extra: HashMap::new(),
-    };
-
-    // Try to serialize to TOML string
-    let toml_result = toml::to_string_pretty(&settings);
-
-    // This will fail if server names with dots cannot be serialized properly
-    assert!(toml_result.is_ok(), "Should be able to serialize server names with dots");
-
-    let toml_str = toml_result.unwrap();
-
-    // The TOML should contain quoted keys for names with dots
-    assert!(toml_str.contains("mcp_servers"), "Should contain mcp_servers section");
-
-    // Parse back the TOML to verify it's valid
-    let parsed: Result<CodexSettings, _> = toml::from_str(&toml_str);
-    assert!(parsed.is_ok(), "Should be able to parse the generated TOML");
-
-    let parsed_settings = parsed.unwrap();
-    assert!(parsed_settings.mcp_servers.is_some());
-
-    let parsed_servers = parsed_settings.mcp_servers.unwrap();
-
-    // Both servers should be present
-    assert_eq!(parsed_servers.len(), 2);
-    assert!(parsed_servers.contains_key("awslabs.aws-documentation-mcp-server"));
-    assert!(parsed_servers.contains_key("simple-server"));
-}
-
-#[test]
-fn test_quoted_key_preservation_in_toml() {
-    let mut mcp_servers = HashMap::new();
-
-    // Multiple server names with dots to test various patterns
-    let test_names = vec![
-        "org.example.server",
-        "com.github.mcp-server",
-        "awslabs.aws-documentation-mcp-server",
-        "server.with.many.dots",
-    ];
-
-    for name in &test_names {
-        mcp_servers.insert(
-            name.to_string(),
-            McpServerConfig { command: "test".to_string(), args: vec![], env: HashMap::new() },
-        );
+    fn empty_codex_settings() -> CodexSettings {
+        CodexSettings {
+            model: None,
+            review_model: None,
+            model_provider: None,
+            model_context_window: None,
+            approval_policy: None,
+            disable_response_storage: None,
+            notify: None,
+            model_providers: None,
+            shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
+            sandbox: None,
+            history: None,
+            mcp_servers: None,
+            extra: HashMap::new(),
+        }
     }
 
-    let toml_servers = convert_mcp_to_toml(&mcp_servers);
+    fn make_mcp_server(command: &str, args: &[&str]) -> McpServerConfig {
+        McpServerConfig {
+            command: Some(command.to_string()),
+            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+            env: HashMap::new(),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::new(),
+        }
+    }
 
-    // Manually create a TOML table to test serialization
-    let mut root = toml::map::Map::new();
-    root.insert(
-        "mcp_servers".to_string(),
-        TomlValue::Table(toml_servers.into_iter().map(|(k, v)| (k, v)).collect()),
-    );
+    fn serialize_codex_settings(settings: &CodexSettings) -> String {
+        toml::to_string_pretty(settings).expect("CodexSettings should serialize to TOML")
+    }
 
-    let toml_str = toml::to_string_pretty(&root);
-    assert!(toml_str.is_ok(), "Should serialize successfully");
+    fn parse_codex_settings(toml_str: &str) -> CodexSettings {
+        toml::from_str(toml_str).expect("CodexSettings TOML should parse")
+    }
 
-    let toml_output = toml_str.unwrap();
-
-    // Verify all server names are preserved
-    for name in &test_names {
-        // The name should appear in the TOML, either quoted or unquoted
+    fn assert_server_name_present(toml_output: &str, name: &str) {
         assert!(
-            toml_output.contains(name) || toml_output.contains(&format!("\"{}\"", name)),
-            "Server name '{}' should be in TOML output",
-            name
+            toml_output.contains(name) || toml_output.contains(&format!("\"{name}\"")),
+            "Server name '{name}' should be in TOML output",
         );
     }
 
-    // Parse back to ensure validity
-    let parsed: Result<toml::Value, _> = toml::from_str(&toml_output);
-    assert!(parsed.is_ok(), "Generated TOML should be valid");
-}
+    #[test]
+    fn test_mcp_server_name_with_dots_in_toml() {
+        let mut mcp_servers = HashMap::new();
+        mcp_servers.insert(
+            "awslabs.aws-documentation-mcp-server".to_string(),
+            make_mcp_server("npx", &["-y", "@awslabs/mcp-server-aws-docs"]),
+        );
+        mcp_servers.insert("simple-server".to_string(), make_mcp_server("node", &["server.js"]));
 
-#[test]
-fn test_mcp_server_rename_with_underscores() {
-    let mut mcp_servers = HashMap::new();
+        let mut settings = empty_codex_settings();
+        settings.model = Some("claude-3".to_string());
+        settings.mcp_servers = Some(convert_mcp_to_toml(&mcp_servers));
 
-    // Renamed version with underscores
-    mcp_servers.insert(
-        "awslabs_aws-documentation-mcp-server".to_string(),
-        McpServerConfig {
-            command: "npx".to_string(),
-            args: vec!["-y".to_string(), "@awslabs/mcp-server-aws-docs".to_string()],
-            env: HashMap::new(),
-        },
-    );
+        let toml_str = serialize_codex_settings(&settings);
+        assert!(toml_str.contains("\"awslabs.aws-documentation-mcp-server\""));
 
-    let toml_servers = convert_mcp_to_toml(&mcp_servers);
+        let parsed_settings = parse_codex_settings(&toml_str);
+        let parsed_servers = parsed_settings.mcp_servers.expect("mcp_servers should be present");
 
-    let settings = CodexSettings {
-        model: None,
-        model_provider: None,
-        approval_policy: None,
-        disable_response_storage: None,
-        notify: None,
-        model_providers: None,
-        shell_environment_policy: None,
-        sandbox: None,
-        history: None,
-        mcp_servers: Some(toml_servers),
-        extra: HashMap::new(),
-    };
+        assert_eq!(parsed_servers.len(), 2);
+        assert!(parsed_servers.contains_key("awslabs.aws-documentation-mcp-server"));
+        assert!(parsed_servers.contains_key("simple-server"));
+    }
 
-    let toml_result = toml::to_string_pretty(&settings);
-    assert!(toml_result.is_ok(), "Should serialize successfully with underscores");
+    #[test]
+    fn test_quoted_key_preservation_in_toml() {
+        let test_names = [
+            "org.example.server",
+            "com.github.mcp-server",
+            "awslabs.aws-documentation-mcp-server",
+            "server.with.many.dots",
+        ];
 
-    let toml_str = toml_result.unwrap();
-    assert!(toml_str.contains("awslabs_aws-documentation-mcp-server"));
+        let mut mcp_servers = HashMap::new();
+        for &name in &test_names {
+            mcp_servers.insert(name.to_string(), make_mcp_server("test", &[]));
+        }
 
-    // Parse back
-    let parsed: Result<CodexSettings, _> = toml::from_str(&toml_str);
-    assert!(parsed.is_ok(), "Should parse back successfully");
+        let toml_servers = convert_mcp_to_toml(&mcp_servers);
+        let mut root = toml::map::Map::new();
+        root.insert(
+            "mcp_servers".to_string(),
+            TomlValue::Table(toml_servers.into_iter().collect()),
+        );
 
-    let parsed_settings = parsed.unwrap();
-    let parsed_servers = parsed_settings.mcp_servers.unwrap();
-    assert!(parsed_servers.contains_key("awslabs_aws-documentation-mcp-server"));
+        let toml_output = toml::to_string_pretty(&root).expect("Should serialize successfully");
+        for &name in &test_names {
+            assert_server_name_present(&toml_output, name);
+        }
+
+        let _: toml::Value = toml::from_str(&toml_output).expect("Generated TOML should be valid");
+    }
+
+    #[test]
+    fn test_mcp_server_rename_with_underscores() {
+        let mut mcp_servers = HashMap::new();
+        mcp_servers.insert(
+            "awslabs_aws-documentation-mcp-server".to_string(),
+            make_mcp_server("npx", &["-y", "@awslabs/mcp-server-aws-docs"]),
+        );
+
+        let mut settings = empty_codex_settings();
+        settings.mcp_servers = Some(convert_mcp_to_toml(&mcp_servers));
+
+        let toml_str = serialize_codex_settings(&settings);
+        assert!(toml_str.contains("awslabs_aws-documentation-mcp-server"));
+
+        let parsed_settings = parse_codex_settings(&toml_str);
+        let parsed_servers = parsed_settings.mcp_servers.expect("mcp_servers should be present");
+        assert!(parsed_servers.contains_key("awslabs_aws-documentation-mcp-server"));
+    }
 }

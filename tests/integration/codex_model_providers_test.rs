@@ -9,17 +9,17 @@ mod tests {
 
     /// Helper to save and restore environment variables
     struct EnvGuard {
-        xdg: Option<String>,
+        xdg_config_home: Option<String>,
         home: Option<String>,
-        dir: Option<std::path::PathBuf>,
+        current_dir: Option<std::path::PathBuf>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
             Self {
-                xdg: std::env::var("XDG_CONFIG_HOME").ok(),
+                xdg_config_home: std::env::var("XDG_CONFIG_HOME").ok(),
                 home: std::env::var("HOME").ok(),
-                dir: std::env::current_dir().ok(),
+                current_dir: std::env::current_dir().ok(),
             }
         }
     }
@@ -27,7 +27,7 @@ mod tests {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // Restore XDG_CONFIG_HOME
-            match &self.xdg {
+            match &self.xdg_config_home {
                 Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
@@ -37,7 +37,7 @@ mod tests {
                 None => std::env::remove_var("HOME"),
             }
             // Restore current directory
-            if let Some(dir) = &self.dir {
+            if let Some(dir) = &self.current_dir {
                 let _ = std::env::set_current_dir(dir);
             }
         }
@@ -82,17 +82,17 @@ mod tests {
 model_provider = "openai"
 approval_policy = "auto"
 
-[model_providers.openai]
-base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
+	[model_providers.openai]
+	base_url = "https://api.openai.com"
+	env_key = "OPENAI_API_KEY"
 
-[model_providers.openai.headers]
-"X-Custom-Header" = "custom-value"
-"Authorization" = "Bearer $API_KEY"
+	[model_providers.openai.http_headers]
+	"X-Custom-Header" = "custom-value"
+	"Authorization" = "Bearer $API_KEY"
 
-[model_providers.anthropic]
-base_url = "https://api.anthropic.com"
-api_key_env = "ANTHROPIC_API_KEY"
+	[model_providers.anthropic]
+	base_url = "https://api.anthropic.com"
+	env_key = "ANTHROPIC_API_KEY"
 
 [model_providers.local]
 base_url = "http://localhost:8080"
@@ -127,14 +127,14 @@ base_url = "http://localhost:8080"
             "openai base_url should be preserved"
         );
         anyhow::ensure!(
-            codex_config_content.contains("api_key_env = \"OPENAI_API_KEY\""),
-            "openai api_key_env should be preserved"
+            codex_config_content.contains("env_key = \"OPENAI_API_KEY\""),
+            "openai env_key should be preserved"
         );
 
         // Check headers
         anyhow::ensure!(
-            codex_config_content.contains("[model_providers.openai.headers]"),
-            "model_providers.openai.headers section should be preserved"
+            codex_config_content.contains("[model_providers.openai.http_headers]"),
+            "model_providers.openai.http_headers section should be preserved"
         );
         anyhow::ensure!(
             codex_config_content.contains("X-Custom-Header = \"custom-value\""),
@@ -198,9 +198,9 @@ base_url = "http://localhost:8080"
 # Complex model provider with all possible fields
 [model_providers.complex]
 base_url = "https://complex.api.com/v1"
-api_key_env = "COMPLEX_API_KEY"
+env_key = "COMPLEX_API_KEY"
 
-[model_providers.complex.headers]
+[model_providers.complex.http_headers]
 "X-Api-Version" = "2024-01-01"
 "X-Custom-Auth" = "Bearer ${COMPLEX_TOKEN}"
 "Content-Type" = "application/json"
@@ -213,15 +213,15 @@ base_url = "http://minimal.local"
 # Provider with empty headers section
 [model_providers.empty_headers]
 base_url = "https://empty.headers.com"
-api_key_env = "EMPTY_HEADERS_KEY"
+env_key = "EMPTY_HEADERS_KEY"
 
-[model_providers.empty_headers.headers]
+[model_providers.empty_headers.http_headers]
 
 # Provider with special characters in headers
 [model_providers.special_chars]
 base_url = "https://special.chars.com"
 
-[model_providers.special_chars.headers]
+[model_providers.special_chars.http_headers]
 "X-Special-Chars" = "value with spaces and $pecial ch@rs!"
 "X-JSON-Data" = '{"key": "value", "nested": {"field": 123}}'
 "X-Slash-Path" = "/api/v1/endpoint"
@@ -230,7 +230,7 @@ base_url = "https://special.chars.com"
 [model_providers.edge_values]
 base_url = "https://edge.values.com"
 
-[model_providers.edge_values.headers]
+[model_providers.edge_values.http_headers]
 "X-Numeric" = "12345"
 "X-Boolean" = "true"
 "X-Null-Like" = "null"
@@ -262,8 +262,8 @@ base_url = "https://edge.values.com"
             "Complex provider should exist"
         );
         anyhow::ensure!(
-            codex_config_content.contains("[model_providers.complex.headers]"),
-            "Complex provider headers should exist"
+            codex_config_content.contains("[model_providers.complex.http_headers]"),
+            "Complex provider http_headers should exist"
         );
         anyhow::ensure!(
             codex_config_content.contains("X-Api-Version"),
@@ -290,8 +290,8 @@ base_url = "https://edge.values.com"
             "Empty headers provider should exist"
         );
         anyhow::ensure!(
-            codex_config_content.contains("[model_providers.empty_headers.headers]"),
-            "Empty headers section should be preserved"
+            codex_config_content.contains("[model_providers.empty_headers.http_headers]"),
+            "Empty http_headers section should be preserved"
         );
 
         // Verify special characters
@@ -359,10 +359,10 @@ base_url = "https://zzz.com"
 [model_providers.bbb]
 base_url = "https://bbb.com"
 
-[model_providers.bbb.headers]
+[model_providers.bbb.http_headers]
 "B-Header" = "b-value"
 
-[model_providers.aaa.headers]
+[model_providers.aaa.http_headers]
 "A-Header" = "a-value"
 "#;
         fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
@@ -386,8 +386,8 @@ base_url = "https://bbb.com"
         anyhow::ensure!(codex_config_content.contains("[model_providers.aaa]"));
         anyhow::ensure!(codex_config_content.contains("[model_providers.zzz]"));
         anyhow::ensure!(codex_config_content.contains("[model_providers.bbb]"));
-        anyhow::ensure!(codex_config_content.contains("[model_providers.aaa.headers]"));
-        anyhow::ensure!(codex_config_content.contains("[model_providers.bbb.headers]"));
+        anyhow::ensure!(codex_config_content.contains("[model_providers.aaa.http_headers]"));
+        anyhow::ensure!(codex_config_content.contains("[model_providers.bbb.http_headers]"));
 
         Ok(())
     }
@@ -433,18 +433,18 @@ model_provider = "openai"
 [model_providers.openai]
 name = "OpenAI Provider"
 base_url = "https://api.openai.com/v1"
-api_key_env = "OPENAI_API_KEY"
+env_key = "OPENAI_API_KEY"
 timeout = 30
 retry_count = 3
 custom_field = "custom_value"
 
-[model_providers.openai.headers]
+[model_providers.openai.http_headers]
 "X-Custom-Header" = "value"
 
 [model_providers.anthropic]
 name = "Anthropic Claude"
 base_url = "https://api.anthropic.com"
-api_key_env = "ANTHROPIC_API_KEY"
+env_key = "ANTHROPIC_API_KEY"
 model_format = "claude-3"
 rate_limit = 100
 debug = true
@@ -543,8 +543,8 @@ max_tokens = 4096
             "base_url should still be preserved"
         );
         anyhow::ensure!(
-            codex_config_content.contains("api_key_env = \"OPENAI_API_KEY\""),
-            "api_key_env should still be preserved"
+            codex_config_content.contains("env_key = \"OPENAI_API_KEY\""),
+            "env_key should still be preserved"
         );
 
         Ok(())
@@ -563,7 +563,7 @@ model = "test"
 [model_providers.custom]
 name = "Custom Provider"
 base_url = "https://custom.api.com"
-api_key_env = "CUSTOM_KEY"
+env_key = "CUSTOM_KEY"
 custom_field_1 = "value1"
 custom_field_2 = 123
 custom_field_3 = true
@@ -627,26 +627,27 @@ nested_field = { key = "value" }
 model_provider = "openai"
 approval_policy = "none"
 
-[model_providers.openai]
-base_url = "https://api.openai.com/v1"
-api_key_env = "OPENAI_API_KEY"
+	[model_providers.openai]
+	base_url = "https://api.openai.com/v1"
+	env_key = "OPENAI_API_KEY"
 
-[model_providers.openai.headers]
-"X-OpenAI-Beta" = "assistants=v2"
-"X-Custom-Org" = "$OPENAI_ORG_ID"
+	[model_providers.openai.http_headers]
+	"X-OpenAI-Beta" = "assistants=v2"
+	"X-Custom-Org" = "$OPENAI_ORG_ID"
 
-[model_providers.anthropic]
-base_url = "https://api.anthropic.com/v1"
-api_key_env = "ANTHROPIC_API_KEY"
+	[model_providers.anthropic]
+	base_url = "https://api.anthropic.com/v1"
+	env_key = "ANTHROPIC_API_KEY"
 
-[model_providers.anthropic.headers]
-"anthropic-version" = "2023-06-01"
-"anthropic-beta" = "messages-2023-12-15"
+	[model_providers.anthropic.http_headers]
+	"anthropic-version" = "2023-06-01"
+	"anthropic-beta" = "messages-2023-12-15"
 
-[sandbox]
-mode = "docker"
-network_access = true
-"#;
+	sandbox_mode = "workspace-write"
+
+	[sandbox_workspace_write]
+	network_access = true
+	"#;
         fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
 
         // Change to project directory
@@ -678,20 +679,109 @@ network_access = true
         // Should contain model_providers
         anyhow::ensure!(settings_content.contains("[model_providers.openai]"));
         anyhow::ensure!(settings_content.contains("base_url = \"https://api.openai.com/v1\""));
-        anyhow::ensure!(settings_content.contains("api_key_env = \"OPENAI_API_KEY\""));
+        anyhow::ensure!(settings_content.contains("env_key = \"OPENAI_API_KEY\""));
 
         // Check headers
-        anyhow::ensure!(settings_content.contains("[model_providers.openai.headers]"));
+        anyhow::ensure!(settings_content.contains("[model_providers.openai.http_headers]"));
         anyhow::ensure!(settings_content.contains("X-OpenAI-Beta = \"assistants=v2\""));
         anyhow::ensure!(settings_content.contains("X-Custom-Org = \"$OPENAI_ORG_ID\""));
 
         // Check anthropic provider
         anyhow::ensure!(settings_content.contains("[model_providers.anthropic]"));
-        anyhow::ensure!(settings_content.contains("[model_providers.anthropic.headers]"));
+        anyhow::ensure!(settings_content.contains("[model_providers.anthropic.http_headers]"));
         anyhow::ensure!(settings_content.contains("anthropic-version = \"2023-06-01\""));
 
         // Should contain MCP servers
         anyhow::ensure!(settings_content.contains("[mcp_servers.test-server]"));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_sync_merges_model_provider_fields_into_existing_config() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        // Minimal MCP servers config
+        fs::write(claudius_dir.join("mcpServers.json"), r#"{"mcpServers": {}}"#)?;
+
+        // Existing Codex config with extra provider fields and headers
+        let existing_codex_config = r#"model = "openai/gpt-4"
+model_provider = "openai"
+
+[model_providers.openai]
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"
+timeout = 30
+
+[model_providers.openai.http_headers]
+"X-Existing" = "keep"
+"#;
+
+        let codex_config_dir = home_dir.join(".codex");
+        fs::create_dir_all(&codex_config_dir)?;
+        fs::write(codex_config_dir.join("config.toml"), existing_codex_config)?;
+
+        // Source settings that only update a subset of fields for the same provider
+        let codex_settings_content = r#"[model_providers.openai]
+base_url = "https://proxy.openai.com/v1"
+
+[model_providers.openai.http_headers]
+"X-New" = "added"
+"#;
+        fs::write(claudius_dir.join("codex.settings.toml"), codex_settings_content)?;
+
+        // Run sync in global mode for Codex
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["config", "sync", "--global", "--agent", "codex"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let codex_config_content = fs::read_to_string(codex_config_dir.join("config.toml"))?;
+        println!("Merged config.toml:\n{codex_config_content}");
+
+        // Updated field
+        anyhow::ensure!(
+            codex_config_content.contains("base_url = \"https://proxy.openai.com/v1\""),
+            "base_url should be updated from source settings"
+        );
+
+        // Preserved fields from existing config
+        anyhow::ensure!(
+            codex_config_content.contains("env_key = \"OPENAI_API_KEY\""),
+            "env_key should be preserved from existing config"
+        );
+        anyhow::ensure!(
+            codex_config_content.contains("timeout = 30"),
+            "extra provider field should be preserved from existing config"
+        );
+
+        // Headers should be merged (not replaced)
+        anyhow::ensure!(
+            codex_config_content.contains("X-Existing = \"keep\""),
+            "existing header should be preserved"
+        );
+        anyhow::ensure!(
+            codex_config_content.contains("X-New = \"added\""),
+            "new header should be added"
+        );
 
         Ok(())
     }

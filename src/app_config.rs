@@ -24,8 +24,22 @@ pub struct DefaultConfig {
 #[serde(rename_all = "kebab-case")]
 pub enum Agent {
     Claude,
+    ClaudeCode,
     Codex,
     Gemini,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClaudeCodeScope {
+    /// System-level managed configuration (managed-settings.json / managed-mcp.json).
+    Managed,
+    /// User configuration in the home directory (~/.claude/*).
+    User,
+    /// Project configuration committed with the repo (.claude/*, .mcp.json).
+    Project,
+    /// Local (per-repo, per-user) configuration (.claude/*.local.* and ~/.claude.json per-project).
+    Local,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -98,6 +112,11 @@ mod tests {
             "\"claude\""
         );
         assert_eq!(
+            serde_json::to_string(&Agent::ClaudeCode)
+                .expect("Failed to serialize Agent::ClaudeCode"),
+            "\"claude-code\""
+        );
+        assert_eq!(
             serde_json::to_string(&Agent::Codex).expect("Failed to serialize Agent::Codex"),
             "\"codex\""
         );
@@ -113,6 +132,11 @@ mod tests {
             serde_json::from_str::<Agent>("\"claude\"")
                 .expect("Failed to deserialize Agent::Claude"),
             Agent::Claude
+        );
+        assert_eq!(
+            serde_json::from_str::<Agent>("\"claude-code\"")
+                .expect("Failed to deserialize Agent::ClaudeCode"),
+            Agent::ClaudeCode
         );
         assert_eq!(
             serde_json::from_str::<Agent>("\"codex\"").expect("Failed to deserialize Agent::Codex"),

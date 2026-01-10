@@ -88,29 +88,15 @@ mod tests {
         let settings_file = temp_dir.path().join("gemini.settings.json");
 
         let settings_json = json!({
-            "contextFileName": "GEMINI.md",
-            "bugCommand": {
-                "urlTemplate": "https://example.com/bug?title={title}"
+            "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+            "general": {
+                "preferredEditor": "code"
             },
-            "fileFiltering": {
-                "respectGitIgnore": true,
-                "enableRecursiveFileSearch": false
-            },
-            "coreTools": ["tool1", "tool2"],
-            "autoAccept": true,
-            "theme": "dark",
-            "sandbox": true,
-            "checkpointing": {
-                "enabled": true
-            },
-            "telemetry": {
-                "enabled": false,
-                "target": "local",
-                "otlpEndpoint": "http://localhost:4317",
-                "logPrompts": false
-            },
-            "usageStatisticsEnabled": true,
-            "hideTips": false
+            "mcpServers": {
+                "mainServer": {
+                    "command": "bin/mcp_server.py"
+                }
+            }
         });
 
         fs::write(&settings_file, serde_json::to_string_pretty(&settings_json).unwrap()).unwrap();
@@ -122,9 +108,20 @@ mod tests {
         assert!(validation_result.warnings.is_empty());
 
         let settings_data = settings.unwrap();
-        assert_eq!(settings_data.context_file_name, Some("GEMINI.md".to_string()));
-        assert_eq!(settings_data.auto_accept, Some(true));
-        assert_eq!(settings_data.theme, Some("dark".to_string()));
+        assert_eq!(
+            settings_data.schema.as_deref(),
+            Some("https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json")
+        );
+        assert!(settings_data
+            .mcp_servers
+            .as_ref()
+            .is_some_and(|servers| servers.contains_key("mainServer")));
+
+        let general = settings_data.general.expect("general should be present");
+        assert_eq!(
+            general.get("preferredEditor").and_then(serde_json::Value::as_str),
+            Some("code"),
+        );
     }
 
     #[test]
@@ -133,11 +130,15 @@ mod tests {
         let settings_file = temp_dir.path().join("gemini.settings.json");
 
         let settings_json = json!({
-            "contextFileName": "GEMINI.md",
             "unknownSetting": "value",
-            "bugCommand": {
-                "urlTemplate": "https://example.com/bug",
-                "unknownBugField": 123
+            "general": {
+                "preferredEditor": "code"
+            },
+            "mcpServers": {
+                "test": {
+                    "command": "node",
+                    "unknownMcpField": 123
+                }
             },
             "telemetry": {
                 "enabled": true,
@@ -152,7 +153,7 @@ mod tests {
         // Should have warnings about unknown fields
         assert_eq!(validation_result.warnings.len(), 3);
         assert!(validation_result.warnings.iter().any(|w| w.contains("unknownSetting")));
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownBugField")));
+        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownMcpField")));
         assert!(validation_result.warnings.iter().any(|w| w.contains("unknownTelemetryField")));
 
         // Unknown fields should still be preserved in the JSON
@@ -165,7 +166,9 @@ mod tests {
         let settings_file = temp_dir.path().join("gemini.settings.json");
 
         let settings_json = json!({
-            "contextFileName": "GEMINI.md",
+            "general": {
+                "preferredEditor": "code"
+            },
             "futureFeature": {
                 "nested": "value"
             },

@@ -3,6 +3,7 @@ use claudius::{
     codex_settings::{convert_mcp_to_toml, validate_codex_settings, CodexSettings},
     config::{reader, writer, McpServerConfig},
 };
+use serde_json::Value as JsonValue;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::fs;
@@ -20,14 +21,14 @@ mod tests {
 model = "openai/gpt-4"
 model_provider = "openai"
 approval_policy = "none"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
 
 [model_providers.openai]
 base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
-
-[sandbox]
-mode = "docker"
-network_access = true
+env_key = "OPENAI_API_KEY"
 "#;
 
         let temp_dir = TempDir::new()?;
@@ -48,11 +49,15 @@ network_access = true
             "Approval policy mismatch"
         );
         anyhow::ensure!(settings_data.model_providers.is_some(), "Model providers should be Some");
-        anyhow::ensure!(settings_data.sandbox.is_some(), "Sandbox should be Some");
-
-        let sandbox = settings_data.sandbox.unwrap();
-        anyhow::ensure!(sandbox.mode == Some("docker".to_string()), "Sandbox mode mismatch");
-        anyhow::ensure!(sandbox.network_access == Some(true), "Network access mismatch");
+        anyhow::ensure!(
+            settings_data.sandbox_mode == Some("workspace-write".to_string()),
+            "Sandbox mode mismatch"
+        );
+        anyhow::ensure!(
+            settings_data.sandbox_workspace_write.as_ref().and_then(|s| s.network_access)
+                == Some(true),
+            "Network access mismatch"
+        );
 
         Ok(())
     }
@@ -64,21 +69,30 @@ network_access = true
         model_providers.insert(
             "anthropic".to_string(),
             claudius::codex_settings::ModelProvider {
+                name: None,
                 base_url: Some("https://api.anthropic.com".to_string()),
-                api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
-                headers: None,
+                env_key: Some("ANTHROPIC_API_KEY".to_string()),
+                http_headers: None,
+                env_http_headers: None,
+                query_params: None,
+                wire_api: None,
+                requires_openai_auth: None,
                 extra: HashMap::new(),
             },
         );
 
         let settings = CodexSettings {
             model: Some("anthropic/claude-3".to_string()),
+            review_model: None,
             model_provider: Some("anthropic".to_string()),
+            model_context_window: None,
             approval_policy: Some("required".to_string()),
             disable_response_storage: Some(true),
             notify: Some(vec!["desktop".to_string(), "sound".to_string()]),
             model_providers: Some(model_providers),
             shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
             sandbox: None,
             history: None,
             mcp_servers: None,
@@ -131,26 +145,58 @@ network_access = true
         mcp_servers.insert(
             "filesystem".to_string(),
             McpServerConfig {
-                command: "npx".to_string(),
+                command: Some("npx".to_string()),
                 args: vec!["-y".to_string(), "@modelcontextprotocol/server-filesystem".to_string()],
                 env: env.clone(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
         mcp_servers.insert(
             "github".to_string(),
             McpServerConfig {
-                command: "npx".to_string(),
+                command: Some("npx".to_string()),
                 args: vec!["-y".to_string(), "@modelcontextprotocol/server-github".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
+            },
+        );
+
+        let mut remote_extra = HashMap::new();
+        remote_extra.insert(
+            "bearer_token_env_var".to_string(),
+            JsonValue::String("CODEX_MCP_TOKEN".to_string()),
+        );
+        remote_extra.insert("enabled".to_string(), JsonValue::Bool(false));
+
+        let mut remote_headers = HashMap::new();
+        remote_headers.insert("X-Test".to_string(), "value".to_string());
+
+        mcp_servers.insert(
+            "remote".to_string(),
+            McpServerConfig {
+                command: None,
+                args: vec![],
+                env: HashMap::new(),
+                server_type: Some("streamable_http".to_string()),
+                url: Some("https://example.com/mcp".to_string()),
+                headers: remote_headers,
+                extra: remote_extra,
             },
         );
 
         let toml_servers = convert_mcp_to_toml(&mcp_servers);
 
-        anyhow::ensure!(toml_servers.len() == 2, "Expected 2 servers");
+        anyhow::ensure!(toml_servers.len() == 3, "Expected 3 servers");
         anyhow::ensure!(toml_servers.contains_key("filesystem"), "filesystem server not found");
         anyhow::ensure!(toml_servers.contains_key("github"), "github server not found");
+        anyhow::ensure!(toml_servers.contains_key("remote"), "remote server not found");
 
         // Check filesystem server
         if let Some(TomlValue::Table(fs_table)) = toml_servers.get("filesystem") {
@@ -178,6 +224,45 @@ network_access = true
             anyhow::bail!("Expected filesystem to be a table");
         }
 
+        // Check remote server (streamable_http)
+        if let Some(TomlValue::Table(remote_table)) = toml_servers.get("remote") {
+            anyhow::ensure!(
+                remote_table.get("url")
+                    == Some(&TomlValue::String("https://example.com/mcp".to_string())),
+                "URL mismatch"
+            );
+
+            anyhow::ensure!(
+                remote_table.get("bearer_token_env_var")
+                    == Some(&TomlValue::String("CODEX_MCP_TOKEN".to_string())),
+                "Bearer token env var mismatch"
+            );
+
+            if let Some(TomlValue::Table(headers_table)) = remote_table.get("http_headers") {
+                anyhow::ensure!(
+                    headers_table.get("X-Test") == Some(&TomlValue::String("value".to_string())),
+                    "X-Test header mismatch"
+                );
+            } else {
+                anyhow::bail!("Expected http_headers to be a table");
+            }
+
+            anyhow::ensure!(
+                remote_table.get("enabled") == Some(&TomlValue::Boolean(false)),
+                "enabled mismatch"
+            );
+
+            anyhow::ensure!(remote_table.get("env").is_none(), "env must not be set for remote");
+            anyhow::ensure!(
+                remote_table.get("command").is_none(),
+                "command must not be set for remote"
+            );
+            anyhow::ensure!(remote_table.get("args").is_none(), "args must not be set for remote");
+            anyhow::ensure!(remote_table.get("cwd").is_none(), "cwd must not be set for remote");
+        } else {
+            anyhow::bail!("Expected remote to be a table");
+        }
+
         Ok(())
     }
 
@@ -192,8 +277,10 @@ unknown_top_level = "value"
 base_url = "https://api.openai.com"
 unknown_provider_field = "value"
 
-[sandbox]
-mode = "docker"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
 unknown_sandbox_field = true
 "#;
 
@@ -262,20 +349,28 @@ key = "value"
         mcp_servers.insert(
             "test-server".to_string(),
             McpServerConfig {
-                command: "python".to_string(),
+                command: Some("python".to_string()),
                 args: vec!["-m".to_string(), "server".to_string()],
                 env: HashMap::new(),
+                server_type: None,
+                url: None,
+                headers: HashMap::new(),
+                extra: HashMap::new(),
             },
         );
 
         let settings = CodexSettings {
             model: Some("openai/gpt-4".to_string()),
+            review_model: None,
             model_provider: None,
+            model_context_window: None,
             approval_policy: None,
             disable_response_storage: None,
             notify: None,
             model_providers: None,
             shell_environment_policy: None,
+            sandbox_mode: None,
+            sandbox_workspace_write: None,
             sandbox: None,
             history: None,
             mcp_servers: Some(convert_mcp_to_toml(&mcp_servers)),

@@ -112,13 +112,14 @@ model_provider = "openai"
 approval_policy = "none"
 custom_field = "should_be_preserved"
 
-[model_providers.openai]
-base_url = "https://api.openai.com"
-api_key_env = "OPENAI_API_KEY"
+	[model_providers.openai]
+	base_url = "https://api.openai.com"
+	env_key = "OPENAI_API_KEY"
 
-[sandbox]
-mode = "docker"
-network_access = true
+	sandbox_mode = "workspace-write"
+
+	[sandbox_workspace_write]
+	network_access = true
 
 [mcp_servers.filesystem]
 command = "old-fs-command"

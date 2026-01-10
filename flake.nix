@@ -43,9 +43,13 @@
           inherit system overlays;
         };
 
-        # Use specific Rust version for reproducibility
-        # Note: Using latest stable version (1.91.1)
-        rustToolchain = pkgs.rust-bin.stable."1.91.1".default;
+        # Use a specific Rust version for reproducibility.
+        # Keep this in sync with the MSRV in Cargo.toml.
+        rustToolchain = pkgs.rust-bin.stable."1.92.0".default;
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
 
         # Pre-commit hooks configuration
         # Note: Cargo-based hooks (rustfmt, clippy, audit, deny, machete) are disabled
@@ -332,7 +336,7 @@
         };
 
         packages = {
-          default = pkgs.rustPlatform.buildRustPackage {
+          default = rustPlatform.buildRustPackage {
             pname = "claudius";
             version = "0.1.0";
             src = ./.;
