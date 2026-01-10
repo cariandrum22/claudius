@@ -6,6 +6,21 @@ use std::fs;
 mod tests {
     use super::*;
 
+    fn claude_desktop_config_path(
+        system_config_dir: &std::path::Path,
+        home_dir: &std::path::Path,
+    ) -> std::path::PathBuf {
+        if cfg!(target_os = "macos") {
+            home_dir
+                .join("Library")
+                .join("Application Support")
+                .join("Claude")
+                .join("claude_desktop_config.json")
+        } else {
+            system_config_dir.join("Claude").join("claude_desktop_config.json")
+        }
+    }
+
     /// Helper to save and restore environment variables
     struct EnvGuard {
         xdg_config_home: Option<String>,
@@ -114,8 +129,7 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path =
-            system_config_dir.join("Claude").join("claude_desktop_config.json");
+        let claude_config_path = claude_desktop_config_path(system_config_dir, home_dir.path());
         assert!(claude_config_path.exists());
         let claude_config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&claude_config_path).unwrap()).unwrap();
@@ -241,8 +255,7 @@ mod tests {
             .success();
 
         // Verify Claude configuration was synced
-        let claude_config_path =
-            system_config_dir.join("Claude").join("claude_desktop_config.json");
+        let claude_config_path = claude_desktop_config_path(system_config_dir, home_dir.path());
         assert!(claude_config_path.exists());
 
         // Verify Codex configuration was synced

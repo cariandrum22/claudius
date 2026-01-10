@@ -124,8 +124,16 @@ mod tests {
             .with_existing_claude_desktop_config(r#"{"existingKey": "value"}"#)
             .unwrap();
 
-        let claude_desktop_config_path =
-            fixture.config_home().join("Claude").join("claude_desktop_config.json");
+        let claude_desktop_config_path = if cfg!(target_os = "macos") {
+            fixture
+                .home_dir()
+                .join("Library")
+                .join("Application Support")
+                .join("Claude")
+                .join("claude_desktop_config.json")
+        } else {
+            fixture.config_home().join("Claude").join("claude_desktop_config.json")
+        };
 
         // Run sync with --global flag
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
@@ -688,7 +696,8 @@ agent = "claude-code"
         let home_content = fixture.read_home_file(".claude.json").unwrap();
         let home_json: serde_json::Value = serde_json::from_str(&home_content).unwrap();
 
-        let project_key = fixture.project.to_string_lossy().to_string();
+        let project_key =
+            std::fs::canonicalize(&fixture.project).unwrap().to_string_lossy().to_string();
         assert_eq!(
             home_json
                 .get(&project_key)

@@ -120,7 +120,11 @@ impl TestFixture {
 
     /// Create an existing Claude Desktop config file (for global mode tests)
     pub fn with_existing_claude_desktop_config(&self, content: &str) -> std::io::Result<&Self> {
-        let claude_dir = self.config_home().join("Claude");
+        let claude_dir = if cfg!(target_os = "macos") {
+            self.home_dir().join("Library").join("Application Support").join("Claude")
+        } else {
+            self.config_home().join("Claude")
+        };
         fs::create_dir_all(&claude_dir)?;
         let path = claude_dir.join("claude_desktop_config.json");
         fs::write(path, content)?;
