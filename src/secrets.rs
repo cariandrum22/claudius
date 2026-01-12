@@ -16,6 +16,7 @@ use crate::variable_expansion::expand_variables;
 pub struct SecretResolver {
     config: Option<SecretManagerConfig>,
     cache: Arc<Mutex<HashMap<String, String>>>,
+    op_ref_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     metrics: Arc<Mutex<SecretResolutionMetrics>>,
 }
 
@@ -25,6 +26,7 @@ impl SecretResolver {
         Self {
             config,
             cache: Arc::new(Mutex::new(HashMap::new())),
+            op_ref_locks: Arc::new(Mutex::new(HashMap::new())),
             metrics: Arc::new(Mutex::new(SecretResolutionMetrics::new())),
         }
     }
@@ -43,6 +45,10 @@ impl SecretResolver {
         // Phase 1: Collect environment variables
         let claudius_secrets = self.collect_claudius_secrets();
 
+        // Phase 1.5: If using 1Password, perform a single preflight resolution so any interactive
+        // unlock happens before parallel resolution begins.
+        self.preflight_onepassword_unlock(&claudius_secrets);
+
         // Phase 2: Resolve secrets in parallel
         let resolved_vars = self.resolve_secrets_parallel(&claudius_secrets)?;
 
@@ -54,6 +60,41 @@ impl SecretResolver {
 
         self.log_metrics(total_timer.stop());
         Ok(result)
+    }
+
+    fn preflight_onepassword_unlock(&self, secrets: &HashMap<String, String>) {
+        if !matches!(
+            self.config.as_ref().map(|c| c.manager_type),
+            Some(SecretManagerType::OnePassword)
+        ) {
+            return;
+        }
+
+        let Some(op_ref) = secrets.values().find_map(|v| Self::extract_first_op_reference(v))
+        else {
+            return;
+        };
+
+        let cache = self.cache.clone();
+        let _ = self.resolve_with_cache(&op_ref, &cache);
+    }
+
+    fn extract_first_op_reference(value: &str) -> Option<String> {
+        if let Some(start_pos) = value.find("{{op://") {
+            let op_ref_start = start_pos.saturating_add(2);
+            if let Some(search_area) = value.get(op_ref_start..) {
+                if let Some(end_pos) = search_area.find("}}") {
+                    if let Some(op_ref) = search_area.get(..end_pos) {
+                        return Some(op_ref.to_string());
+                    }
+                }
+            }
+        }
+
+        let start_pos = value.find("op://")?;
+        let op_ref_start = value.get(start_pos..).unwrap_or("");
+        let op_ref = Self::extract_op_reference(op_ref_start);
+        if op_ref.is_empty() { None } else { Some(op_ref) }
     }
 
     fn collect_claudius_secrets(&self) -> HashMap<String, String> {
@@ -263,46 +304,59 @@ impl SecretResolver {
         // Check cache first
         let cached = cache.lock().map_or(None, |cache_guard| cache_guard.get(op_ref).cloned());
 
-        cached.map_or_else(
-            || {
-                // Resolve the reference
-                let _op_timer = Timer::new(&format!("op read {op_ref}"));
-                let start_time = std::time::Instant::now();
+        if let Some(cached_value) = cached {
+            debug!("Using cached value for {}", op_ref);
+            return cached_value;
+        }
 
-                match Self::resolve_onepassword_reference(op_ref) {
-                    Ok(secret) => {
-                        let duration = start_time.elapsed();
-                        debug!("Resolved {} to {} in {:?}", op_ref, secret, duration);
+        let op_ref_lock = {
+            let mut locks = self.op_ref_locks.lock().unwrap_or_else(|e| e.into_inner());
+            locks
+                .entry(op_ref.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = op_ref_lock.lock().unwrap_or_else(|e| e.into_inner());
 
-                        // Update metrics
-                        if let Ok(mut metrics) = self.metrics.lock() {
-                            metrics.add_op_call(op_ref.to_string(), duration, true);
-                        }
+        // Re-check cache after waiting for any in-flight resolution of the same reference.
+        let cached = cache.lock().map_or(None, |cache_guard| cache_guard.get(op_ref).cloned());
+        if let Some(cached_value) = cached {
+            debug!("Using cached value for {}", op_ref);
+            return cached_value;
+        }
 
-                        // Cache the resolved value
-                        if let Ok(mut cache_guard) = cache.lock() {
-                            cache_guard.insert(op_ref.to_string(), secret.clone());
-                        }
-                        secret
-                    },
-                    Err(e) => {
-                        let duration = start_time.elapsed();
-                        warn!("Failed to resolve {} in {:?}: {}", op_ref, duration, e);
+        // Resolve the reference
+        let _op_timer = Timer::new(&format!("op read {op_ref}"));
+        let start_time = std::time::Instant::now();
 
-                        // Update metrics
-                        if let Ok(mut metrics) = self.metrics.lock() {
-                            metrics.add_op_call(op_ref.to_string(), duration, false);
-                        }
+        match Self::resolve_onepassword_reference(op_ref) {
+            Ok(secret) => {
+                let duration = start_time.elapsed();
+                debug!("Resolved {} to {} in {:?}", op_ref, secret, duration);
 
-                        op_ref.to_string() // Keep original reference on failure
-                    },
+                // Update metrics
+                if let Ok(mut metrics) = self.metrics.lock() {
+                    metrics.add_op_call(op_ref.to_string(), duration, true);
                 }
+
+                // Cache the resolved value
+                if let Ok(mut cache_guard) = cache.lock() {
+                    cache_guard.insert(op_ref.to_string(), secret.clone());
+                }
+                secret
             },
-            |cached_value| {
-                debug!("Using cached value for {}", op_ref);
-                cached_value
+            Err(e) => {
+                let duration = start_time.elapsed();
+                warn!("Failed to resolve {} in {:?}: {}", op_ref, duration, e);
+
+                // Update metrics
+                if let Ok(mut metrics) = self.metrics.lock() {
+                    metrics.add_op_call(op_ref.to_string(), duration, false);
+                }
+
+                op_ref.to_string() // Keep original reference on failure
             },
-        )
+        }
     }
 
     fn extract_op_reference(text: &str) -> String {
@@ -698,6 +752,36 @@ mod tests {
         std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
         std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
         std::env::remove_var("CLAUDIUS_SECRET_DB_PASSWORD");
+    }
+
+    #[test]
+    #[serial]
+    fn test_onepassword_preflight_warms_cache_and_dedupes_calls() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+
+        // Enable mock mode
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+
+        std::env::set_var("CLAUDIUS_SECRET_A", "op://vault/item1/field1");
+        std::env::set_var("CLAUDIUS_SECRET_B", "op://vault/item1/field1");
+
+        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let resolver = SecretResolver::new(Some(config));
+
+        let resolved = resolver.resolve_env_vars().expect("resolve_env_vars should succeed");
+        assert_eq!(resolved.get("A"), Some(&"secret-value-1".to_string()));
+        assert_eq!(resolved.get("B"), Some(&"secret-value-1".to_string()));
+
+        let metrics = resolver
+            .get_metrics()
+            .expect("metrics should be available after resolve_env_vars");
+        assert_eq!(metrics.op_calls.len(), 1);
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_A");
+        std::env::remove_var("CLAUDIUS_SECRET_B");
     }
 
     #[test]
