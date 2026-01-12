@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Context files standardized on `CLAUDE.md` (Claude/Claude Code) and `AGENTS.md` (Codex/Gemini)
 
+### Fixed
+- macOS: reduce repeated Touch ID prompts during `claudius secrets run` when resolving `op://...` secrets via 1Password CLI
+
 ## [0.1.0] - 2025-07-23
 
 ### Added
