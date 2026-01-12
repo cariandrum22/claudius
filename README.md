@@ -2,6 +2,7 @@
 
 [![CI Pipeline](https://github.com/cariandrum22/claudius/actions/workflows/ci.yml/badge.svg)](https://github.com/cariandrum22/claudius/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/cariandrum22/claudius/actions/workflows/security.yml/badge.svg)](https://github.com/cariandrum22/claudius/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/cariandrum22/claudius?sort=semver)](https://github.com/cariandrum22/claudius/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Multi-agent configuration management tool for AI assistants
@@ -738,11 +739,11 @@ Please see [CLAUDE.md](./CLAUDE.md).
 
 ## Version History
 
-See [CHANGELOG.md](./CHANGELOG.md) for detailed version history.
+See:
+- [GitHub Releases](https://github.com/cariandrum22/claudius/releases)
+- [CHANGELOG.md](./CHANGELOG.md)
 
-Current version: **v0.1.0** - Initial development release
-
-Key features in v0.1.0:
+Key features introduced in v0.1.0:
 - Multi-agent support (Claude, Codex, Gemini)
 - Secret management with 1Password integration
 - DAG-based variable expansion for nested environment variables
