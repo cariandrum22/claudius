@@ -3,7 +3,7 @@ mod cli_test;
 mod codex_model_providers_test;
 mod codex_sync_test;
 mod codex_toml_test;
-mod commands_test;
+mod skills_test;
 mod context_test;
 mod gemini_system_settings_test;
 mod init_test;

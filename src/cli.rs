@@ -4,13 +4,13 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "claudius",
-    about = "Claude configuration management tool - Manage MCP servers, settings, commands, and project instructions",
+    about = "Claude configuration management tool - Manage MCP servers, settings, skills, and project instructions",
     long_about = "Claudius is a comprehensive configuration management tool for Claude Desktop/CLI.
 
 It helps you:
   • Manage MCP (Model Context Protocol) server configurations
   • Maintain Claude settings across projects
-  • Organize custom slash commands
+  • Manage Claude Code skills
   • Define project-specific instructions via CLAUDE.md
 
 Configuration files are stored in:
@@ -22,7 +22,7 @@ Configuration files are stored in:
     - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
     - gemini.settings.json: Gemini settings (optional)
     - settings.json: Legacy Claude settings (backward compatible)
-    - commands/: Custom slash commands (*.md)
+    - skills/: Claude Code skills (directories with SKILL.md)
     - rules/: CLAUDE.md templates (*.md)
 
 Target files:
@@ -68,9 +68,9 @@ pub enum Commands {
     #[command(subcommand)]
     Config(ConfigCommands),
 
-    /// Manage custom command definitions
-    #[command(subcommand, name = "commands")]
-    Command(CommandCommands),
+    /// Manage Claude Code skills
+    #[command(subcommand, name = "skills")]
+    Skills(SkillsCommands),
 
     /// Manage project context rules and templates
     #[command(subcommand)]
@@ -94,7 +94,7 @@ This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
   • codex.managed_config.toml - Codex managed defaults template (admin-managed)
   • gemini.settings.json - Gemini settings template
   • settings.json - Legacy Claude settings (backward compatible)
-  • commands/ - Directory for custom slash commands
+  • skills/ - Directory for Claude Code skills
   • rules/ - Directory for CLAUDE.md rules
 
 By default, existing files are preserved. Use --force to reinitialize.
@@ -132,7 +132,7 @@ This command:
        • Codex: ~/.codex/config.toml
        • Gemini: ~/.gemini/settings.json
        • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
-  4. Syncs custom commands from commands/ to ~/.claude/commands/
+  4. Syncs skills from skills/ to the agent skills directory (Claude: ~/.claude/skills, Gemini: ~/.gemini/skills)
 
 Examples:
   # Basic sync to project-local files
@@ -171,13 +171,13 @@ Use --strict to fail on warnings."
 }
 
 #[derive(Subcommand, Debug, Clone, Copy)]
-pub enum CommandCommands {
-    /// Synchronize custom slash commands into Claude directories
-    #[command(long_about = "Synchronize custom slash command definitions into Claude directories.
+pub enum SkillsCommands {
+    /// Synchronize skills into agent directories
+    #[command(long_about = "Synchronize skills into agent directories.
 
-This command copies the markdown files from your commands/ directory into \
-Claude's command directory, ensuring all commands are up to date.")]
-    Sync(CommandSyncArgs),
+This command copies skills from your skills/ directory into \
+the agent's skills directory, ensuring all skills are up to date.")]
+    Sync(SkillsSyncArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -367,14 +367,25 @@ pub struct ConfigValidateArgs {
 }
 
 #[derive(Args, Debug, Clone, Copy)]
-pub struct CommandSyncArgs {
-    /// Target system-wide configuration (~/.claude/commands/) instead of project-local directory
+pub struct SkillsSyncArgs {
+    /// Target system-wide configuration (~/.claude/skills/) instead of project-local directory
     #[arg(
         short,
         long,
-        help = "Target system-wide commands directory (~/.claude/commands/) instead of project-local commands directory"
+        help = "Target system-wide skills directory instead of project-local skills directory"
     )]
     pub global: bool,
+
+    /// Specify the agent (defaults to Claude)
+    #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Enable Codex skills sync (experimental)
+    #[arg(
+        long,
+        help = "Enable Codex skills sync (experimental; Codex CLI skills path may change)"
+    )]
+    pub enable_codex_skills: bool,
 }
 
 #[derive(Args, Debug, Clone)]

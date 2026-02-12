@@ -30,18 +30,18 @@ const DEFAULT_SETTINGS: &str = r#"{
 }
 "#;
 
-/// Example command template
-const EXAMPLE_COMMAND: &str = r"# Example Command
+/// Example skill template
+const EXAMPLE_SKILL: &str = r"# Example Skill
 
-This is an example custom slash command for Claude.
+This is an example Claude Code skill.
 
 ## Usage
 
-Type `/example` in Claude to use this command.
+Describe how and when to use this skill.
 
 ## Implementation
 
-Replace this content with your actual command implementation.
+Replace this content with your actual skill definition.
 ";
 
 /// Example rule template
@@ -339,13 +339,16 @@ fn init_app_config(config_dir: &Path, force: bool) -> Result<()> {
     create_file_if_needed(&app_config_path, EXAMPLE_CONFIG, force, "config.toml")
 }
 
-/// Initialize commands directory with example
-fn init_commands_directory(config_dir: &Path, force: bool) -> Result<()> {
-    let commands_dir = config_dir.join("commands");
-    create_directory(&commands_dir, force)?;
+/// Initialize skills directory with example
+fn init_skills_directory(config_dir: &Path, force: bool) -> Result<()> {
+    let skills_dir = config_dir.join("skills");
+    create_directory(&skills_dir, force)?;
 
-    let example_command_path = commands_dir.join("example.md");
-    create_file_if_needed(&example_command_path, EXAMPLE_COMMAND, force, "example command")
+    let example_skill_dir = skills_dir.join("example");
+    create_directory(&example_skill_dir, force)?;
+
+    let example_skill_path = example_skill_dir.join("SKILL.md");
+    create_file_if_needed(&example_skill_path, EXAMPLE_SKILL, force, "example skill")
 }
 
 /// Initialize rules directory with example
@@ -437,7 +440,7 @@ pub fn bootstrap_config(config_dir: &Path, force: bool) -> Result<()> {
     init_agent_settings(config_dir, force)?;
     create_legacy_settings(config_dir, force)?;
     init_app_config(config_dir, force)?;
-    init_commands_directory(config_dir, force)?;
+    init_skills_directory(config_dir, force)?;
     init_rules_directory(config_dir, force)?;
 
     info!("Bootstrap complete at: {}", config_dir.display());
@@ -490,8 +493,8 @@ mod tests {
         assert!(config_dir.join("gemini.settings.json").exists());
         assert!(config_dir.join("settings.json").exists());
         assert!(config_dir.join("config.toml").exists());
-        assert!(config_dir.join("commands").exists());
-        assert!(config_dir.join("commands/example.md").exists());
+        assert!(config_dir.join("skills").exists());
+        assert!(config_dir.join("skills/example/SKILL.md").exists());
         assert!(config_dir.join("rules").exists());
         assert!(config_dir.join("rules/example.md").exists());
 
@@ -567,10 +570,11 @@ mod tests {
         let config_dir = temp_dir.path().join("claudius");
 
         // Create existing structure with custom files
-        let commands_dir = config_dir.join("commands");
-        fs::create_dir_all(&commands_dir).expect("Failed to create commands directory");
-        fs::write(commands_dir.join("custom.md"), "custom command")
-            .expect("Failed to write custom command");
+        let skills_dir = config_dir.join("skills");
+        let custom_skill_dir = skills_dir.join("custom");
+        fs::create_dir_all(&custom_skill_dir).expect("Failed to create skills directory");
+        fs::write(custom_skill_dir.join("SKILL.md"), "custom skill")
+            .expect("Failed to write custom skill");
 
         let rules_dir = config_dir.join("rules");
         fs::create_dir_all(&rules_dir).expect("Failed to create rules directory");
@@ -579,11 +583,11 @@ mod tests {
         bootstrap_config(&config_dir, true).expect("bootstrap_config with force should succeed");
 
         // Verify custom files were removed
-        assert!(!commands_dir.join("custom.md").exists());
+        assert!(!custom_skill_dir.join("SKILL.md").exists());
         assert!(!rules_dir.join("custom.md").exists());
 
         // Verify example files exist
-        assert!(commands_dir.join("example.md").exists());
+        assert!(skills_dir.join("example/SKILL.md").exists());
         assert!(rules_dir.join("example.md").exists());
     }
 

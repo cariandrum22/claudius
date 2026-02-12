@@ -9,12 +9,12 @@ use claudius::{
     app_config::AppConfig,
     bootstrap,
     cli::{self, Cli},
-    commands,
     config::{reader, Config},
     secrets::SecretResolver,
+    skills,
     sync_operations::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
-        sync_commands_if_exists, write_configurations, AgentContext, CodexGlobalSyncOptions,
+        sync_skills_if_exists, write_configurations, AgentContext, CodexGlobalSyncOptions,
     },
     template::{
         append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
@@ -114,8 +114,8 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
             cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
             cli::ConfigCommands::Validate(args) => run_config_validate(args, app_config),
         },
-        cli::Commands::Command(subcommand) => match subcommand {
-            cli::CommandCommands::Sync(args) => run_sync_commands(args.global),
+        cli::Commands::Skills(subcommand) => match subcommand {
+            cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
         },
         cli::Commands::Context(subcommand) => match subcommand {
             cli::ContextCommands::Append(args) => run_append_context(
@@ -189,7 +189,7 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
             println!("Next steps:");
             println!("  1. Edit configuration files in: {}", config_dir.display());
             println!("  2. Run 'claudius config sync' to apply your configuration");
-            println!("  3. Run 'claudius commands sync' to publish custom commands");
+            println!("  3. Run 'claudius skills sync' to publish skills");
             Ok(())
         },
         Err(e) => {
@@ -199,22 +199,47 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
     }
 }
 
-fn run_sync_commands(global: bool) -> Result<()> {
-    let config = Config::new(global)?;
-    match commands::sync_commands(&config.commands_dir, &config.claude_commands_dir) {
+fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
+    let cli::SkillsSyncArgs {
+        global,
+        agent,
+        enable_codex_skills,
+    } = args;
+
+    let effective_agent = determine_agent(agent, app_config);
+
+    if effective_agent == Some(claudius::app_config::Agent::Codex) && !enable_codex_skills {
+        println!("Codex skills sync is experimental. Re-run with --enable-codex-skills.");
+        return Ok(());
+    }
+
+    let config = Config::new_with_agent(global, effective_agent)?;
+    let Some(source_dir) = config.resolve_skills_source_dir() else {
+        println!("No skills to sync");
+        return Ok(());
+    };
+
+    if source_dir != config.skills_dir {
+        println!(
+            "Legacy commands directory detected; syncing skills from {}",
+            source_dir.display()
+        );
+    }
+
+    match skills::sync_skills(&source_dir, &config.skills_target_dir) {
         Ok(synced) => {
             if synced.is_empty() {
-                println!("No commands to sync");
+                println!("No skills to sync");
             } else {
-                println!("Successfully synced {} command(s):", synced.len());
-                for cmd in &synced {
-                    println!("  - {cmd}");
+                println!("Successfully synced {} skill(s):", synced.len());
+                for skill in &synced {
+                    println!("  - {skill}");
                 }
             }
             Ok(())
         },
         Err(e) => {
-            error!("Failed to sync commands: {e:#}");
+            error!("Failed to sync skills: {e:#}");
             std::process::exit(1);
         },
     }
@@ -752,9 +777,9 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
 
     if available_agents.is_empty() {
         warn!("No agent configuration files found in config directory");
-        // Still sync commands if they exist
+        // Still sync skills if they exist
         let config = Config::new_with_agent(true, None)?;
-        sync_commands_if_exists(&config);
+        sync_skills_if_exists(&config);
         return Ok(());
     }
 
@@ -795,12 +820,6 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
         };
 
         execute_sync_operation(&config, &paths, agent_context, flags)?;
-    }
-
-    // Sync commands once after all agents
-    if !available_agents.is_empty() {
-        let config = Config::new_with_agent(true, None)?;
-        sync_commands_if_exists(&config);
     }
 
     println!("\nAll agent configurations synced successfully");
@@ -926,7 +945,7 @@ fn execute_sync_operation(
             agent_context,
             flags.codex_global,
         )?;
-        sync_commands_if_exists(config);
+        sync_skills_if_exists(config);
         Ok(())
     }
 }
