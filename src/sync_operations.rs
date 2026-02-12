@@ -3,7 +3,7 @@
 use crate::agent_paths;
 use crate::app_config::{Agent, AppConfig, ClaudeCodeScope};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
-use crate::commands;
+use crate::skills;
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
 use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
@@ -1389,25 +1389,39 @@ fn deep_merge_toml_value(target: &mut TomlValue, overlay: &TomlValue) {
     }
 }
 
-/// Sync custom commands
-pub fn sync_commands_if_exists(config: &Config) {
-    if config.commands_dir.exists() {
-        debug!("Syncing custom slash commands");
-        debug!("Source: {}", config.commands_dir.display());
-        debug!("Target: {}", config.claude_commands_dir.display());
+/// Sync skills
+pub fn sync_skills_if_exists(config: &Config) {
+    if config.agent == Some(Agent::Codex) {
+        debug!("Skipping Codex skills sync (experimental; use `claudius skills sync --enable-codex-skills`)");
+        return;
+    }
 
-        match commands::sync_commands(&config.commands_dir, &config.claude_commands_dir) {
-            Ok(synced) => {
-                if !synced.is_empty() {
-                    info!("Synced {} custom command(s)", synced.len());
-                    for cmd in &synced {
-                        debug!("  - {}", cmd);
-                    }
+    let Some(source_dir) = config.resolve_skills_source_dir() else {
+        return;
+    };
+
+    if source_dir != config.skills_dir {
+        warn!(
+            "Legacy commands directory detected; syncing skills from {}",
+            source_dir.display()
+        );
+    }
+
+    debug!("Syncing skills");
+    debug!("Source: {}", source_dir.display());
+    debug!("Target: {}", config.skills_target_dir.display());
+
+    match skills::sync_skills(&source_dir, &config.skills_target_dir) {
+        Ok(synced) => {
+            if !synced.is_empty() {
+                info!("Synced {} skill(s)", synced.len());
+                for skill in &synced {
+                    debug!("  - {}", skill);
                 }
-            },
-            Err(e) => {
-                warn!("Failed to sync commands: {}", e);
-            },
-        }
+            }
+        },
+        Err(e) => {
+            warn!("Failed to sync skills: {}", e);
+        },
     }
 }

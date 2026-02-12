@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub mod reader;
@@ -93,8 +94,8 @@ pub struct Config {
     pub target_config_path: PathBuf,
     pub project_settings_path: Option<PathBuf>,
     pub rules_dir: PathBuf,
-    pub commands_dir: PathBuf,
-    pub claude_commands_dir: PathBuf,
+    pub skills_dir: PathBuf,
+    pub skills_target_dir: PathBuf,
     pub is_global: bool,
     pub agent: Option<crate::app_config::Agent>,
 }
@@ -132,7 +133,9 @@ impl Config {
         let (target_config_path, project_settings_path, actual_settings_path) =
             Self::determine_paths(use_global, agent, &config_dir, &home_dir, &system_config_dir)?;
 
-        let claude_commands_dir = Self::determine_commands_dir(use_global, &home_dir)?;
+        let current_dir = if use_global { None } else { Some(std::env::current_dir()?) };
+        let skills_target_dir =
+            Self::determine_skills_dir(use_global, agent, &home_dir, current_dir.as_deref());
 
         Ok(Self {
             mcp_servers_path: config_dir.join("mcpServers.json"),
@@ -140,8 +143,8 @@ impl Config {
             target_config_path,
             project_settings_path,
             rules_dir: config_dir.join("rules"),
-            commands_dir: config_dir.join("commands"),
-            claude_commands_dir,
+            skills_dir: config_dir.join("skills"),
+            skills_target_dir,
             is_global: use_global,
             agent,
         })
@@ -230,20 +233,69 @@ impl Config {
         preferred
     }
 
-    /// Determine commands directory based on mode
-    fn determine_commands_dir(use_global: bool, home_dir: &Path) -> anyhow::Result<PathBuf> {
-        if use_global {
-            Ok(home_dir.join(".claude").join("commands"))
+    /// Determine skills target directory based on mode and agent
+    fn determine_skills_dir(
+        use_global: bool,
+        agent: Option<crate::app_config::Agent>,
+        home_dir: &Path,
+        current_dir: Option<&Path>,
+    ) -> PathBuf {
+        let base_dir = if use_global {
+            home_dir
         } else {
-            Ok(std::env::current_dir()?.join(".claude").join("commands"))
+            current_dir.unwrap_or(home_dir)
+        };
+
+        match agent {
+            Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
+            Some(crate::app_config::Agent::Codex) => base_dir.join(".codex").join("skills"),
+            _ => base_dir.join(".claude").join("skills"),
         }
+    }
+
+    fn skills_dir_has_entries(path: &Path) -> bool {
+        fs::read_dir(path).map(|mut entries| entries.next().is_some()).unwrap_or(false)
+    }
+
+    fn agent_skills_subdir(agent: crate::app_config::Agent) -> Option<&'static str> {
+        match agent {
+            crate::app_config::Agent::Claude => Some("claude"),
+            crate::app_config::Agent::ClaudeCode => Some("claude-code"),
+            crate::app_config::Agent::Codex => Some("codex"),
+            crate::app_config::Agent::Gemini => Some("gemini"),
+        }
+    }
+
+    #[must_use]
+    pub fn resolve_skills_source_dir(&self) -> Option<PathBuf> {
+        if let Some(agent) = self.agent {
+            if let Some(subdir) = Self::agent_skills_subdir(agent) {
+                let candidate = self.skills_dir.join(subdir);
+                if candidate.exists() && Self::skills_dir_has_entries(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        let has_shared_skills =
+            self.skills_dir.exists() && Self::skills_dir_has_entries(&self.skills_dir);
+        if has_shared_skills {
+            return Some(self.skills_dir.clone());
+        }
+
+        let legacy_commands = self.skills_dir.parent()?.join("commands");
+        if legacy_commands.exists() {
+            return Some(legacy_commands);
+        }
+
+        self.skills_dir.exists().then_some(self.skills_dir.clone())
     }
 
     pub fn with_paths<P: Into<PathBuf>>(mcp_servers: P, target_config: P) -> Self {
         let config_dir = Self::get_config_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let claude_commands_dir = directories::BaseDirs::new().map_or_else(
-            || PathBuf::from(".claude/commands"),
-            |d| d.home_dir().join(".claude").join("commands"),
+        let skills_target_dir = directories::BaseDirs::new().map_or_else(
+            || PathBuf::from(".claude/skills"),
+            |d| d.home_dir().join(".claude").join("skills"),
         );
 
         Self {
@@ -252,8 +304,8 @@ impl Config {
             target_config_path: target_config.into(),
             project_settings_path: None,
             rules_dir: config_dir.join("rules"),
-            commands_dir: config_dir.join("commands"),
-            claude_commands_dir,
+            skills_dir: config_dir.join("skills"),
+            skills_target_dir,
             is_global: true,
             agent: None,
         }
@@ -261,9 +313,9 @@ impl Config {
 
     pub fn with_all_paths<P: Into<PathBuf>>(mcp_servers: P, settings: P, target_config: P) -> Self {
         let config_dir = Self::get_config_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let claude_commands_dir = directories::BaseDirs::new().map_or_else(
-            || PathBuf::from(".claude/commands"),
-            |d| d.home_dir().join(".claude").join("commands"),
+        let skills_target_dir = directories::BaseDirs::new().map_or_else(
+            || PathBuf::from(".claude/skills"),
+            |d| d.home_dir().join(".claude").join("skills"),
         );
 
         Self {
@@ -272,8 +324,8 @@ impl Config {
             target_config_path: target_config.into(),
             project_settings_path: None,
             rules_dir: config_dir.join("rules"),
-            commands_dir: config_dir.join("commands"),
-            claude_commands_dir,
+            skills_dir: config_dir.join("skills"),
+            skills_target_dir,
             is_global: true,
             agent: None,
         }
