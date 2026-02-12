@@ -44,7 +44,7 @@ mod tests {
         cmd.arg("--list-commands").assert().success().stdout(
             predicate::str::contains("Available commands:")
                 .and(predicate::str::contains("config"))
-                .and(predicate::str::contains("commands"))
+                .and(predicate::str::contains("skills"))
                 .and(predicate::str::contains("context"))
                 .and(predicate::str::contains("secrets"))
                 .and(predicate::str::contains("Use `claudius <command> --help`")),

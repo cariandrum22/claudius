@@ -69,8 +69,8 @@ mod tests {
         assert!(config_dir.join("codex.managed_config.toml").exists());
         assert!(config_dir.join("gemini.settings.json").exists());
         assert!(config_dir.join("settings.json").exists());
-        assert!(config_dir.join("commands").exists());
-        assert!(config_dir.join("commands/example.md").exists());
+        assert!(config_dir.join("skills").exists());
+        assert!(config_dir.join("skills/example/SKILL.md").exists());
         assert!(config_dir.join("rules").exists());
         assert!(config_dir.join("rules/example.md").exists());
 

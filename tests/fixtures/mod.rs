@@ -68,11 +68,12 @@ impl TestFixture {
         Ok(self)
     }
 
-    /// Create a test command file
-    pub fn with_command(&self, name: &str, content: &str) -> std::io::Result<&Self> {
-        let commands_dir = self.config.join("commands");
-        fs::create_dir_all(&commands_dir)?;
-        let path = commands_dir.join(format!("{name}.md"));
+    /// Create a test skill directory with SKILL.md
+    pub fn with_skill(&self, name: &str, content: &str) -> std::io::Result<&Self> {
+        let skills_dir = self.config.join("skills");
+        let skill_dir = skills_dir.join(name);
+        fs::create_dir_all(&skill_dir)?;
+        let path = skill_dir.join("SKILL.md");
         fs::write(path, content)?;
         Ok(self)
     }
@@ -205,9 +206,9 @@ impl TestFixtureBuilder {
         Ok(self)
     }
 
-    /// Add a sample command
-    pub fn with_sample_command(self) -> std::io::Result<Self> {
-        self.fixture.with_command("test", "# Test Command\n\nThis is a test command.")?;
+    /// Add a sample skill
+    pub fn with_sample_skill(self) -> std::io::Result<Self> {
+        self.fixture.with_skill("test", "# Test Skill\n\nThis is a test skill.")?;
         Ok(self)
     }
 

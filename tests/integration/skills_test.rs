@@ -39,14 +39,14 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_commands_sync_project_local() {
+    fn test_skills_sync_project_local() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
-        // Create test commands
-        fixture.with_command("hello", "# Hello Command\nTest command").unwrap();
-        fixture.with_command("debug", "# Debug Command\nDebug info").unwrap();
+        // Create test skills
+        fixture.with_skill("hello", "# Hello Skill\nTest skill").unwrap();
+        fixture.with_skill("debug", "# Debug Skill\nDebug info").unwrap();
 
         // Create minimal config
         fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
@@ -55,34 +55,60 @@ mod tests {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .args(["commands", "sync"])
+            .args(["skills", "sync"])
             .assert()
             .success();
 
-        // Verify commands were synced to project-local .claude/commands/
-        assert!(fixture.project_file_exists(".claude/commands"));
+        // Verify skills were synced to project-local .claude/skills/
+        assert!(fixture.project_file_exists(".claude/skills"));
 
-        // Check commands exist without .md extension
-        assert!(fixture.project_file_exists(".claude/commands/hello"));
-        assert!(fixture.project_file_exists(".claude/commands/debug"));
+        // Check skills exist with SKILL.md
+        assert!(fixture.project_file_exists(".claude/skills/hello/SKILL.md"));
+        assert!(fixture.project_file_exists(".claude/skills/debug/SKILL.md"));
 
         // Verify content
-        let hello_content = fixture.read_project_file(".claude/commands/hello").unwrap();
-        assert_eq!(hello_content, "# Hello Command\nTest command");
+        let hello_content = fixture
+            .read_project_file(".claude/skills/hello/SKILL.md")
+            .unwrap();
+        assert_eq!(hello_content, "# Hello Skill\nTest skill");
 
-        let debug_content = fixture.read_project_file(".claude/commands/debug").unwrap();
-        assert_eq!(debug_content, "# Debug Command\nDebug info");
+        let debug_content = fixture
+            .read_project_file(".claude/skills/debug/SKILL.md")
+            .unwrap();
+        assert_eq!(debug_content, "# Debug Skill\nDebug info");
     }
 
     #[test]
     #[serial]
-    fn test_commands_sync_global() {
+    fn test_skills_sync_gemini_project_local() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
-        // Create test commands
-        fixture.with_command("test", "# Test Command").unwrap();
+        fixture.with_skill("gemini-skill", "# Gemini Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync"])
+            .args(["--agent", "gemini"])
+            .assert()
+            .success();
+
+        assert!(fixture.project_file_exists(".gemini/skills"));
+        assert!(fixture.project_file_exists(".gemini/skills/gemini-skill/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_global() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        // Create test skills
+        fixture.with_skill("test", "# Test Skill").unwrap();
 
         // Create minimal config
         fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
@@ -91,30 +117,30 @@ mod tests {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.env("XDG_CONFIG_HOME", fixture.config_home())
             .env("HOME", fixture.home_dir())
-            .args(["commands", "sync"])
+            .args(["skills", "sync"])
             .arg("--global")
             .assert()
             .success();
 
-        // Verify commands were synced to ~/.claude/commands/
-        assert!(fixture.home_file_exists(".claude/commands"));
+        // Verify skills were synced to ~/.claude/skills/
+        assert!(fixture.home_file_exists(".claude/skills"));
 
-        // Check command exists
-        assert!(fixture.home_file_exists(".claude/commands/test"));
+        // Check skill exists
+        assert!(fixture.home_file_exists(".claude/skills/test/SKILL.md"));
 
-        let test_content = fixture.read_home_file(".claude/commands/test").unwrap();
-        assert_eq!(test_content, "# Test Command");
+        let test_content = fixture.read_home_file(".claude/skills/test/SKILL.md").unwrap();
+        assert_eq!(test_content, "# Test Skill");
     }
 
     #[test]
     #[serial]
-    fn test_commands_only_mode_project_local() {
+    fn test_skills_only_mode_project_local() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
-        // Create test command
-        fixture.with_command("cmd", "Command content").unwrap();
+        // Create test skill
+        fixture.with_skill("cmd", "Skill content").unwrap();
 
         // Create config files
         fixture
@@ -122,20 +148,20 @@ mod tests {
             .unwrap();
         fixture.with_settings(r#"{"apiKeyHelper": "test"}"#).unwrap();
 
-        // Run sync using dedicated commands subcommand
+        // Run sync using dedicated skills subcommand
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .args(["commands", "sync"])
+            .args(["skills", "sync"])
             .assert()
             .success()
             .stdout(predicate::str::contains("Successfully synced"));
 
-        // Verify only commands were synced (no .mcp.json or settings.json)
+        // Verify only skills were synced (no .mcp.json or settings.json)
         assert!(!fixture.project_file_exists(".mcp.json"));
         assert!(!fixture.project_file_exists(".claude/settings.json"));
 
-        // But commands should exist
-        assert!(fixture.project_file_exists(".claude/commands/cmd"));
+        // But skills should exist
+        assert!(fixture.project_file_exists(".claude/skills/cmd/SKILL.md"));
     }
 }
