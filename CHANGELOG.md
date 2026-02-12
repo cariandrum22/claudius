@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Agent-aware skills sync with `--agent` support for Claude/Claude Code and Gemini
+- Experimental Codex skills sync (opt-in via `--enable-codex-skills`)
+- Agent-specific skill overrides (`skills/<agent>/<skill>/SKILL.md`)
+- Gemini skills sync to `.gemini/skills` and `~/.gemini/skills`
+
+### Changed
+- Skills sync now targets the selected agent's skills directory
+- Legacy `commands/*.md` sources fall back into skills sync when no skills exist
+
 ## [0.1.1] - 2026-01-12
 
 ### Added
@@ -56,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Configuration
 - TOML-based application configuration
 - JSON support for MCP servers and settings
-- Markdown-based custom commands and rules
+- Skills and rules support
 - XDG Base Directory compliance
 
 ### Notes

@@ -15,7 +15,7 @@
 
 #### Solution
 Claudius provides a structured approach to Claude configuration management:
-- Separate configuration files for different aspects (servers, settings, commands)
+- Separate configuration files for different aspects (servers, settings, skills)
 - Clear separation between global and project-local configurations
 - Version-controllable text files
 - Simple CLI commands for synchronization
@@ -53,7 +53,7 @@ claudius context append security
 ### 1. Configuration Management
 - **MCP Server Configurations**: Define and manage Model Context Protocol servers
 - **Claude Settings**: Manage API keys, environment variables, permissions, and other Claude settings
-- **Custom Commands**: Create and distribute custom slash commands for Claude
+- **Skills**: Create and distribute Claude Code skills
 - **Project Instructions**: Define project-specific instructions via CLAUDE.md
 - **Secret Management**: Integrate with 1Password and HashiCorp Vault for secure credential handling
 
@@ -64,7 +64,7 @@ claudius context append security
 
 ### 3. Team Collaboration
 - **Version Control**: All configuration files are JSON/Markdown, perfect for Git
-- **Configuration Sharing**: Share MCP servers, commands, and rules across teams
+- **Configuration Sharing**: Share MCP servers, skills, and rules across teams
 - **Consistent Environments**: Ensure all team members use the same Claude configuration
 
 ### 4. Secure Command Execution
@@ -81,8 +81,12 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 ├── config.toml                # Claudius app configuration (optional)
 ├── mcpServers.json            # MCP server definitions
 ├── settings.json              # General Claude settings (optional)
-├── commands/                  # Custom slash commands
-│   └── *.md                   # Command files (markdown)
+├── skills/                    # Skills (shared + agent-specific)
+│   ├── <skill>/               # Shared skill
+│   │   └── SKILL.md           # Skill definition
+│   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex)
+│       └── <skill>/           # Agent-specific skill
+│           └── SKILL.md
 └── rules/                     # CLAUDE.md templates
     └── *.md                   # Rule files (markdown)
 ```
@@ -93,9 +97,12 @@ Project Directory (default):
 ├── .mcp.json                  # Project-local MCP servers configuration
 ├── .claude/
 │   ├── settings.json          # Project-local Claude Code settings (when using --agent claude-code)
-│   └── commands/              # Project-local slash commands
+│   └── skills/                # Project-local skills (Claude)
+├── .codex/
+│   └── skills/                # Project-local skills (Codex, experimental)
 ├── .gemini/
-│   └── settings.json          # Project-local Gemini settings + MCP servers (when using --agent gemini)
+│   ├── settings.json          # Project-local Gemini settings + MCP servers (when using --agent gemini)
+│   └── skills/                # Project-local skills (Gemini)
 └── CLAUDE.md                  # Project-specific instructions
 
 Global targets (--global):
@@ -103,7 +110,7 @@ Global targets (--global):
 ├── Claude Code: ~/.claude.json + ~/.claude/settings.json
 ├── Codex: ~/.codex/config.toml
 ├── Gemini: ~/.gemini/settings.json
-└── Commands: ~/.claude/commands
+└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.codex/skills (Codex, experimental)
 ```
 
 ### Data Flow
@@ -132,7 +139,7 @@ splits responsibilities across dedicated verbs:
 
 - `claudius config sync` replaces project-local sync
 - `claudius config sync --global` replaces global sync
-- `claudius commands sync` replaces the manual command deployment step
+- `claudius skills sync` replaces the manual skills deployment step
 
 Run `claudius --list-commands` to see the complete tree of available verbs at
 any time.
@@ -152,7 +159,7 @@ Creates default:
 - `mcpServers.json` with filesystem MCP server example
 - `settings.json` with default Claude settings
 - `config.toml` with commented configuration options
-- `commands/example.md` - Example custom command
+- `skills/example/SKILL.md` - Example skill
 - `rules/example.md` - Example CLAUDE.md rule
 
 ### `claudius config sync`
@@ -160,16 +167,16 @@ Synchronize configurations to target files.
 
 **Project-local mode (default):**
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
-- Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, commands → `./.claude/commands/`
-- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
-- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
+- Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, skills → `./.claude/skills/`
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml` (skills are experimental)
+- Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`, skills → `./.gemini/skills/`
 
 **Global mode (--global):**
 - Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
 - Claude Code (`--agent claude-code`) → `~/.claude.json` + `~/.claude/settings.json`
 - Codex (`--agent codex`) → `~/.codex/config.toml`
 - Gemini (`--agent gemini`) → `~/.gemini/settings.json`
-- Commands → `~/.claude/commands/`
+- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.codex/skills/` (Codex, experimental)
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
@@ -190,8 +197,14 @@ claudius config sync --backup
 # Custom paths
 claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
 
-# Sync only commands
-claudius commands sync
+# Sync only skills (default: Claude)
+claudius skills sync
+
+# Sync only skills for Gemini
+claudius skills sync --agent gemini
+
+# Codex skills are experimental and must be explicitly enabled
+claudius skills sync --agent codex --enable-codex-skills
 ```
 
 ### `claudius context append`
@@ -375,9 +388,28 @@ export CLAUDIUS_SECRET_PATH='/${CLAUDIUS_SECRET_BASE}api'  # Results in: /prodap
 }
 ```
 
-### Custom Commands (commands/*.md)
-Markdown files containing slash command implementations.
-Deployed to `~/.claude/commands/` without the .md extension.
+### Skills (skills/<skill>/SKILL.md)
+Skill definitions stored in individual directories.
+Deployed to `~/.claude/skills/` (Claude) or `~/.gemini/skills/` (Gemini), preserving the
+directory structure. Codex skills are experimental and require explicit opt-in.
+Claude Code still honors legacy `~/.claude/commands` slash commands, but skills are
+recommended.
+
+To override a shared skill for a specific agent, place it under
+`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
+
+### Migration: commands → skills
+
+If you previously stored slash commands in `commands/*.md`, move them into skills:
+
+```bash
+# Example: migrate a legacy command to a skill
+mkdir -p ~/.config/claudius/skills/my-command
+mv ~/.config/claudius/commands/my-command.md ~/.config/claudius/skills/my-command/SKILL.md
+
+# Then sync
+claudius skills sync
+```
 
 ### Rules (rules/*.md)
 Template files for CLAUDE.md content. Can contain:
@@ -397,10 +429,10 @@ Template files for CLAUDE.md content. Can contain:
    - Unspecified fields remain unchanged
    - Null values don't remove existing values
 
-3. **Commands**: File-based sync
-   - All .md files from source are copied
-   - Existing commands are overwritten
-   - Removed source files don't delete deployed commands
+3. **Skills**: File-based sync
+   - All skill directories from source are copied
+   - Existing skills are overwritten
+   - Removed source files don't delete deployed skills
 
 ## System Components
 
@@ -419,10 +451,10 @@ Template files for CLAUDE.md content. Can contain:
    - Rich help documentation
    - Environment variable support
 
-4. **Commands Module** - Custom command management
-   - Markdown file processing
-   - Command deployment to Claude directory
-   - Automatic .md extension removal
+4. **Skills Module** - Skill management
+   - Skill directory processing
+   - Skill deployment to Claude directory
+   - Preserves SKILL.md file names
 
 5. **Template Module** - CLAUDE.md management
    - Rule application from templates
@@ -628,7 +660,7 @@ claudius/
 ## Current Status & Roadmap
 
 ### Current Features (v0.1.0)
-- **Configuration Management**: MCP servers, settings, commands
+- **Configuration Management**: MCP servers, settings, skills
 - **Multi-Project Support**: Project-local and global configurations
 - **Template System**: CLAUDE.md rules and custom templates
 - **Backup & Safety**: Dry-run mode, optional backups

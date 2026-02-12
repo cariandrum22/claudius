@@ -9,11 +9,11 @@ Multi-agent configuration management tool for AI assistants
 
 ## Overview
 
-Claudius is a powerful configuration management tool that helps developers maintain, version control, and share configurations for multiple AI agents (Claude, Codex, Gemini) across projects and teams. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, custom commands, and project-specific context instructions.
+Claudius is a powerful configuration management tool that helps developers maintain, version control, and share configurations for multiple AI agents (Claude, Codex, Gemini) across projects and teams. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, skills, and project-specific context instructions.
 
 ## Key Features
 
-- 🔄 **Configuration Synchronization** - Sync MCP servers, settings, and commands
+- 🔄 **Configuration Synchronization** - Sync MCP servers, settings, and skills
 - 📁 **Multi-Project Support** - Project-local and global configurations
 - 📝 **CLAUDE.md Templates** - Manage project-specific instructions
 - 🛡️ **Safe Operations** - Dry-run mode and optional backups
@@ -134,7 +134,7 @@ claudius --list-commands
    - (Optional) Edit `~/.config/claudius/codex.requirements.toml` for Codex admin-enforced constraints
    - (Optional) Edit `~/.config/claudius/codex.managed_config.toml` for Codex admin-managed defaults
    - Edit `~/.config/claudius/gemini.settings.json` to configure Gemini settings
-   - Add custom commands to `~/.config/claudius/commands/`
+   - Add skills to `~/.config/claudius/skills/` (one directory per skill with `SKILL.md`)
    - Add context rules to `~/.config/claudius/rules/`
 
 3. **Sync configuration:**
@@ -148,8 +148,8 @@ claudius --list-commands
    # To Claude Code global config
    claudius config sync --global --agent claude-code
 
-   # Sync only custom commands
-   claudius commands sync
+   # Sync only skills
+   claudius skills sync
    ```
 
 4. **Install context rules (optional):**
@@ -170,7 +170,7 @@ Version 0.1 reorganized the CLI into domain-focused verbs. If you previously ran
 
 - Project/local sync: `claudius config sync`
 - Global sync: `claudius config sync --global`
-- Commands only: `claudius commands sync`
+- Skills only: `claudius skills sync`
 
 Tip: `claudius --list-commands` prints the new layout along with the available
 subcommands.
@@ -195,7 +195,7 @@ This creates:
 - `codex.managed_config.toml` with default Codex managed defaults (admin-managed)
 - `gemini.settings.json` with default Gemini settings
 - `config.toml` with Claudius application settings (optional)
-- `commands/example.md` - Example custom slash command
+- `skills/example/SKILL.md` - Example skill
 - `rules/example.md` - Example context file rule template
 
 ### `claudius config sync`
@@ -272,16 +272,25 @@ claudius config validate --agent gemini
 claudius config validate --strict
 ```
 
-### `claudius commands sync`
+### `claudius skills sync`
 
-Synchronize custom slash command markdown files into Claude's command directories.
+Synchronize skills into the selected agent's skills directory.
 
 ```bash
-# Sync commands to project-local .claude/commands/
-claudius commands sync
+# Sync skills to project-local .claude/skills/ (default: Claude)
+claudius skills sync
 
-# Sync commands to global ~/.claude/commands/
-claudius commands sync --global
+# Sync skills to project-local .gemini/skills/
+claudius skills sync --agent gemini
+
+# Sync skills to global ~/.claude/skills/
+claudius skills sync --global
+
+# Sync skills to global ~/.gemini/skills/
+claudius skills sync --global --agent gemini
+
+# Codex skills are experimental and must be explicitly enabled
+claudius skills sync --agent codex --enable-codex-skills
 ```
 
 
@@ -378,8 +387,12 @@ Features:
 ├── codex.managed_config.toml # Codex managed defaults (admin-managed, optional)
 ├── gemini.settings.json # Gemini settings (optional)
 ├── settings.json      # Legacy alias for claude.settings.json (backward compatible)
-├── commands/          # Custom slash commands
-│   └── *.md          # Command files
+├── skills/            # Skills (shared + agent-specific)
+│   ├── <skill>/       # Shared skill
+│   │   └── SKILL.md   # Skill definition
+│   └── <agent>/       # Optional agent override (claude, claude-code, gemini, codex)
+│       └── <skill>/   # Agent-specific skill
+│           └── SKILL.md
 └── rules/            # Context file templates
     └── *.md          # Rule files
 ```
@@ -493,19 +506,43 @@ type = "1password"  # or "vault"
 # CLAUDIUS_SECRET_URL=https://api.example.com/{{op://vault/item/field}}/endpoint
 ```
 
-### Custom Commands
+### Skills
 
-Create custom slash commands in `~/.config/claudius/commands/`:
+Create skills in `~/.config/claudius/skills/`:
 
 ```bash
-# Create a command
-echo "# My Command\n\nCommand implementation..." > ~/.config/claudius/commands/mycommand.md
+# Create a skill
+mkdir -p ~/.config/claudius/skills/my-skill
+cat <<'EOF' > ~/.config/claudius/skills/my-skill/SKILL.md
+# My Skill
 
-# Commands are synced automatically
+Skill definition goes here.
+EOF
+
+# Skills are synced automatically
 claudius config sync
 ```
 
-Commands are deployed to `~/.claude/commands/` without the `.md` extension.
+Skills are deployed to `~/.claude/skills/` (Claude) or `~/.gemini/skills/` (Gemini),
+preserving the directory structure. Codex skills are experimental and require explicit
+opt-in. Claude Code still honors legacy `~/.claude/commands` slash commands, but skills
+are recommended.
+
+To override a shared skill for a specific agent, place it under
+`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
+
+### Migration: commands → skills
+
+If you previously stored slash commands in `commands/*.md`, move them into skills:
+
+```bash
+# Example: migrate a legacy command to a skill
+mkdir -p ~/.config/claudius/skills/my-command
+mv ~/.config/claudius/commands/my-command.md ~/.config/claudius/skills/my-command/SKILL.md
+
+# Then sync
+claudius skills sync
+```
 
 ### Context File Rules
 
@@ -582,10 +619,10 @@ Features:
 - Unspecified fields remain unchanged
 - All other configuration content is preserved
 
-### Commands
-- All .md files are synced
-- Existing commands are overwritten
-- Removed source files don't delete deployed commands
+### Skills
+- All skill directories are synced
+- Existing skills are overwritten
+- Removed source files don't delete deployed skills
 
 ## Code Coverage
 
