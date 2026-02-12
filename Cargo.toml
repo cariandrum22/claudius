@@ -39,7 +39,7 @@ assert_cmd = "2.1"
 assert_fs = "1.1"
 predicates = "3.1"
 pretty_assertions = "1.4"
-proptest = "1.9"
+proptest = "1.10"
 rstest = "0.26"
 serial_test = "3.3"
 
