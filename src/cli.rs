@@ -7,11 +7,11 @@ use std::path::PathBuf;
     about = "Claude configuration management tool - Manage MCP servers, settings, skills, and project instructions",
     long_about = "Claudius is a comprehensive configuration management tool for Claude Desktop/CLI.
 
-It helps you:
-  • Manage MCP (Model Context Protocol) server configurations
-  • Maintain Claude settings across projects
-  • Manage Claude Code skills
-  • Define project-specific instructions via CLAUDE.md
+	It helps you:
+	  • Manage MCP (Model Context Protocol) server configurations
+	  • Maintain Claude settings across projects
+	  • Manage Claude Code skills and subagents
+	  • Define project-specific instructions via agent-specific context files
 
 Configuration files are stored in:
   • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
@@ -20,10 +20,12 @@ Configuration files are stored in:
     - codex.settings.toml: Codex settings (optional)
     - codex.requirements.toml: Codex requirements (admin-enforced, optional)
     - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
-    - gemini.settings.json: Gemini settings (optional)
-    - settings.json: Legacy Claude settings (backward compatible)
-    - skills/: Claude Code skills (directories with SKILL.md)
-    - rules/: CLAUDE.md templates (*.md)
+	    - gemini.settings.json: Gemini settings (optional)
+	    - settings.json: Legacy Claude settings (backward compatible)
+	    - skills/: Claude Code skills (directories with SKILL.md)
+	    - commands/gemini/: Gemini custom commands (*.toml)
+	    - agents/claude-code/: Claude Code subagents (*.md)
+	    - rules/: CLAUDE.md templates (*.md)
 
 Target files:
   • ./.mcp.json (MCP servers in project-local mode, default)
@@ -37,7 +39,7 @@ Target files:
   • /etc/codex/managed_config.toml (Codex managed defaults)
   • ~/.gemini/settings.json (Gemini global config)
   • /etc/gemini-cli/settings.json (Gemini CLI system settings)
-  • ./CLAUDE.md (project instructions)",
+	  • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
     version,
     author
 )]
@@ -94,8 +96,10 @@ This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
   • codex.managed_config.toml - Codex managed defaults template (admin-managed)
   • gemini.settings.json - Gemini settings template
   • settings.json - Legacy Claude settings (backward compatible)
-  • skills/ - Directory for Claude Code skills
-  • rules/ - Directory for CLAUDE.md rules
+	  • skills/ - Directory for shared and agent-specific skills
+	  • commands/gemini/ - Gemini custom commands (*.toml)
+	  • agents/claude-code/ - Claude Code subagents (*.md)
+	  • rules/ - Directory for CLAUDE.md rules
 
 By default, existing files are preserved. Use --force to reinitialize.
 
@@ -132,7 +136,11 @@ This command:
        • Codex: ~/.codex/config.toml
        • Gemini: ~/.gemini/settings.json
        • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
-  4. Syncs skills from skills/ to the agent skills directory (Claude: ~/.claude/skills, Gemini: ~/.gemini/skills)
+	  4. Syncs auxiliary agent content when present:
+	     - skills/ -> agent skills directories
+	     - commands/gemini/ -> .gemini/commands
+	     - agents/claude-code/ -> .claude/agents
+	     - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
 
 Examples:
   # Basic sync to project-local files
@@ -187,9 +195,10 @@ pub enum ContextCommands {
         name = "append",
         long_about = "Append context to agent-specific context files.
 
-Each agent uses a different context file:
-  • Claude: CLAUDE.md
-  • Others (Gemini, Codex): AGENTS.md
+	Each agent uses a different context file:
+	  • Claude / Claude Code: CLAUDE.md
+	  • Gemini: GEMINI.md
+	  • Codex: AGENTS.md
 
 This command can:
   • Append predefined rules from your rules directory
@@ -221,10 +230,10 @@ Examples:
         name = "install",
         long_about = "Install context rules to project-local .agents/rules directory.
 
-This command:
-  • Copies specified rules from your rules directory to ./.agents/rules/ (default)
-  • Adds a reference directive to CLAUDE.md/AGENTS.md to include all rules
-  • The directive is idempotent - it won't be added if already present
+	This command:
+	  • Copies specified rules from your rules directory to ./.agents/rules/ (default)
+	  • Adds a reference directive to the current agent context file to include all rules
+	  • The directive is idempotent - it won't be added if already present
 
 This approach keeps context files compact while allowing you to include many rules.
 

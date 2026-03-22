@@ -78,6 +78,24 @@ impl TestFixture {
         Ok(self)
     }
 
+    /// Create a Gemini custom command TOML file.
+    pub fn with_gemini_command(&self, name: &str, content: &str) -> std::io::Result<&Self> {
+        let commands_dir = self.config.join("commands").join("gemini");
+        fs::create_dir_all(&commands_dir)?;
+        let path = commands_dir.join(format!("{name}.toml"));
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
+    /// Create a Claude Code subagent definition file.
+    pub fn with_claude_code_agent(&self, name: &str, content: &str) -> std::io::Result<&Self> {
+        let agents_dir = self.config.join("agents").join("claude-code");
+        fs::create_dir_all(&agents_dir)?;
+        let path = agents_dir.join(format!("{name}.md"));
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
     /// Create a test rule file
     pub fn with_rule(&self, name: &str, content: &str) -> std::io::Result<&Self> {
         let rules_dir = self.config.join("rules");

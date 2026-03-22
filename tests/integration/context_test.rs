@@ -127,12 +127,12 @@ mod tests {
             return Err(anyhow::anyhow!("context append command failed"));
         }
 
-        // Verify AGENTS.md was created (not CLAUDE.md)
-        let agents_md = project_dir.join("AGENTS.md");
-        anyhow::ensure!(agents_md.exists(), "AGENTS.md should exist for Gemini agent");
+        // Verify GEMINI.md was created (not CLAUDE.md)
+        let gemini_md = project_dir.join("GEMINI.md");
+        anyhow::ensure!(gemini_md.exists(), "GEMINI.md should exist for Gemini agent");
         anyhow::ensure!(!project_dir.join("CLAUDE.md").exists(), "CLAUDE.md should not exist");
 
-        let content = fs::read_to_string(&agents_md)?;
+        let content = fs::read_to_string(&gemini_md)?;
         anyhow::ensure!(content.contains("# Gemini Rule"), "Content should contain Gemini Rule");
 
         Ok(())

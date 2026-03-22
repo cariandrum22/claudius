@@ -56,19 +56,12 @@ pub fn sync_skills(source_dir: &Path, target_dir: &Path) -> Result<Vec<String>> 
 
             let target_skill_dir = target_dir.join(skill_name);
             fs::create_dir_all(&target_skill_dir).with_context(|| {
-                format!(
-                    "Failed to create skill directory: {}",
-                    target_skill_dir.display()
-                )
+                format!("Failed to create skill directory: {}", target_skill_dir.display())
             })?;
 
             let target_path = target_skill_dir.join(SKILL_FILE_NAME);
             fs::copy(&path, &target_path).with_context(|| {
-                format!(
-                    "Failed to copy skill from {} to {}",
-                    path.display(),
-                    target_path.display()
-                )
+                format!("Failed to copy skill from {} to {}", path.display(), target_path.display())
             })?;
 
             synced_skills.insert(skill_name.to_string());
@@ -92,9 +85,8 @@ pub fn list_skills(skills_dir: &Path) -> Result<Vec<String>> {
         return Ok(skills);
     }
 
-    let entries = fs::read_dir(skills_dir).with_context(|| {
-        format!("Failed to read skills directory: {}", skills_dir.display())
-    })?;
+    let entries = fs::read_dir(skills_dir)
+        .with_context(|| format!("Failed to read skills directory: {}", skills_dir.display()))?;
 
     for entry in entries {
         let dir_entry = entry?;
@@ -125,9 +117,8 @@ pub fn list_skills(skills_dir: &Path) -> Result<Vec<String>> {
 ///
 /// Returns an error if unable to create the skills directory.
 pub fn ensure_skills_directory(skills_dir: &Path) -> Result<()> {
-    fs::create_dir_all(skills_dir).with_context(|| {
-        format!("Failed to create skills directory: {}", skills_dir.display())
-    })?;
+    fs::create_dir_all(skills_dir)
+        .with_context(|| format!("Failed to create skills directory: {}", skills_dir.display()))?;
     Ok(())
 }
 
@@ -146,11 +137,7 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
             copy_dir_recursive(&path, &target_path)?;
         } else if path.is_file() {
             fs::copy(&path, &target_path).with_context(|| {
-                format!(
-                    "Failed to copy file from {} to {}",
-                    path.display(),
-                    target_path.display()
-                )
+                format!("Failed to copy file from {} to {}", path.display(), target_path.display())
             })?;
         }
     }
@@ -204,8 +191,7 @@ mod tests {
         fs::create_dir_all(&source_dir).expect("Failed to create source directory");
         fs::write(source_dir.join("command1.md"), "# Command 1")
             .expect("Failed to write command1.md");
-        fs::write(source_dir.join("ignore.txt"), "Ignore me")
-            .expect("Failed to write ignore.txt");
+        fs::write(source_dir.join("ignore.txt"), "Ignore me").expect("Failed to write ignore.txt");
 
         let result = sync_skills(&source_dir, &target_dir).expect("sync_skills should succeed");
         assert_eq!(result, vec!["command1".to_string()]);
@@ -240,8 +226,7 @@ mod tests {
 
         fs::create_dir_all(skills_dir.join("alpha")).expect("Failed to create alpha skill");
         fs::create_dir_all(skills_dir.join("bravo")).expect("Failed to create bravo skill");
-        fs::write(skills_dir.join("legacy.md"), "Legacy")
-            .expect("Failed to write legacy.md");
+        fs::write(skills_dir.join("legacy.md"), "Legacy").expect("Failed to write legacy.md");
 
         let result = list_skills(&skills_dir).expect("list_skills should succeed");
         assert_eq!(result, vec!["alpha", "bravo", "legacy"]);

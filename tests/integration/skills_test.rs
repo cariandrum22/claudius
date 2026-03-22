@@ -67,14 +67,10 @@ mod tests {
         assert!(fixture.project_file_exists(".claude/skills/debug/SKILL.md"));
 
         // Verify content
-        let hello_content = fixture
-            .read_project_file(".claude/skills/hello/SKILL.md")
-            .unwrap();
+        let hello_content = fixture.read_project_file(".claude/skills/hello/SKILL.md").unwrap();
         assert_eq!(hello_content, "# Hello Skill\nTest skill");
 
-        let debug_content = fixture
-            .read_project_file(".claude/skills/debug/SKILL.md")
-            .unwrap();
+        let debug_content = fixture.read_project_file(".claude/skills/debug/SKILL.md").unwrap();
         assert_eq!(debug_content, "# Debug Skill\nDebug info");
     }
 
@@ -130,6 +126,27 @@ mod tests {
 
         let test_content = fixture.read_home_file(".claude/skills/test/SKILL.md").unwrap();
         assert_eq!(test_content, "# Test Skill");
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_codex_project_local_uses_compatibility_targets() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_skill("codex-test", "# Codex Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "codex", "--enable-codex-skills"])
+            .assert()
+            .success();
+
+        assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
+        assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
     }
 
     #[test]
