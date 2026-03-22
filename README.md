@@ -201,6 +201,7 @@ This creates:
 ### `claudius config sync`
 
 Synchronize all agent configurations to target files.
+When present, Claudius also syncs Gemini custom commands and Claude Code subagents.
 
 **Project-local mode (default):**
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
@@ -290,13 +291,14 @@ claudius skills sync --global
 claudius skills sync --global --agent gemini
 
 # Codex skills are experimental and must be explicitly enabled
+# (synced to both .codex/skills and .agents/skills for compatibility)
 claudius skills sync --agent codex --enable-codex-skills
 ```
 
 
 ### `claudius context append`
 
-Append instructions or rules to the agent's context file (CLAUDE.md for Claude/Claude Code, AGENTS.md for Codex/Gemini).
+Append instructions or rules to the agent's context file (CLAUDE.md for Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex).
 
 ```bash
 # Append a predefined rule
@@ -317,7 +319,7 @@ claudius context append testing --agent gemini
 
 Install context rules to project-local .agents/rules directory.
 
-This command copies rules from your global rules directory to a project-local directory and adds a reference directive to your context file (CLAUDE.md/AGENTS.md). The directive lists each installed rule explicitly with its file path.
+This command copies rules from your global rules directory to a project-local directory and adds a reference directive to the current agent's context file (CLAUDE.md, GEMINI.md, or AGENTS.md). The directive lists each installed rule explicitly with its file path.
 
 **Key features:**
 - Keeps context files compact while including many rules
@@ -393,8 +395,14 @@ Features:
 │   └── <agent>/       # Optional agent override (claude, claude-code, gemini, codex)
 │       └── <skill>/   # Agent-specific skill
 │           └── SKILL.md
-└── rules/            # Context file templates
-    └── *.md          # Rule files
+├── commands/
+│   └── gemini/       # Gemini custom commands
+│       └── *.toml
+├── agents/
+│   └── claude-code/  # Claude Code subagents
+│       └── *.md
+└── rules/             # Context file templates
+    └── *.md           # Rule files
 ```
 
 ### mcpServers.json
@@ -523,13 +531,20 @@ EOF
 claudius config sync
 ```
 
-Skills are deployed to `~/.claude/skills/` (Claude) or `~/.gemini/skills/` (Gemini),
-preserving the directory structure. Codex skills are experimental and require explicit
-opt-in. Claude Code still honors legacy `~/.claude/commands` slash commands, but skills
-are recommended.
+Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/skills/`
+(Gemini), preserving the directory structure. Codex skills are experimental and require
+explicit opt-in; when enabled they are synced to both `~/.codex/skills/` and
+`~/.agents/skills/` for compatibility.
 
 To override a shared skill for a specific agent, place it under
 `~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
+
+When present, `claudius config sync` also deploys:
+- `~/.config/claudius/commands/gemini/*.toml` → `.gemini/commands/` or `~/.gemini/commands/`
+- `~/.config/claudius/agents/claude-code/*.md` → `.claude/agents/` or `~/.claude/agents/`
+
+Gemini extensions are not managed by Claudius. Install and update them through the Gemini CLI
+extension workflow, then keep extension-specific settings in `gemini.settings.json` if needed.
 
 ### Migration: commands → skills
 
@@ -557,14 +572,14 @@ claudius context append security
 
 # Apply to agent-specific context files
 claudius context append security --agent codex   # → AGENTS.md
-claudius context append security --agent gemini  # → AGENTS.md
+claudius context append security --agent gemini  # → GEMINI.md
 ```
 
 ### Context Management Strategies
 
 Claudius offers two ways to manage project context:
 
-1. **context append**: Directly appends rules to CLAUDE.md/AGENTS.md
+1. **context append**: Directly appends rules to CLAUDE.md, GEMINI.md, or AGENTS.md
    - Best for: Small number of rules, simple projects
    - Result: All content in one file
 
@@ -785,7 +800,7 @@ Key features introduced in v0.1.0:
 - Secret management with 1Password integration
 - DAG-based variable expansion for nested environment variables
 - Project-local and global configuration modes
-- Context file templates (CLAUDE.md and AGENTS.md)
+- Context file templates (CLAUDE.md, GEMINI.md, and AGENTS.md)
 - Secure command execution with automatic secret resolution
 - Comprehensive test coverage and Nix flake support
 

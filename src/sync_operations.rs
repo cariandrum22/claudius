@@ -3,14 +3,15 @@
 use crate::agent_paths;
 use crate::app_config::{Agent, AppConfig, ClaudeCodeScope};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
-use crate::skills;
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
 use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
+use crate::skills;
 use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 use tracing::{debug, info, warn};
@@ -1389,10 +1390,26 @@ fn deep_merge_toml_value(target: &mut TomlValue, overlay: &TomlValue) {
     }
 }
 
-/// Sync skills
-pub fn sync_skills_if_exists(config: &Config) {
+/// Sync skills and other agent-specific auxiliary content.
+pub fn sync_supporting_assets_if_exists(config: &Config, agent_context: AgentContext) {
+    sync_skills_if_exists(config, agent_context);
+    sync_gemini_commands_if_exists(config);
+    sync_claude_code_agents_if_exists(config, agent_context);
+}
+
+fn sync_skills_if_exists(config: &Config, agent_context: AgentContext) {
     if config.agent == Some(Agent::Codex) {
         debug!("Skipping Codex skills sync (experimental; use `claudius skills sync --enable-codex-skills`)");
+        return;
+    }
+
+    if agent_context.is_claude_code
+        && matches!(
+            agent_context.claude_code_scope,
+            Some(ClaudeCodeScope::Managed | ClaudeCodeScope::Local)
+        )
+    {
+        debug!("Skipping Claude Code skills sync for managed/local scope");
         return;
     }
 
@@ -1401,10 +1418,7 @@ pub fn sync_skills_if_exists(config: &Config) {
     };
 
     if source_dir != config.skills_dir {
-        warn!(
-            "Legacy commands directory detected; syncing skills from {}",
-            source_dir.display()
-        );
+        warn!("Legacy commands directory detected; syncing skills from {}", source_dir.display());
     }
 
     debug!("Syncing skills");
@@ -1424,4 +1438,117 @@ pub fn sync_skills_if_exists(config: &Config) {
             warn!("Failed to sync skills: {}", e);
         },
     }
+}
+
+fn sync_gemini_commands_if_exists(config: &Config) {
+    let Some(source_dir) = config.resolve_gemini_commands_source_dir() else {
+        return;
+    };
+
+    let target_dir = match config.gemini_commands_target_dir() {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(e) => {
+            warn!("Failed to determine Gemini commands target directory: {}", e);
+            return;
+        },
+    };
+
+    sync_directory_tree_if_exists("Gemini command", &source_dir, &target_dir);
+}
+
+fn sync_claude_code_agents_if_exists(config: &Config, agent_context: AgentContext) {
+    if !agent_context.is_claude_code
+        || matches!(
+            agent_context.claude_code_scope,
+            Some(ClaudeCodeScope::Managed | ClaudeCodeScope::Local)
+        )
+    {
+        return;
+    }
+
+    let Some(source_dir) = config.resolve_claude_code_agents_source_dir() else {
+        return;
+    };
+
+    let target_dir = match config.claude_code_agents_target_dir() {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(e) => {
+            warn!("Failed to determine Claude Code agents target directory: {}", e);
+            return;
+        },
+    };
+
+    sync_directory_tree_if_exists("Claude Code subagent", &source_dir, &target_dir);
+}
+
+fn sync_directory_tree_if_exists(label: &str, source_dir: &Path, target_dir: &Path) {
+    debug!("Syncing {label}s");
+    debug!("Source: {}", source_dir.display());
+    debug!("Target: {}", target_dir.display());
+
+    match sync_directory_tree(source_dir, target_dir) {
+        Ok(synced) => {
+            if !synced.is_empty() {
+                info!("Synced {} {} file(s)", synced.len(), label);
+                for entry in &synced {
+                    debug!("  - {}", entry);
+                }
+            }
+        },
+        Err(e) => warn!("Failed to sync {label}s: {}", e),
+    }
+}
+
+fn sync_directory_tree(source_dir: &Path, target_dir: &Path) -> Result<Vec<String>> {
+    fs::create_dir_all(target_dir)
+        .with_context(|| format!("Failed to create target directory: {}", target_dir.display()))?;
+
+    if !source_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut synced = Vec::new();
+    sync_directory_tree_recursive(source_dir, source_dir, target_dir, &mut synced)?;
+    synced.sort();
+    Ok(synced)
+}
+
+fn sync_directory_tree_recursive(
+    root_dir: &Path,
+    current_dir: &Path,
+    target_dir: &Path,
+    synced: &mut Vec<String>,
+) -> Result<()> {
+    for entry in fs::read_dir(current_dir)
+        .with_context(|| format!("Failed to read directory: {}", current_dir.display()))?
+    {
+        let dir_entry = entry?;
+        let path = dir_entry.path();
+        let relative = path
+            .strip_prefix(root_dir)
+            .with_context(|| format!("Failed to compute relative path for {}", path.display()))?;
+        let destination = target_dir.join(relative);
+
+        if path.is_dir() {
+            fs::create_dir_all(&destination).with_context(|| {
+                format!("Failed to create directory: {}", destination.display())
+            })?;
+            sync_directory_tree_recursive(root_dir, &path, target_dir, synced)?;
+            continue;
+        }
+
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+
+        fs::copy(&path, &destination).with_context(|| {
+            format!("Failed to copy file from {} to {}", path.display(), destination.display())
+        })?;
+        synced.push(relative.to_string_lossy().replace('\\', "/"));
+    }
+
+    Ok(())
 }

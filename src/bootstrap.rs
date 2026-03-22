@@ -366,6 +366,7 @@ fn init_context_files(target_dir: &Path, default_context: Option<&str>, force: b
 
     // Determine which file is the default context
     let (primary_file, secondary_file) = match default_context {
+        Some("GEMINI.md") => ("GEMINI.md", "AGENTS.md"),
         Some("AGENTS.md") => ("AGENTS.md", "CLAUDE.md"),
         _ => ("CLAUDE.md", "AGENTS.md"), // Default to CLAUDE.md
     };
@@ -632,6 +633,25 @@ mod tests {
         let claude_md = target_dir.join("CLAUDE.md");
         assert!(claude_md.exists());
         let metadata = fs::symlink_metadata(&claude_md).expect("Failed to get metadata");
+        assert!(metadata.is_symlink());
+    }
+
+    #[test]
+    fn test_bootstrap_with_context_creates_gemini_md() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+        let target_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&target_dir).expect("Failed to create target directory");
+
+        bootstrap_config_with_context(&config_dir, &target_dir, false, Some("GEMINI.md"))
+            .expect("bootstrap_config_with_context should succeed");
+
+        let gemini_md = target_dir.join("GEMINI.md");
+        assert!(gemini_md.exists());
+
+        let agents_md = target_dir.join("AGENTS.md");
+        assert!(agents_md.exists());
+        let metadata = fs::symlink_metadata(&agents_md).expect("Failed to get metadata");
         assert!(metadata.is_symlink());
     }
 

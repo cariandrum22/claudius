@@ -240,11 +240,7 @@ impl Config {
         home_dir: &Path,
         current_dir: Option<&Path>,
     ) -> PathBuf {
-        let base_dir = if use_global {
-            home_dir
-        } else {
-            current_dir.unwrap_or(home_dir)
-        };
+        let base_dir = if use_global { home_dir } else { current_dir.unwrap_or(home_dir) };
 
         match agent {
             Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
@@ -289,6 +285,81 @@ impl Config {
         }
 
         self.skills_dir.exists().then_some(self.skills_dir.clone())
+    }
+
+    #[must_use]
+    pub fn resolve_gemini_commands_source_dir(&self) -> Option<PathBuf> {
+        if self.agent != Some(crate::app_config::Agent::Gemini) {
+            return None;
+        }
+
+        let candidate = self.skills_dir.parent()?.join("commands").join("gemini");
+        (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
+    }
+
+    #[must_use]
+    pub fn resolve_claude_code_agents_source_dir(&self) -> Option<PathBuf> {
+        if self.agent != Some(crate::app_config::Agent::ClaudeCode) {
+            return None;
+        }
+
+        let candidate = self.skills_dir.parent()?.join("agents").join("claude-code");
+        (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
+    }
+
+    /// Determine the base directory used for agent-managed auxiliary content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the home directory or current working directory cannot be determined.
+    pub fn deployment_base_dir(&self) -> anyhow::Result<PathBuf> {
+        if self.is_global {
+            return Ok(directories::BaseDirs::new()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .home_dir()
+                .to_path_buf());
+        }
+
+        std::env::current_dir().map_err(Into::into)
+    }
+
+    /// Determine the Gemini custom commands target directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment base directory cannot be determined.
+    pub fn gemini_commands_target_dir(&self) -> anyhow::Result<Option<PathBuf>> {
+        if self.agent != Some(crate::app_config::Agent::Gemini) {
+            return Ok(None);
+        }
+
+        Ok(Some(self.deployment_base_dir()?.join(".gemini").join("commands")))
+    }
+
+    /// Determine the Claude Code subagents target directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment base directory cannot be determined.
+    pub fn claude_code_agents_target_dir(&self) -> anyhow::Result<Option<PathBuf>> {
+        if self.agent != Some(crate::app_config::Agent::ClaudeCode) {
+            return Ok(None);
+        }
+
+        Ok(Some(self.deployment_base_dir()?.join(".claude").join("agents")))
+    }
+
+    /// Determine the Codex compatibility skills target directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment base directory cannot be determined.
+    pub fn codex_compat_skills_target_dir(&self) -> anyhow::Result<Option<PathBuf>> {
+        if self.agent != Some(crate::app_config::Agent::Codex) {
+            return Ok(None);
+        }
+
+        Ok(Some(self.deployment_base_dir()?.join(".agents").join("skills")))
     }
 
     pub fn with_paths<P: Into<PathBuf>>(mcp_servers: P, target_config: P) -> Self {

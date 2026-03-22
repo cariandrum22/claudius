@@ -14,7 +14,8 @@ use claudius::{
     skills,
     sync_operations::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
-        sync_skills_if_exists, write_configurations, AgentContext, CodexGlobalSyncOptions,
+        sync_supporting_assets_if_exists, write_configurations, AgentContext,
+        CodexGlobalSyncOptions,
     },
     template::{
         append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
@@ -176,20 +177,24 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
     // Get default context file from config if available
     let default_context = app_config
         .and_then(|c| c.default.as_ref())
-        .and_then(|d| d.context_file.as_deref());
+        .and_then(|d| d.context_file.clone().or_else(|| Some(get_agent_context_filename(d.agent))));
 
     // Get current working directory for context file creation
     let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
-    match bootstrap::bootstrap_config_with_context(config_dir, &current_dir, force, default_context)
-    {
+    match bootstrap::bootstrap_config_with_context(
+        config_dir,
+        &current_dir,
+        force,
+        default_context.as_deref(),
+    ) {
         Ok(()) => {
             println!("Claudius configuration bootstrapped successfully!");
             println!();
             println!("Next steps:");
             println!("  1. Edit configuration files in: {}", config_dir.display());
             println!("  2. Run 'claudius config sync' to apply your configuration");
-            println!("  3. Run 'claudius skills sync' to publish skills");
+            println!("  3. Run 'claudius skills sync' to publish skills when needed");
             Ok(())
         },
         Err(e) => {
@@ -200,11 +205,7 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
 }
 
 fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
-    let cli::SkillsSyncArgs {
-        global,
-        agent,
-        enable_codex_skills,
-    } = args;
+    let cli::SkillsSyncArgs { global, agent, enable_codex_skills } = args;
 
     let effective_agent = determine_agent(agent, app_config);
 
@@ -226,23 +227,50 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
         );
     }
 
-    match skills::sync_skills(&source_dir, &config.skills_target_dir) {
-        Ok(synced) => {
-            if synced.is_empty() {
-                println!("No skills to sync");
-            } else {
-                println!("Successfully synced {} skill(s):", synced.len());
-                for skill in &synced {
-                    println!("  - {skill}");
+    let skill_targets = determine_skill_sync_targets(&config)?;
+    let mut synced_skills = Vec::new();
+    for (index, target_dir) in skill_targets.iter().enumerate() {
+        match skills::sync_skills(&source_dir, target_dir) {
+            Ok(synced) if index == 0 => synced_skills = synced,
+            Ok(_) => {},
+            Err(e) => {
+                error!("Failed to sync skills: {e:#}");
+                std::process::exit(1);
+            },
+        }
+    }
+
+    match synced_skills.is_empty() {
+        true => {
+            println!("No skills to sync");
+            Ok(())
+        },
+        false => {
+            println!("Successfully synced {} skill(s):", synced_skills.len());
+            for skill in &synced_skills {
+                println!("  - {skill}");
+            }
+            if skill_targets.len() > 1 {
+                println!("Published to:");
+                for target_dir in &skill_targets {
+                    println!("  - {}", target_dir.display());
                 }
             }
             Ok(())
         },
-        Err(e) => {
-            error!("Failed to sync skills: {e:#}");
-            std::process::exit(1);
-        },
     }
+}
+
+fn determine_skill_sync_targets(config: &Config) -> Result<Vec<std::path::PathBuf>> {
+    let mut targets = vec![config.skills_target_dir.clone()];
+
+    if let Some(compat_target) = config.codex_compat_skills_target_dir()? {
+        if !targets.contains(&compat_target) {
+            targets.push(compat_target);
+        }
+    }
+
+    Ok(targets)
 }
 
 fn run_config_sync(args: cli::ConfigSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
@@ -711,7 +739,8 @@ fn get_agent_context_filename(agent: claudius::app_config::Agent) -> String {
         claudius::app_config::Agent::Claude | claudius::app_config::Agent::ClaudeCode => {
             "CLAUDE.md".to_string()
         },
-        _ => "AGENTS.md".to_string(), // Codex and Gemini both use AGENTS.md
+        claudius::app_config::Agent::Gemini => "GEMINI.md".to_string(),
+        claudius::app_config::Agent::Codex => "AGENTS.md".to_string(),
     }
 }
 
@@ -779,7 +808,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
         warn!("No agent configuration files found in config directory");
         // Still sync skills if they exist
         let config = Config::new_with_agent(true, None)?;
-        sync_skills_if_exists(&config);
+        sync_supporting_assets_if_exists(&config, AgentContext::new(None, None));
         return Ok(());
     }
 
@@ -945,7 +974,7 @@ fn execute_sync_operation(
             agent_context,
             flags.codex_global,
         )?;
-        sync_skills_if_exists(config);
+        sync_supporting_assets_if_exists(config, agent_context);
         Ok(())
     }
 }

@@ -1,9 +1,9 @@
+mod agent_assets_test;
 mod app_config_test;
 mod cli_test;
 mod codex_model_providers_test;
 mod codex_sync_test;
 mod codex_toml_test;
-mod skills_test;
 mod context_test;
 mod gemini_system_settings_test;
 mod init_test;
@@ -14,5 +14,6 @@ mod parallel_performance_test;
 mod run_command_test;
 mod secrets_fixture_test;
 mod settings_test;
+mod skills_test;
 mod validate_test;
 mod variable_expansion_test;

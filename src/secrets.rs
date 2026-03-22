@@ -94,7 +94,11 @@ impl SecretResolver {
         let start_pos = value.find("op://")?;
         let op_ref_start = value.get(start_pos..).unwrap_or("");
         let op_ref = Self::extract_op_reference(op_ref_start);
-        if op_ref.is_empty() { None } else { Some(op_ref) }
+        if op_ref.is_empty() {
+            None
+        } else {
+            Some(op_ref)
+        }
     }
 
     fn collect_claudius_secrets(&self) -> HashMap<String, String> {

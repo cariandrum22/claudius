@@ -175,13 +175,13 @@ mod tests {
             .assert()
             .success();
 
-        // Verify AGENTS.md was created instead of CLAUDE.md (Gemini uses AGENTS.md)
-        let agents_md = temp_dir.child("AGENTS.md");
-        agents_md.assert(predicate::path::exists());
-        agents_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
-        agents_md.assert(predicate::str::contains("# External Rule References"));
-        agents_md.assert(predicate::str::contains(".agents/rules/test-rule.md"));
-        agents_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
+        // Verify GEMINI.md was created instead of CLAUDE.md (Gemini uses GEMINI.md)
+        let gemini_md = temp_dir.child("GEMINI.md");
+        gemini_md.assert(predicate::path::exists());
+        gemini_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
+        gemini_md.assert(predicate::str::contains("# External Rule References"));
+        gemini_md.assert(predicate::str::contains(".agents/rules/test-rule.md"));
+        gemini_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_END -->"));
     }
 
     #[test]

@@ -12,7 +12,7 @@ mod tests {
     fn test_agent_context_file_mapping() {
         // This test documents the expected mappings
         // Claude -> CLAUDE.md
-        // Gemini -> AGENTS.md
+        // Gemini -> GEMINI.md
         // Codex -> AGENTS.md
 
         // These mappings are tested in the integration tests
