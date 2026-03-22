@@ -253,23 +253,21 @@ impl Config {
         fs::read_dir(path).map(|mut entries| entries.next().is_some()).unwrap_or(false)
     }
 
-    fn agent_skills_subdir(agent: crate::app_config::Agent) -> Option<&'static str> {
+    fn agent_skills_subdir(agent: crate::app_config::Agent) -> &'static str {
         match agent {
-            crate::app_config::Agent::Claude => Some("claude"),
-            crate::app_config::Agent::ClaudeCode => Some("claude-code"),
-            crate::app_config::Agent::Codex => Some("codex"),
-            crate::app_config::Agent::Gemini => Some("gemini"),
+            crate::app_config::Agent::Claude => "claude",
+            crate::app_config::Agent::ClaudeCode => "claude-code",
+            crate::app_config::Agent::Codex => "codex",
+            crate::app_config::Agent::Gemini => "gemini",
         }
     }
 
     #[must_use]
     pub fn resolve_skills_source_dir(&self) -> Option<PathBuf> {
         if let Some(agent) = self.agent {
-            if let Some(subdir) = Self::agent_skills_subdir(agent) {
-                let candidate = self.skills_dir.join(subdir);
-                if candidate.exists() && Self::skills_dir_has_entries(&candidate) {
-                    return Some(candidate);
-                }
+            let candidate = self.skills_dir.join(Self::agent_skills_subdir(agent));
+            if candidate.exists() && Self::skills_dir_has_entries(&candidate) {
+                return Some(candidate);
             }
         }
 

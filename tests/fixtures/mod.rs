@@ -70,10 +70,10 @@ impl TestFixture {
 
     /// Create a test skill directory with SKILL.md
     pub fn with_skill(&self, name: &str, content: &str) -> std::io::Result<&Self> {
-        let skills_dir = self.config.join("skills");
-        let skill_dir = skills_dir.join(name);
-        fs::create_dir_all(&skill_dir)?;
-        let path = skill_dir.join("SKILL.md");
+        let skills_root = self.config.join("skills");
+        let skill_path = skills_root.join(name);
+        fs::create_dir_all(&skill_path)?;
+        let path = skill_path.join("SKILL.md");
         fs::write(path, content)?;
         Ok(self)
     }

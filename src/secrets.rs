@@ -82,12 +82,14 @@ impl SecretResolver {
     fn extract_first_op_reference(value: &str) -> Option<String> {
         if let Some(start_pos) = value.find("{{op://") {
             let op_ref_start = start_pos.saturating_add(2);
-            if let Some(search_area) = value.get(op_ref_start..) {
-                if let Some(end_pos) = search_area.find("}}") {
-                    if let Some(op_ref) = search_area.get(..end_pos) {
-                        return Some(op_ref.to_string());
-                    }
-                }
+            let inline_reference = value
+                .get(op_ref_start..)
+                .and_then(|search_area| {
+                    search_area.find("}}").and_then(|end_pos| search_area.get(..end_pos))
+                })
+                .map(str::to_string);
+            if inline_reference.is_some() {
+                return inline_reference;
             }
         }
 
@@ -314,17 +316,19 @@ impl SecretResolver {
         }
 
         let op_ref_lock = {
-            let mut locks = self.op_ref_locks.lock().unwrap_or_else(|e| e.into_inner());
+            let mut locks =
+                self.op_ref_locks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             locks
                 .entry(op_ref.to_string())
                 .or_insert_with(|| Arc::new(Mutex::new(())))
                 .clone()
         };
-        let _guard = op_ref_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = op_ref_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
         // Re-check cache after waiting for any in-flight resolution of the same reference.
-        let cached = cache.lock().map_or(None, |cache_guard| cache_guard.get(op_ref).cloned());
-        if let Some(cached_value) = cached {
+        let cached_after_wait =
+            cache.lock().map_or(None, |cache_guard| cache_guard.get(op_ref).cloned());
+        if let Some(cached_value) = cached_after_wait {
             debug!("Using cached value for {}", op_ref);
             return cached_value;
         }
