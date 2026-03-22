@@ -32,9 +32,14 @@ mod tests {
     #[serial]
     fn test_cli_help() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.arg("--help").assert().success().stdout(predicate::str::contains(
-            "Claudius is a comprehensive configuration management tool for Claude Desktop/CLI",
-        ));
+        cmd.arg("--help").assert().success().stdout(
+            predicate::str::contains(
+                "Claudius is a configuration management tool for Claude Code, Codex, Gemini, and legacy Claude Desktop targets.",
+            )
+            .and(predicate::str::contains(
+                "Claude Desktop support is retained as a legacy / best-effort MCP target.",
+            )),
+        );
     }
 
     #[test]

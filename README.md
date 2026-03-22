@@ -9,17 +9,17 @@ Multi-agent configuration management tool for AI assistants
 
 ## Overview
 
-Claudius is a powerful configuration management tool that helps developers maintain, version control, and share configurations for multiple AI agents (Claude, Codex, Gemini) across projects and teams. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, skills, and project-specific context instructions.
+Claudius is a configuration management tool for file-based AI agent surfaces. It actively manages Claude Code, Codex, and Gemini CLI configurations, and retains legacy / best-effort support for Claude Desktop's JSON MCP target. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, skills, and project-specific context instructions.
 
 ## Key Features
 
 - 🔄 **Configuration Synchronization** - Sync MCP servers, settings, and skills
 - 📁 **Multi-Project Support** - Project-local and global configurations
-- 📝 **CLAUDE.md Templates** - Manage project-specific instructions
+- 📝 **Agent Context Files** - Manage CLAUDE.md, GEMINI.md, and AGENTS.md instructions
 - 🛡️ **Safe Operations** - Dry-run mode and optional backups
 - 🔐 **Secret Management** - Integration with 1Password for secure credentials
 - 🔗 **Variable Expansion** - DAG-based nested environment variable resolution
-- 🤖 **Multi-Agent Support** - Configure for Claude, Codex, or Gemini agents
+- 🤖 **Multi-Agent Support** - Configure Claude Code, Codex, and Gemini, with legacy Claude Desktop MCP sync
 - 🚀 **Fast & Reliable** - Written in Rust for performance and safety
 - 🐧 **Linux and macOS** - Designed for Unix-like operating systems
 
@@ -142,11 +142,11 @@ claudius --list-commands
    # To project-local files (.mcp.json and .claude/settings.json)
    claudius config sync
    
-   # To Claude Desktop global config
-   claudius config sync --global --agent claude
-
    # To Claude Code global config
    claudius config sync --global --agent claude-code
+
+   # Claude Desktop global sync remains available as a legacy / best-effort MCP target
+   claudius config sync --global --agent claude
 
    # Sync only skills
    claudius skills sync
@@ -160,6 +160,19 @@ claudius --list-commands
    # Or install all available rules
    claudius context install --all
    ```
+
+## Support Matrix
+
+Claudius does not treat every target surface equally. Current support levels are:
+
+| Surface | Actively managed | Best-effort / compatibility | Intentionally unmanaged |
+| --- | --- | --- | --- |
+| Claude Desktop | Global `claude_desktop_config.json` MCP sync, project-local `.mcp.json` MCP sync | Entire Claude Desktop target is legacy / best-effort | Extensions, Connectors, and other UI-managed app surfaces |
+| Claude Code | Project, local, user, and managed MCP/settings files; `.claude/agents`; skills; context files | Legacy `settings.json` source alias | Non-file-based product features |
+| Codex | User and admin TOML config files; context files | Experimental skills; compatibility sync to `.agents/skills` | Non-file-based product features |
+| Gemini | User and system settings; `.gemini/commands`; skills; context files | OS-specific system settings path handling | Gemini extensions |
+
+Prefer `--agent claude-code`, `--agent codex`, or `--agent gemini` for actively managed surfaces. Use `--agent claude` only when you specifically need the legacy Claude Desktop JSON target.
 
 ## Command Reference
 
@@ -202,9 +215,10 @@ This creates:
 
 Synchronize all agent configurations to target files.
 When present, Claudius also syncs Gemini custom commands and Claude Code subagents.
+Claude Desktop sync is retained as a legacy / best-effort path for JSON-based workflows. Claudius does not manage Claude Desktop Extensions or Connectors.
 
 **Project-local mode (default):**
-- Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
+- Claude (`--agent claude`, legacy / best-effort Desktop-compatible target): MCP servers → `./.mcp.json`
 - Claude Code (`--agent claude-code`):
   - Project scope (default / `--scope project`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`
   - Local scope (`--scope local`): MCP servers → `~/.claude.json` (per-project), settings → `./.claude/settings.local.json`
@@ -212,7 +226,7 @@ When present, Claudius also syncs Gemini custom commands and Claude Code subagen
 - Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 
 **Global mode (`--global`):**
-- Claude Desktop (`--agent claude`): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
+- Claude Desktop (`--agent claude`, legacy / best-effort): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
 - Claude Code (`--agent claude-code`):
   - User scope (default / `--scope user`): MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
   - Managed scope (`--scope managed`): MCP servers → `managed-mcp.json`, settings → `managed-settings.json` (system directories)
@@ -726,7 +740,6 @@ claudius secrets run -- ./my-app
 2. **Team members clone and sync:**
    ```bash
    git clone team-configs ~/.config/claudius
-   claudius config sync --global --agent claude
    claudius config sync --global --agent claude-code
    ```
 
@@ -746,7 +759,7 @@ claudius config sync --config /custom/path/mcpServers.json
 # Check file permissions
 ls -la ~/.claude.json                    # Claude Code MCP servers
 ls -la ~/.claude/settings.json           # Claude Code settings
-ls -la "$XDG_CONFIG_HOME/Claude/claude_desktop_config.json"  # Claude Desktop
+ls -la "$XDG_CONFIG_HOME/Claude/claude_desktop_config.json"  # Claude Desktop (legacy / best-effort)
 ls -la ./.mcp.json
 
 # Use sudo if needed (not recommended)
