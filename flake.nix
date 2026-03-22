@@ -210,9 +210,9 @@
             };
 
             # Nix formatting (RFC 166 style)
-            nixfmt-rfc-style = {
+            nixfmt = {
               enable = true;
-              entry = "${pkgs.nixfmt-rfc-style}/bin/nixfmt";
+              entry = "${pkgs.nixfmt}/bin/nixfmt";
               types = [ "nix" ];
               pass_filenames = true;
             };
@@ -392,7 +392,7 @@
               shellcheck
               nixpkgs-fmt
               # Nix linting and formatting tools (per linter-policy-nix.md)
-              nixfmt-rfc-style
+              nixfmt
               statix
               deadnix
               nil
