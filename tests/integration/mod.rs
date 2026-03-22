@@ -5,6 +5,7 @@ mod codex_model_providers_test;
 mod codex_sync_test;
 mod codex_toml_test;
 mod context_test;
+mod doctor_test;
 mod gemini_system_settings_test;
 mod init_test;
 mod install_context_test;
