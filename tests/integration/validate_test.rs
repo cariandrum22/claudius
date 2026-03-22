@@ -1,5 +1,6 @@
 use crate::fixtures::TestFixture;
 use assert_cmd::Command;
+use predicates::prelude::*;
 use serial_test::serial;
 
 #[cfg(test)]
@@ -86,5 +87,66 @@ mod tests {
             .args(["config", "validate", "--agent", "codex"])
             .assert()
             .failure();
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_gemini_command_missing_prompt_fails() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_gemini_command("review", "description = \"Review the current diff\"")
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "gemini"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("missing field `prompt`"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_claude_code_subagent_missing_frontmatter_fails() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture.with_claude_code_agent("reviewer", "Focus on regressions.").unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "claude-code"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("must start with YAML frontmatter delimited by ---"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_codex_skills_emit_compatibility_warning() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture.with_skill("shared-skill", "# Shared Skill").unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "Codex skills sync remains experimental and publishes to both .codex/skills and .agents/skills for compatibility",
+            ));
     }
 }

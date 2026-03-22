@@ -407,8 +407,11 @@ fn run_config_validate(
     }
 
     match effective_agent {
-        Some(Agent::Claude | Agent::ClaudeCode) => {
+        Some(Agent::Claude) => {
             warnings.extend(validate_claude_settings_sources(&config_dir)?);
+        },
+        Some(Agent::ClaudeCode) => {
+            warnings.extend(validate_claude_code_sources(&config_dir)?);
         },
         Some(Agent::Codex) => {
             warnings.extend(validate_codex_sources(&config_dir)?);
@@ -417,7 +420,7 @@ fn run_config_validate(
             warnings.extend(validate_gemini_sources(&config_dir)?);
         },
         None => {
-            warnings.extend(validate_claude_settings_sources(&config_dir)?);
+            warnings.extend(validate_claude_code_sources(&config_dir)?);
             warnings.extend(validate_codex_sources(&config_dir)?);
             warnings.extend(validate_gemini_sources(&config_dir)?);
         },
@@ -438,6 +441,12 @@ fn run_config_validate(
     }
 
     Ok(())
+}
+
+fn validate_claude_code_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = validate_claude_settings_sources(config_dir)?;
+    warnings.extend(validate_claude_code_subagent_sources(config_dir)?);
+    Ok(warnings)
 }
 
 fn validate_claude_settings_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
@@ -506,6 +515,8 @@ fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
         }
     }
 
+    warnings.extend(validate_codex_skill_compatibility(config_dir));
+
     Ok(warnings)
 }
 
@@ -552,25 +563,115 @@ fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> 
     let mut warnings = Vec::new();
 
     let gemini_settings_path = config_dir.join("gemini.settings.json");
-    if !gemini_settings_path.exists() {
-        return Ok(warnings);
+    if gemini_settings_path.exists() {
+        let content = std::fs::read_to_string(&gemini_settings_path)
+            .with_context(|| format!("Failed to read {}", gemini_settings_path.display()))?;
+        let json_value: serde_json::Value = serde_json::from_str(&content).with_context(|| {
+            format!("Failed to parse JSON from {}", gemini_settings_path.display())
+        })?;
+
+        warnings.extend(
+            claudius::gemini_settings::validate_gemini_settings(&json_value)
+                .into_iter()
+                .map(|w| format!("{}: {w}", gemini_settings_path.display())),
+        );
+
+        let _: claudius::gemini_settings::GeminiSettings = serde_json::from_value(json_value)
+            .with_context(|| format!("Failed to deserialize {}", gemini_settings_path.display()))?;
     }
 
-    let content = std::fs::read_to_string(&gemini_settings_path)
-        .with_context(|| format!("Failed to read {}", gemini_settings_path.display()))?;
-    let json_value: serde_json::Value = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse JSON from {}", gemini_settings_path.display()))?;
-
-    warnings.extend(
-        claudius::gemini_settings::validate_gemini_settings(&json_value)
-            .into_iter()
-            .map(|w| format!("{}: {w}", gemini_settings_path.display())),
-    );
-
-    let _: claudius::gemini_settings::GeminiSettings = serde_json::from_value(json_value)
-        .with_context(|| format!("Failed to deserialize {}", gemini_settings_path.display()))?;
+    warnings.extend(validate_gemini_command_sources(config_dir)?);
 
     Ok(warnings)
+}
+
+fn validate_gemini_command_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+    let commands_dir = config_dir.join("commands").join("gemini");
+    let mut command_files = Vec::new();
+    collect_files_with_extension(&commands_dir, "toml", &mut command_files)?;
+
+    for command_file in command_files {
+        let result = claudius::validation::validate_gemini_command_file(&command_file)?;
+        warnings.extend(
+            result
+                .warnings
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", command_file.display())),
+        );
+    }
+
+    Ok(warnings)
+}
+
+fn validate_claude_code_subagent_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+    let agents_dir = config_dir.join("agents").join("claude-code");
+    let mut agent_files = Vec::new();
+    collect_files_with_extension(&agents_dir, "md", &mut agent_files)?;
+
+    for agent_file in agent_files {
+        let result = claudius::validation::validate_claude_code_subagent_file(&agent_file)?;
+        warnings.extend(
+            result
+                .warnings
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", agent_file.display())),
+        );
+    }
+
+    Ok(warnings)
+}
+
+fn validate_codex_skill_compatibility(config_dir: &std::path::Path) -> Vec<String> {
+    let skills_dir = config_dir.join("skills");
+    let legacy_commands_dir = config_dir.join("commands");
+
+    [
+        skills_dir.join("codex"),
+        skills_dir,
+        legacy_commands_dir,
+    ]
+    .iter()
+    .find(|path| path.exists() && directory_has_entries(path))
+    .map_or_else(Vec::new, |path| {
+        vec![format!(
+            "{}: Codex skills sync remains experimental and publishes to both .codex/skills and .agents/skills for compatibility",
+            path.display()
+        )]
+    })
+}
+
+fn directory_has_entries(path: &std::path::Path) -> bool {
+    std::fs::read_dir(path)
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false)
+}
+
+fn collect_files_with_extension(
+    dir: &std::path::Path,
+    extension: &str,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?
+    {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_files_with_extension(&path, extension, files)?;
+            continue;
+        }
+
+        if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+            files.push(path);
+        }
+    }
+
+    Ok(())
 }
 
 fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>) -> Result<()> {
