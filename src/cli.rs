@@ -4,14 +4,17 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "claudius",
-    about = "Claude configuration management tool - Manage MCP servers, settings, skills, and project instructions",
-    long_about = "Claudius is a comprehensive configuration management tool for Claude Desktop/CLI.
+    about = "AI agent configuration management tool - Manage MCP servers, settings, skills, and project instructions",
+    long_about = "Claudius is a configuration management tool for Claude Code, Codex, Gemini, and legacy Claude Desktop targets.
 
-	It helps you:
-	  • Manage MCP (Model Context Protocol) server configurations
-	  • Maintain Claude settings across projects
-	  • Manage Claude Code skills and subagents
-	  • Define project-specific instructions via agent-specific context files
+It helps you:
+  • Manage MCP (Model Context Protocol) server configurations
+  • Maintain agent settings across projects
+  • Manage agent skills and Claude Code subagents
+  • Define project-specific instructions via agent-specific context files
+
+Claude Desktop support is retained as a legacy / best-effort MCP target.
+Prefer Claude Code, Codex, or Gemini when you need actively managed surfaces.
 
 Configuration files are stored in:
   • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
@@ -20,18 +23,18 @@ Configuration files are stored in:
     - codex.settings.toml: Codex settings (optional)
     - codex.requirements.toml: Codex requirements (admin-enforced, optional)
     - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
-	    - gemini.settings.json: Gemini settings (optional)
-	    - settings.json: Legacy Claude settings (backward compatible)
-	    - skills/: Claude Code skills (directories with SKILL.md)
-	    - commands/gemini/: Gemini custom commands (*.toml)
-	    - agents/claude-code/: Claude Code subagents (*.md)
-	    - rules/: CLAUDE.md templates (*.md)
+    - gemini.settings.json: Gemini settings (optional)
+    - settings.json: Legacy Claude settings (backward compatible)
+    - skills/: Shared and agent-specific skills (directories with SKILL.md)
+    - commands/gemini/: Gemini custom commands (*.toml)
+    - agents/claude-code/: Claude Code subagents (*.md)
+    - rules/: Agent context templates (*.md)
 
 Target files:
   • ./.mcp.json (MCP servers in project-local mode, default)
-  • ./.claude/settings.json (Settings in project-local mode)
+  • ./.claude/settings.json (Claude Code settings in project-local mode)
   • ./.gemini/settings.json (Gemini project-local config)
-  • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop global config)
+  • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop legacy/best-effort global MCP target)
   • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
   • System-level managed-settings.json / managed-mcp.json (Claude Code managed scope)
   • ~/.codex/config.toml (Codex global config)
@@ -39,7 +42,7 @@ Target files:
   • /etc/codex/managed_config.toml (Codex managed defaults)
   • ~/.gemini/settings.json (Gemini global config)
   • /etc/gemini-cli/settings.json (Gemini CLI system settings)
-	  • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
+  • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
     version,
     author
 )]
@@ -70,7 +73,7 @@ pub enum Commands {
     #[command(subcommand)]
     Config(ConfigCommands),
 
-    /// Manage Claude Code skills
+    /// Manage agent skills
     #[command(subcommand, name = "skills")]
     Skills(SkillsCommands),
 
@@ -96,10 +99,10 @@ This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
   • codex.managed_config.toml - Codex managed defaults template (admin-managed)
   • gemini.settings.json - Gemini settings template
   • settings.json - Legacy Claude settings (backward compatible)
-	  • skills/ - Directory for shared and agent-specific skills
-	  • commands/gemini/ - Gemini custom commands (*.toml)
-	  • agents/claude-code/ - Claude Code subagents (*.md)
-	  • rules/ - Directory for CLAUDE.md rules
+  • skills/ - Directory for shared and agent-specific skills
+  • commands/gemini/ - Gemini custom commands (*.toml)
+  • agents/claude-code/ - Claude Code subagents (*.md)
+  • rules/ - Directory for agent context rules
 
 By default, existing files are preserved. Use --force to reinitialize.
 
@@ -112,8 +115,7 @@ Examples:
     Init(InitArgs),
 
     /// Synchronize configurations to project or global targets
-    #[command(
-        long_about = "Synchronize all Claude configurations to the target configuration files.
+    #[command(long_about = "Synchronize agent configurations to the target files.
 
 This command:
   1. Reads mcpServers.json for MCP server definitions
@@ -125,39 +127,42 @@ This command:
      - gemini.settings.json
   3. Writes configurations to:
      - Project-local mode (default):
-       • Claude Desktop/Code: ./.mcp.json (MCP servers) + ./.claude/settings.json (settings)
+       • Claude (`--agent claude`): ./.mcp.json (legacy / best-effort Desktop-compatible MCP target)
+       • Claude Code (`--agent claude-code`): ./.mcp.json (MCP servers) + ./.claude/settings.json (settings)
        • Claude Code local scope (--scope local): ~/.claude.json (per-project MCP) + ./.claude/settings.local.json
        • Codex: ./.codex/config.toml
        • Gemini: ./.gemini/settings.json
      - Global mode (--global):
-       • Claude Desktop: $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
+       • Claude Desktop (`--agent claude`, legacy / best-effort): $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
        • Claude Code: ~/.claude.json + ~/.claude/settings.json
        • Claude Code managed scope (--scope managed): managed-settings.json + managed-mcp.json (system dirs)
        • Codex: ~/.codex/config.toml
        • Gemini: ~/.gemini/settings.json
        • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
-	  4. Syncs auxiliary agent content when present:
-	     - skills/ -> agent skills directories
-	     - commands/gemini/ -> .gemini/commands
-	     - agents/claude-code/ -> .claude/agents
-	     - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
+  4. Syncs auxiliary agent content when present:
+     - skills/ -> agent skills directories
+     - commands/gemini/ -> .gemini/commands
+     - agents/claude-code/ -> .claude/agents
+     - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
+
+Note: `--agent claude` is retained for legacy Claude Desktop JSON workflows.
+For actively managed CLI surfaces, prefer `claude-code`, `codex`, or `gemini`.
 
 Examples:
   # Basic sync to project-local files
   claudius config sync
 
-  # Sync to global configuration
-  claudius config sync --global --agent claude
-
   # Sync Claude Code global configuration
   claudius config sync --global --agent claude-code
+
+  # Sync legacy Claude Desktop global MCP configuration
+  claudius config sync --global --agent claude
 
   # Preview changes without writing
   claudius config sync --dry-run
 
   # Create backup before syncing
-  claudius config sync --backup"
-    )]
+  claudius config sync --backup")]
     Sync(ConfigSyncArgs),
 
     /// Validate configuration source files without writing anything
@@ -335,7 +340,12 @@ pub struct ConfigSyncArgs {
     pub global: bool,
 
     /// Specify the agent to use (overrides config file)
-    #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "Agent to use: claude (legacy/best-effort Desktop target), claude-code, codex, or gemini"
+    )]
     pub agent: Option<crate::app_config::Agent>,
 
     /// Claude Code configuration scope (only valid with --agent claude-code)
