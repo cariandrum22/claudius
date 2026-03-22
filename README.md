@@ -298,6 +298,29 @@ claudius config validate --agent gemini
 claudius config validate --strict
 ```
 
+### `claudius config doctor`
+
+Inspect Claudius configuration health across source files and deployed targets.
+
+This command highlights:
+- `supported` managed surfaces currently in use
+- `best-effort` legacy compatibility targets such as Claude Desktop JSON sync
+- `legacy` source layouts such as `settings.json` and `commands/*.md`
+- `unmanaged` surfaces such as Gemini extensions
+- `experimental` Codex skill sync surfaces
+- stale deployed assets tracked by Claudius manifests
+
+```bash
+# Inspect the current project-local deployment context
+claudius config doctor
+
+# Focus on a single agent surface
+claudius config doctor --agent gemini
+
+# Inspect global deployment targets under $HOME
+claudius config doctor --global
+```
+
 ### `claudius skills sync`
 
 Synchronize skills into the selected agent's skills directory.
