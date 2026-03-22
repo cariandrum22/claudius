@@ -11,6 +11,7 @@ use claudius::{
     bootstrap,
     cli::{self, Cli},
     config::{reader, Config},
+    doctor::{render_report, run_doctor, DoctorOptions},
     secrets::SecretResolver,
     skills,
     sync_operations::{
@@ -115,6 +116,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
             cli::ConfigCommands::Init(args) => run_init(args.force, app_config),
             cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
             cli::ConfigCommands::Validate(args) => run_config_validate(args, app_config),
+            cli::ConfigCommands::Doctor(args) => run_config_doctor(args),
         },
         cli::Commands::Skills(subcommand) => match subcommand {
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
@@ -435,6 +437,12 @@ fn run_config_validate(
     Ok(())
 }
 
+fn run_config_doctor(args: cli::ConfigDoctorArgs) -> Result<()> {
+    let report = run_doctor(DoctorOptions { global: args.global, agent_filter: args.agent })?;
+    println!("{}", render_report(&report));
+    Ok(())
+}
+
 fn validate_claude_code_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
     let mut warnings = validate_claude_settings_sources(config_dir)?;
     warnings.extend(validate_claude_code_subagent_sources(config_dir)?);
@@ -652,47 +660,45 @@ fn collect_files_with_extension(
     for entry in std::fs::read_dir(dir)
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?
     {
-        let path = entry?.path();
+        let entry = entry.with_context(|| format!("Failed to read entry in {}", dir.display()))?;
+        let path = entry.path();
         if path.is_dir() {
             collect_files_with_extension(&path, extension, files)?;
             continue;
         }
 
-        if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+        if path.extension().and_then(|ext| ext.to_str()) == Some(extension) {
             files.push(path);
         }
     }
 
+    files.sort();
     Ok(())
 }
 
 fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>) -> Result<()> {
     let rules_dir = ensure_rules_directory()?;
-    let mut rules = Vec::new();
-    collect_md_files(&rules_dir, &rules_dir, &mut rules)?;
-    rules.sort();
 
-    if rules.is_empty() {
-        println!("No rules found in {}", rules_dir.display());
+    if args.tree {
+        let tree = build_directory_tree(&rules_dir, 0)?;
+        if tree.is_empty() {
+            println!("No rules or templates found in: {}", rules_dir.display());
+        } else {
+            println!("Available rules and templates in {}:", rules_dir.display());
+            print!("{tree}");
+        }
         return Ok(());
     }
 
-    println!("Rules directory: {}", rules_dir.display());
+    let mut rules = Vec::new();
+    collect_rule_names(&rules_dir, &rules_dir, &mut rules)?;
+    rules.sort();
 
-    if args.tree {
-        let mut tree = RulesTree::default();
-        for rule in &rules {
-            let components: Vec<&str> =
-                rule.split('/').filter(|segment| !segment.is_empty()).collect();
-            if components.is_empty() {
-                continue;
-            }
-            insert_rule_path(&mut tree, &components);
-        }
-        print_rules_tree(&tree, "");
+    if rules.is_empty() {
+        println!("No rules or templates found in: {}", rules_dir.display());
     } else {
-        println!("Available rules ({}):", rules.len());
-        for rule in &rules {
+        println!("Available rules and templates in {}:", rules_dir.display());
+        for rule in rules {
             println!("  - {rule}");
         }
     }
@@ -700,91 +706,104 @@ fn run_list_context(args: cli::ContextListArgs, _app_config: Option<&AppConfig>)
     Ok(())
 }
 
-#[derive(Default)]
-struct RulesTree {
-    directories: BTreeMap<String, Self>,
-    files: BTreeSet<String>,
+fn collect_rule_names(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    rules: &mut Vec<String>,
+) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rule_names(&path, base_dir, rules)?;
+            continue;
+        }
+
+        let Some(filename) = path.file_name().and_then(|f| f.to_str()) else {
+            continue;
+        };
+        if !filename.to_ascii_lowercase().ends_with(".md") {
+            continue;
+        }
+
+        let Ok(relative_path) = path.strip_prefix(base_dir) else {
+            continue;
+        };
+        let Some(rule_path) = relative_path.to_str() else {
+            continue;
+        };
+
+        rules.push(rule_path.trim_end_matches(".md").replace('\\', "/"));
+    }
+
+    Ok(())
 }
 
-fn insert_rule_path(node: &mut RulesTree, components: &[&str]) {
-    if let Some((head, tail)) = components.split_first() {
-        if tail.is_empty() {
-            node.files.insert(format!("{head}.md"));
-        } else {
-            insert_rule_path(node.directories.entry((*head).to_owned()).or_default(), tail);
+fn build_directory_tree(dir: &std::path::Path, depth: usize) -> Result<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(String::new());
+    };
+
+    let mut entries = entries.collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    let mut output = String::new();
+    for entry in entries {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let indent = "  ".repeat(depth);
+
+        if path.is_dir() {
+            output.push_str(&format!("{indent}{name}/\n"));
+            output.push_str(&build_directory_tree(&path, depth + 1)?);
+            continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            output.push_str(&format!("{indent}{name}\n"));
         }
     }
+
+    Ok(output)
 }
 
-fn print_rules_tree(node: &RulesTree, prefix: &str) {
-    let total = node.directories.len().saturating_add(node.files.len());
-    if total == 0 {
-        return;
-    }
-
-    let mut index = 0_usize;
-
-    for (dir, child) in &node.directories {
-        index = index.saturating_add(1);
-        let is_last = index == total;
-        let connector = if is_last { "└── " } else { "├── " };
-        println!("{prefix}{connector}{dir}/");
-        let next_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
-        print_rules_tree(child, &next_prefix);
-    }
-
-    for file in &node.files {
-        index = index.saturating_add(1);
-        let is_last = index == total;
-        let connector = if is_last { "└── " } else { "├── " };
-        println!("{prefix}{connector}{file}");
-    }
-}
-
-/// Determine the context filename based on agent and configuration
 fn determine_context_filename(
     agent_override: Option<claudius::app_config::Agent>,
     app_config: Option<&AppConfig>,
-    agent: claudius::app_config::Agent,
+    fallback_agent: claudius::app_config::Agent,
 ) -> String {
-    // If agent was explicitly overridden, always use agent-specific file
-    if agent_override.is_some() {
-        debug!("Agent explicitly overridden, using agent-specific file");
-        return get_agent_context_filename(agent);
-    }
-
-    // Check for custom context file in configuration
-    if let Some(config) = app_config {
-        debug!("App config found: {:?}", config);
-        if let Some(ref default_config) = config.default {
-            debug!("Default config found: {:?}", default_config);
-            if let Some(ref context_file) = default_config.context_file {
-                debug!("Using custom context file from config: {}", context_file);
-                return context_file.clone();
+    app_config
+        .and_then(|cfg| cfg.default.as_ref())
+        .and_then(|defaults| {
+            let effective_agent = agent_override.unwrap_or(defaults.agent);
+            if effective_agent == fallback_agent {
+                defaults.context_file.clone()
+            } else {
+                None
             }
-        }
-    }
-
-    // Fall back to agent-based default
-    debug!("Using agent default context file");
-    get_agent_context_filename(agent)
+        })
+        .unwrap_or_else(|| get_agent_context_filename(fallback_agent))
 }
 
-/// Determine the target directory for context files
-fn determine_target_directory(
-    global: bool,
-    path: Option<std::path::PathBuf>,
-) -> Result<std::path::PathBuf> {
-    if global {
-        Ok(directories::BaseDirs::new()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-            .home_dir()
-            .to_path_buf())
-    } else if let Some(p) = path {
-        Ok(if p.is_absolute() { p } else { std::env::current_dir()?.join(p) })
-    } else {
-        std::env::current_dir().map_err(Into::into)
+fn determine_target_directory(global: bool, path: Option<std::path::PathBuf>) -> Result<std::path::PathBuf> {
+    if let Some(custom_path) = path {
+        if custom_path.is_absolute() {
+            return Ok(custom_path);
+        }
+
+        return Ok(std::env::current_dir()?.join(custom_path));
     }
+
+    if global {
+        let base_dirs = directories::BaseDirs::new()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+        return Ok(base_dirs.home_dir().to_path_buf());
+    }
+
+    std::env::current_dir().context("Failed to get current directory")
 }
 
 fn run_append_context(
@@ -892,619 +911,4 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
 
         execute_sync_operation(&config, &paths, agent_context, flags)
     }
-}
-
-/// Sync all available agents in global mode
-fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()> {
-    // Detect available agents
-    let available_agents = Config::detect_available_agents()?;
-
-    if available_agents.is_empty() {
-        warn!("No agent configuration files found in config directory");
-        // Still sync skills if they exist
-        let config = Config::new_with_agent(true, None)?;
-        let _ = sync_supporting_assets(
-            &config,
-            AgentContext::new(None, None),
-            SyncBehavior { dry_run: options.dry_run, prune: options.prune },
-        );
-        return Ok(());
-    }
-
-    println!(
-        "Found configurations for {} agent(s): {}",
-        available_agents.len(),
-        available_agents.iter().map(|a| format!("{a:?}")).collect::<Vec<_>>().join(", ")
-    );
-
-    // Sync each available agent
-    for agent in &available_agents {
-        let agent_name = match agent {
-            claudius::app_config::Agent::Claude => "Claude",
-            claudius::app_config::Agent::ClaudeCode => "Claude Code",
-            claudius::app_config::Agent::Codex => "Codex",
-            claudius::app_config::Agent::Gemini => "Gemini",
-        };
-        println!("\nSyncing agent: {agent_name}");
-        println!("===============================================");
-
-        let (agent_context, config, paths) = setup_sync_context(
-            Some(*agent),
-            app_config,
-            true,
-            options.config_path.clone(),
-            options.target_config_path.clone(),
-            None,
-        )?;
-
-        // Log configuration paths
-        log_sync_paths(&paths, true, &config);
-
-        // Execute sync operation for this agent
-        let flags = SyncExecutionFlags {
-            backup: options.backup,
-            dry_run: options.dry_run,
-            prune: options.prune,
-            codex_global: CodexGlobalSyncOptions::default(),
-        };
-
-        execute_sync_operation(&config, &paths, agent_context, flags)?;
-    }
-
-    println!("\nAll agent configurations synced successfully");
-    Ok(())
-}
-
-/// Setup sync context with agent and paths
-fn setup_sync_context(
-    agent_override: Option<claudius::app_config::Agent>,
-    app_config: Option<&AppConfig>,
-    global: bool,
-    config_opt: Option<std::path::PathBuf>,
-    target_config_opt: Option<std::path::PathBuf>,
-    claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
-) -> Result<(AgentContext, Config, SyncPaths)> {
-    let agent = determine_agent(agent_override, app_config);
-    if let Some(a) = agent {
-        debug!("Using agent: {:?}", a);
-    }
-
-    if claude_code_scope.is_some() && agent != Some(claudius::app_config::Agent::ClaudeCode) {
-        anyhow::bail!("--scope is only supported with --agent claude-code");
-    }
-
-    let agent_context = AgentContext::new(agent, claude_code_scope);
-    let config = Config::new_with_agent(global, agent)?;
-
-    let default_target_config = match agent_context.claude_code_scope {
-        Some(claudius::app_config::ClaudeCodeScope::Managed)
-            if agent_context.is_claude_code && global =>
-        {
-            agent_paths::claude_code_managed_mcp_path()
-        },
-        Some(claudius::app_config::ClaudeCodeScope::Local)
-            if agent_context.is_claude_code && !global =>
-        {
-            let base_dirs = directories::BaseDirs::new()
-                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-            base_dirs.home_dir().join(".claude.json")
-        },
-        _ => config.target_config_path.clone(),
-    };
-
-    let paths = SyncPaths {
-        mcp_servers: config_opt.unwrap_or_else(|| config.mcp_servers_path.clone()),
-        target_config: target_config_opt.unwrap_or(default_target_config),
-    };
-
-    Ok((agent_context, config, paths))
-}
-
-/// Container for sync paths
-struct SyncPaths {
-    mcp_servers: std::path::PathBuf,
-    target_config: std::path::PathBuf,
-}
-
-/// Log sync configuration paths
-fn log_sync_paths(paths: &SyncPaths, global: bool, config: &Config) {
-    debug!("MCP servers config: {}", paths.mcp_servers.display());
-    debug!(
-        "Target config: {} ({}):",
-        paths.target_config.display(),
-        if global { "global" } else { "project-local" }
-    );
-    debug!("Settings file: {}", config.settings_path.display());
-}
-
-#[derive(Clone, Copy, Debug)]
-struct SyncExecutionFlags {
-    backup: bool,
-    dry_run: bool,
-    prune: bool,
-    codex_global: CodexGlobalSyncOptions,
-}
-
-/// Execute the main sync operation
-fn execute_sync_operation(
-    config: &Config,
-    paths: &SyncPaths,
-    agent_context: AgentContext,
-    flags: SyncExecutionFlags,
-) -> Result<()> {
-    // Read configurations
-    let read_result = read_configurations(config, &paths.mcp_servers, agent_context)?;
-
-    debug!("Reading target configuration");
-    let mut claude_config = if config.is_global && agent_context.is_codex {
-        // For Codex in global mode, don't read from paths.target_config (Codex uses ~/.codex/config.toml).
-        claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() }
-    } else {
-        reader::read_claude_config(&paths.target_config)
-            .context("Failed to read target configuration")?
-    };
-
-    // Process configurations
-    if flags.backup {
-        handle_backup(
-            config,
-            &paths.target_config,
-            &read_result,
-            agent_context,
-            flags.codex_global,
-        )?;
-    }
-    merge_all_configs(&mut claude_config, &read_result, agent_context, config.is_global)?;
-
-    // Output results
-    if flags.dry_run {
-        let supporting_assets = sync_supporting_assets(
-            config,
-            agent_context,
-            SyncBehavior { dry_run: true, prune: flags.prune },
-        );
-        handle_dry_run(
-            config,
-            &paths.target_config,
-            &claude_config,
-            &read_result,
-            agent_context,
-            flags.codex_global,
-        )?;
-        print_supporting_assets_dry_run(&supporting_assets);
-    } else {
-        write_configurations(
-            config,
-            &claude_config,
-            &paths.target_config,
-            &read_result,
-            agent_context,
-            flags.codex_global,
-        )?;
-        let _ = sync_supporting_assets(
-            config,
-            agent_context,
-            SyncBehavior { dry_run: false, prune: flags.prune },
-        );
-    }
-
-    Ok(())
-}
-
-fn print_skill_sync_result(reports: &[skills::SkillSyncReport], dry_run: bool) {
-    if reports.iter().all(skills::SkillSyncReport::is_empty) {
-        println!("No skills to sync");
-        return;
-    }
-
-    if dry_run {
-        print_skill_sync_dry_run(reports);
-        return;
-    }
-
-    print_skill_sync_summary(reports);
-}
-
-fn print_skill_sync_dry_run(reports: &[skills::SkillSyncReport]) {
-    println!("Dry run mode - not writing changes");
-    for report in reports {
-        if report.is_empty() {
-            continue;
-        }
-
-        println!("\n--- Skills ({}) ---", report.target_dir.display());
-        if !report.synced_skills.is_empty() {
-            println!("Would sync {} skill(s):", report.synced_skills.len());
-            for skill in &report.synced_skills {
-                println!("  + {skill}");
-            }
-        }
-        if !report.pruned_files.is_empty() {
-            println!("Would prune {} stale file(s):", report.pruned_files.len());
-            for path in &report.pruned_files {
-                println!("  - {path}");
-            }
-        }
-    }
-}
-
-fn print_skill_sync_summary(reports: &[skills::SkillSyncReport]) {
-    let synced_skills =
-        reports.first().map_or_else(Vec::new, |report| report.synced_skills.clone());
-    if !synced_skills.is_empty() {
-        println!("Successfully synced {} skill(s):", synced_skills.len());
-        for skill in &synced_skills {
-            println!("  - {skill}");
-        }
-    }
-
-    for report in reports.iter().filter(|report| !report.pruned_files.is_empty()) {
-        println!(
-            "Pruned {} stale skill file(s) from {}:",
-            report.pruned_files.len(),
-            report.target_dir.display()
-        );
-        for path in &report.pruned_files {
-            println!("  - {path}");
-        }
-    }
-
-    if reports.len() > 1 {
-        println!("Published to:");
-        for report in reports {
-            println!("  - {}", report.target_dir.display());
-        }
-    }
-}
-
-/// Execute command with inherited stdio
-fn execute_command(program: &str, args: &[String]) -> Result<std::process::ExitStatus> {
-    use std::process::{Command, Stdio};
-
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .with_context(|| format!("Failed to execute command: {program}"))?;
-
-    child.wait().with_context(|| format!("Failed to wait for command: {program}"))
-}
-
-/// Handle the exit status of a child process
-fn handle_exit_status(status: std::process::ExitStatus) -> ! {
-    if !status.success() {
-        if let Some(code) = status.code() {
-            debug!("Command exited with code: {}", code);
-            std::process::exit(code);
-        } else {
-            // Terminated by signal (Unix)
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::ExitStatusExt;
-                if let Some(signal) = status.signal() {
-                    error!("Command terminated by signal: {}", signal);
-                    // Exit with 128 + signal number (standard Unix convention)
-                    std::process::exit(128_i32.saturating_add(signal));
-                }
-            }
-            error!("Command terminated abnormally");
-            std::process::exit(1);
-        }
-    }
-    std::process::exit(0);
-}
-
-fn run_command(command: &[String], _app_config: Option<&AppConfig>) -> Result<()> {
-    if command.is_empty() {
-        error!("No command specified");
-        std::process::exit(1);
-    }
-
-    // Check if profiling is enabled
-    #[allow(unused_variables)]
-    let profiling_enabled = std::env::var("CLAUDIUS_PROFILE").is_ok();
-
-    #[cfg(feature = "profiling")]
-    let status = if profiling_enabled {
-        profile_flamegraph("run-command", || run_command_inner(command))??
-    } else {
-        run_command_inner(command)?
-    };
-
-    #[cfg(not(feature = "profiling"))]
-    let status = {
-        let _ = profiling_enabled; // Suppress unused variable warning
-        run_command_inner(command)?
-    };
-
-    handle_exit_status(status);
-}
-
-fn run_command_inner(command: &[String]) -> Result<std::process::ExitStatus> {
-    // Secrets are already resolved in main(), no need to resolve again
-
-    // Extract command and arguments
-    let (program, args) =
-        command.split_first().ok_or_else(|| anyhow::anyhow!("Command is empty"))?;
-
-    debug!("Running command: {}", command.join(" "));
-
-    // Execute command and handle exit status
-    execute_command(program, args)
-}
-
-// Helper functions for run_install_context
-fn collect_md_files(
-    dir: &std::path::Path,
-    base_dir: &std::path::Path,
-    rules: &mut Vec<String>,
-) -> Result<()> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Ok(());
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            // Recurse into subdirectories
-            collect_md_files(&path, base_dir, rules)?;
-        } else {
-            process_file_entry(&path, base_dir, rules);
-        }
-    }
-    Ok(())
-}
-
-fn process_file_entry(path: &std::path::Path, base_dir: &std::path::Path, rules: &mut Vec<String>) {
-    let Some(filename) = path.file_name().and_then(|f| f.to_str()) else { return };
-    if !filename.to_ascii_lowercase().ends_with(".md") {
-        return;
-    }
-
-    // Get relative path from base_dir without .md extension
-    let Ok(relative_path) = path.strip_prefix(base_dir) else { return };
-    let Some(rule_path) = relative_path.to_str() else { return };
-
-    // Remove .md extension and use forward slashes
-    let rule_name = rule_path.trim_end_matches(".md").replace('\\', "/");
-    rules.push(rule_name);
-}
-
-fn copy_rules(
-    rules_to_copy: &[String],
-    source_rules_dir: &std::path::Path,
-    rules_dir: &std::path::Path,
-) -> Result<Vec<String>> {
-    use std::fs;
-
-    let mut copied_rules = Vec::new();
-    for rule_name in rules_to_copy {
-        let source_path = source_rules_dir.join(format!("{rule_name}.md"));
-        let dest_path = rules_dir.join(format!("{rule_name}.md"));
-
-        debug!("Checking for rule at: {}", source_path.display());
-
-        if !source_path.exists() {
-            warn!("Rule '{}' not found at {}", rule_name, source_path.display());
-            continue;
-        }
-
-        // Create subdirectories if needed
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-        }
-
-        fs::copy(&source_path, &dest_path).with_context(|| {
-            format!("Failed to copy {} to {}", source_path.display(), dest_path.display())
-        })?;
-
-        copied_rules.push(rule_name.clone());
-        println!("Installed rule: {rule_name}");
-    }
-
-    if copied_rules.is_empty() {
-        error!("No rules were installed");
-        return Err(anyhow::anyhow!("No valid rules found"));
-    }
-
-    Ok(copied_rules)
-}
-
-const CLAUDIUS_RULES_SECTION_START: &str = "<!-- CLAUDIUS_RULES_START -->";
-const CLAUDIUS_RULES_SECTION_END: &str = "<!-- CLAUDIUS_RULES_END -->";
-
-fn add_reference_directive(
-    target_dir: &std::path::Path,
-    rules_dir: &std::path::Path,
-    context_filename: &str,
-    copied_rules: &[String],
-) -> Result<()> {
-    use std::fs;
-    use std::io::Write;
-
-    let context_file_path = target_dir.join(context_filename);
-
-    // Calculate relative path from target_dir to rules_dir
-    let relative_rules_path = rules_dir
-        .strip_prefix(target_dir)
-        .map_or_else(|_| rules_dir.to_path_buf(), std::path::Path::to_path_buf);
-
-    // Read existing content
-    let existing_content = if context_file_path.exists() {
-        fs::read_to_string(&context_file_path)?
-    } else {
-        String::new()
-    };
-
-    let reference_directive = build_reference_directive(&relative_rules_path, copied_rules)?;
-
-    if existing_content.contains(CLAUDIUS_RULES_SECTION_START) {
-        let new_content = replace_existing_reference_section(
-            &existing_content,
-            &reference_directive,
-            context_filename,
-        )?;
-
-        fs::write(&context_file_path, new_content)
-            .with_context(|| format!("Failed to update {}", context_file_path.display()))?;
-        println!("Updated reference directive in {context_filename}");
-        return Ok(());
-    }
-
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&context_file_path)
-        .with_context(|| format!("Failed to open {}", context_file_path.display()))?;
-
-    file.write_all(reference_directive.as_bytes())?;
-    println!("Added reference directive to {context_filename}");
-    Ok(())
-}
-
-fn build_reference_directive(
-    relative_rules_path: &std::path::Path,
-    copied_rules: &[String],
-) -> Result<String> {
-    let rule_list = build_installed_rules_list(relative_rules_path, copied_rules)?;
-
-    Ok(format!(
-        "\n{section_start}\n\
-# External Rule References\n\
-\n\
-The following rules from `{rules_dir}` are installed:\n\
-\n\
-{rule_list}\
-\n\
-Read these files to understand the project conventions and guidelines.\n\
-{section_end}\n",
-        section_start = CLAUDIUS_RULES_SECTION_START,
-        section_end = CLAUDIUS_RULES_SECTION_END,
-        rules_dir = relative_rules_path.display(),
-        rule_list = rule_list,
-    ))
-}
-
-fn build_installed_rules_list(
-    relative_rules_path: &std::path::Path,
-    copied_rules: &[String],
-) -> Result<String> {
-    use std::fmt::Write as _;
-
-    let mut rule_list = String::new();
-    for rule_name in copied_rules {
-        let rule_path = relative_rules_path.join(format!("{rule_name}.md"));
-        let rule_path_str = rule_path.to_string_lossy().replace('\\', "/");
-        writeln!(&mut rule_list, "- `{rule_path_str}`: {}", rule_name.replace('/', " / "),)
-            .map_err(|e| anyhow::anyhow!("Failed to format rules list: {e}"))?;
-    }
-
-    Ok(rule_list)
-}
-
-fn replace_existing_reference_section(
-    existing_content: &str,
-    reference_directive: &str,
-    context_filename: &str,
-) -> Result<String> {
-    let Some(start_pos) = existing_content.find(CLAUDIUS_RULES_SECTION_START) else {
-        return Ok(existing_content.to_string());
-    };
-
-    let remaining = existing_content
-        .get(start_pos..)
-        .ok_or_else(|| anyhow::anyhow!("Invalid section start boundary in {context_filename}"))?;
-    let Some(end_rel) = remaining.find(CLAUDIUS_RULES_SECTION_END) else {
-        anyhow::bail!("Found section start marker but no end marker in {context_filename}");
-    };
-
-    let end_pos = start_pos
-        .checked_add(end_rel)
-        .ok_or_else(|| anyhow::anyhow!("Section end marker position overflow"))?;
-    let end_with_marker = end_pos
-        .checked_add(CLAUDIUS_RULES_SECTION_END.len())
-        .ok_or_else(|| anyhow::anyhow!("Section end marker position overflow"))?;
-
-    let prefix = existing_content
-        .get(..start_pos)
-        .ok_or_else(|| anyhow::anyhow!("Invalid section start boundary in {context_filename}"))?;
-    let suffix = existing_content
-        .get(end_with_marker..)
-        .ok_or_else(|| anyhow::anyhow!("Invalid section end boundary in {context_filename}"))?;
-
-    Ok(format!("{prefix}{}{suffix}", reference_directive.trim_start()))
-}
-
-fn run_install_context(
-    rules: Vec<String>,
-    all: bool,
-    path: Option<std::path::PathBuf>,
-    agent_override: Option<claudius::app_config::Agent>,
-    install_dir: Option<std::path::PathBuf>,
-    app_config: Option<&AppConfig>,
-) -> Result<()> {
-    use std::fs;
-
-    // Determine agent
-    let agent = agent_override
-        .or_else(|| app_config.as_ref().and_then(|c| c.default.as_ref()).map(|d| d.agent))
-        .unwrap_or(claudius::app_config::Agent::Claude);
-
-    debug!("Using agent: {:?}", agent);
-
-    // Determine context filename
-    let context_filename = determine_context_filename(agent_override, app_config, agent);
-
-    // Determine target directory
-    let target_dir = if let Some(p) = path {
-        if p.is_absolute() {
-            p
-        } else {
-            std::env::current_dir()?.join(p)
-        }
-    } else {
-        std::env::current_dir()?
-    };
-
-    // Create rules directory (default: .agents/rules, or custom install_dir)
-    let rules_base = install_dir.unwrap_or_else(|| std::path::PathBuf::from(".agents/rules"));
-    let rules_dir = if rules_base.is_absolute() { rules_base } else { target_dir.join(rules_base) };
-    fs::create_dir_all(&rules_dir)
-        .with_context(|| format!("Failed to create directory: {}", rules_dir.display()))?;
-
-    // Get config directory for source rules
-    let source_rules_dir = Config::get_config_dir()?.join("rules");
-    debug!("Looking for rules in: {}", source_rules_dir.display());
-
-    // Determine which rules to copy
-    let rules_to_copy = if all {
-        // Get all .md files from the rules directory recursively
-        println!(
-            "Installing ALL rules from {} (including subdirectories)",
-            source_rules_dir.display()
-        );
-        let mut all_rules = Vec::new();
-        collect_md_files(&source_rules_dir, &source_rules_dir, &mut all_rules)?;
-
-        if all_rules.is_empty() {
-            return Err(anyhow::anyhow!("No rules found in {}", source_rules_dir.display()));
-        }
-        all_rules.sort(); // Sort for consistent ordering
-        all_rules
-    } else {
-        rules
-    };
-
-    // Copy specified rules
-    let copied_rules = copy_rules(&rules_to_copy, &source_rules_dir, &rules_dir)?;
-
-    // Add reference directive to context file with the list of copied rules
-    add_reference_directive(&target_dir, &rules_dir, &context_filename, &copied_rules)?;
-
-    println!("Successfully installed {} rule(s) to {}", copied_rules.len(), rules_dir.display());
-
-    Ok(())
 }
