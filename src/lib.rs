@@ -7,6 +7,7 @@ pub mod bootstrap;
 pub mod cli;
 pub mod codex_settings;
 pub mod config;
+pub mod doctor;
 pub mod gemini_settings;
 pub(crate) mod json_merge;
 pub mod merge;

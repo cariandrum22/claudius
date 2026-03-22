@@ -11,6 +11,7 @@ use claudius::{
     bootstrap,
     cli::{self, Cli},
     config::{reader, Config},
+    doctor::{render_report, run_doctor, DoctorOptions},
     secrets::SecretResolver,
     skills,
     sync_operations::{
@@ -115,6 +116,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
             cli::ConfigCommands::Init(args) => run_init(args.force, app_config),
             cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
             cli::ConfigCommands::Validate(args) => run_config_validate(args, app_config),
+            cli::ConfigCommands::Doctor(args) => run_config_doctor(args),
         },
         cli::Commands::Skills(subcommand) => match subcommand {
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
@@ -432,6 +434,12 @@ fn run_config_validate(
         anyhow::bail!("Validation failed due to warnings (--strict)");
     }
 
+    Ok(())
+}
+
+fn run_config_doctor(args: cli::ConfigDoctorArgs) -> Result<()> {
+    let report = run_doctor(DoctorOptions { global: args.global, agent_filter: args.agent })?;
+    println!("{}", render_report(&report));
     Ok(())
 }
 

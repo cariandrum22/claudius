@@ -183,6 +183,24 @@ Use --agent to validate a specific agent's settings.
 Use --strict to fail on warnings."
     )]
     Validate(ConfigValidateArgs),
+
+    /// Inspect configuration health, lifecycle risks, and unmanaged surfaces
+    #[command(
+        long_about = "Inspect Claudius configuration health, lifecycle risks, and unmanaged surfaces.
+
+This command scans the Claudius source tree and the current deployment context
+to report situations such as:
+  • legacy settings.json still in use
+  • legacy commands/*.md fallback still present
+  • Claude Desktop JSON targets being used as legacy / best-effort surfaces
+  • unmanaged Gemini extensions in the selected deployment context
+  • experimental Codex skill sync surfaces
+  • stale deployed assets that no longer exist in the source tree
+
+Use --global to inspect global deployment targets under $HOME.
+Use --agent to focus on a single agent surface."
+    )]
+    Doctor(ConfigDoctorArgs),
 }
 
 #[derive(Subcommand, Debug, Clone, Copy)]
@@ -392,6 +410,17 @@ pub struct ConfigValidateArgs {
     /// Treat warnings as errors (exit non-zero)
     #[arg(long)]
     pub strict: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct ConfigDoctorArgs {
+    /// Inspect global deployment targets under $HOME instead of the current project
+    #[arg(short, long)]
+    pub global: bool,
+
+    /// Focus diagnostics on a specific agent
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
 }
 
 #[derive(Args, Debug, Clone, Copy)]

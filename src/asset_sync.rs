@@ -35,6 +35,13 @@ impl ManagedTreeSyncReport {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedTreeInspection {
+    pub target_dir: PathBuf,
+    pub managed_files: Vec<String>,
+    pub stale_files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ManagedTreeManifest {
     #[serde(default = "manifest_version")]
@@ -62,6 +69,27 @@ pub fn collect_directory_tree_mappings(source_dir: &Path) -> Result<Vec<SourceFi
     collect_directory_tree_mappings_recursive(source_dir, source_dir, &mut mappings)?;
     mappings.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(mappings)
+}
+
+/// Inspect a Claudius-managed target tree without changing it.
+///
+/// # Errors
+///
+/// Returns an error if the manifest cannot be read or parsed.
+pub fn inspect_managed_tree(
+    target_dir: &Path,
+    mappings: &[SourceFileMapping],
+) -> Result<ManagedTreeInspection> {
+    let manifest = read_manifest(&manifest_path(target_dir))?;
+    let current_files = mappings
+        .iter()
+        .map(|mapping| mapping.relative_path.clone())
+        .collect::<BTreeSet<_>>();
+    let managed_files = manifest.managed_files.iter().cloned().collect::<Vec<_>>();
+    let stale_files =
+        manifest.managed_files.difference(&current_files).cloned().collect::<Vec<_>>();
+
+    Ok(ManagedTreeInspection { target_dir: target_dir.to_path_buf(), managed_files, stale_files })
 }
 
 /// Synchronize a Claudius-managed target tree and optionally prune stale files.
@@ -333,5 +361,25 @@ mod tests {
         assert_eq!(report.pruned_files, vec!["old.txt".to_string()]);
         assert!(target_dir.join("old.txt").exists());
         assert!(!target_dir.join("new.txt").exists());
+    }
+
+    #[test]
+    fn inspect_managed_tree_reports_stale_files() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let source_dir = temp_dir.path().join("source");
+        let target_dir = temp_dir.path().join("target");
+        fs::create_dir_all(&source_dir).expect("create source");
+        fs::write(source_dir.join("keep.txt"), "keep").expect("write source file");
+        write_manifest(
+            &manifest_path(&target_dir),
+            &BTreeSet::from(["keep.txt".to_string(), "old.txt".to_string()]),
+        )
+        .expect("write manifest");
+
+        let mappings = collect_directory_tree_mappings(&source_dir).expect("collect mappings");
+        let inspection = inspect_managed_tree(&target_dir, &mappings).expect("inspect tree");
+
+        assert_eq!(inspection.managed_files, vec!["keep.txt".to_string(), "old.txt".to_string()]);
+        assert_eq!(inspection.stale_files, vec!["old.txt".to_string()]);
     }
 }
