@@ -1,14 +1,39 @@
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
+use toml::Value as TomlValue;
 
 use crate::config::Settings;
 use crate::gemini_settings::{validate_gemini_settings, GeminiSettings};
 
+static YAML_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?s)\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\z")
+        .expect("frontmatter regex should compile")
+});
+
 #[derive(Debug)]
 pub struct ValidationResult {
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiCommandFile {
+    prompt: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(flatten)]
+    _extra: std::collections::BTreeMap<String, TomlValue>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCodeSubagentFrontmatter {
+    name: String,
+    description: String,
+    #[serde(flatten)]
+    _extra: std::collections::BTreeMap<String, serde_yaml::Value>,
 }
 
 /// Validates a JSON file and returns any warnings about unknown fields
@@ -177,6 +202,86 @@ pub fn validate_and_parse_gemini_settings<P: AsRef<Path>>(
         .with_context(|| format!("Failed to parse Gemini settings from {}", path_ref.display()))?;
 
     Ok((Some(settings), validation_result))
+}
+
+/// Validates a Gemini custom command file.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to read the file
+/// - File contains invalid TOML syntax
+/// - Required fields are missing or have invalid types
+pub fn validate_gemini_command_file<P: AsRef<Path>>(path: P) -> Result<ValidationResult> {
+    let path_ref = path.as_ref();
+    let content = fs::read_to_string(path_ref)
+        .with_context(|| format!("Failed to read Gemini command file: {}", path_ref.display()))?;
+
+    let command: GeminiCommandFile = toml::from_str(&content)
+        .with_context(|| format!("Failed to parse Gemini command file: {}", path_ref.display()))?;
+
+    let mut warnings = Vec::new();
+    if command.prompt.trim().is_empty() {
+        warnings.push("Required field 'prompt' should not be empty".to_string());
+    }
+
+    if command
+        .description
+        .as_ref()
+        .is_some_and(|description| description.trim().is_empty())
+    {
+        warnings.push("Optional field 'description' should not be empty when present".to_string());
+    }
+
+    Ok(ValidationResult { warnings })
+}
+
+/// Validates a Claude Code subagent definition file.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to read the file
+/// - The file is missing YAML frontmatter
+/// - The YAML frontmatter is invalid
+/// - Required metadata fields are missing or have invalid types
+pub fn validate_claude_code_subagent_file<P: AsRef<Path>>(path: P) -> Result<ValidationResult> {
+    let path_ref = path.as_ref();
+    let content = fs::read_to_string(path_ref).with_context(|| {
+        format!("Failed to read Claude Code subagent file: {}", path_ref.display())
+    })?;
+
+    let captures = YAML_FRONTMATTER_RE.captures(&content).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Claude Code subagent file must start with YAML frontmatter delimited by ---: {}",
+            path_ref.display()
+        )
+    })?;
+
+    let frontmatter = captures.get(1).map(|capture| capture.as_str()).ok_or_else(|| {
+        anyhow::anyhow!("Failed to extract YAML frontmatter from {}", path_ref.display())
+    })?;
+    let body = captures.get(2).map(|capture| capture.as_str()).ok_or_else(|| {
+        anyhow::anyhow!("Failed to extract Markdown body from {}", path_ref.display())
+    })?;
+
+    let metadata: ClaudeCodeSubagentFrontmatter =
+        serde_yaml::from_str(frontmatter).with_context(|| {
+            format!("Failed to parse Claude Code subagent frontmatter: {}", path_ref.display())
+        })?;
+
+    let mut warnings = Vec::new();
+    if metadata.name.trim().is_empty() {
+        warnings.push("Required frontmatter field 'name' should not be empty".to_string());
+    }
+    if metadata.description.trim().is_empty() {
+        warnings.push("Required frontmatter field 'description' should not be empty".to_string());
+    }
+    if body.trim().is_empty() {
+        warnings.push("Subagent Markdown body should not be empty".to_string());
+    }
+
+    Ok(ValidationResult { warnings })
 }
 
 /// Prompt user to continue after a warning
@@ -474,5 +579,79 @@ mod tests {
                 .is_some_and(|servers| servers.contains_key("server")),
             "Expected mcpServers.server to be present"
         );
+    }
+
+    #[test]
+    fn test_validate_gemini_command_file_valid() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("review.toml");
+
+        fs::write(
+            &file_path,
+            "description = \"Review the current diff\"\nprompt = \"Review the patch.\"",
+        )
+        .expect("Failed to write Gemini command");
+
+        let result =
+            validate_gemini_command_file(&file_path).expect("Gemini command should validate");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_gemini_command_file_missing_prompt_fails() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("review.toml");
+
+        fs::write(&file_path, "description = \"Review the current diff\"")
+            .expect("Failed to write Gemini command");
+
+        let error = validate_gemini_command_file(&file_path)
+            .expect_err("Gemini command without prompt should fail");
+        assert!(format!("{error:#}").contains("missing field `prompt`"));
+    }
+
+    #[test]
+    fn test_validate_claude_code_subagent_file_valid() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("reviewer.md");
+
+        fs::write(
+            &file_path,
+            "---\nname: reviewer\ndescription: Review code changes\n---\nFocus on regressions.\n",
+        )
+        .expect("Failed to write subagent");
+
+        let result = validate_claude_code_subagent_file(&file_path)
+            .expect("Claude Code subagent should validate");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_claude_code_subagent_file_missing_frontmatter_fails() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("reviewer.md");
+
+        fs::write(&file_path, "Focus on regressions.\n").expect("Failed to write subagent");
+
+        let error = validate_claude_code_subagent_file(&file_path)
+            .expect_err("Subagent without frontmatter should fail");
+        assert!(error.to_string().contains("must start with YAML frontmatter delimited by ---"));
+    }
+
+    #[test]
+    fn test_validate_claude_code_subagent_file_empty_body_warns() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("reviewer.md");
+
+        fs::write(&file_path, "---\nname: reviewer\ndescription: Review code changes\n---\n")
+            .expect("Failed to write subagent");
+
+        let result = validate_claude_code_subagent_file(&file_path)
+            .expect("Subagent with empty body should still parse");
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result
+            .warnings
+            .first()
+            .is_some_and(|warning| warning.contains("Markdown body should not be empty")));
     }
 }

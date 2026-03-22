@@ -176,6 +176,8 @@ This command checks:
   • codex.requirements.toml (optional) - Codex admin-enforced requirements
   • codex.managed_config.toml (optional) - Codex admin-managed defaults
   • gemini.settings.json (optional) - Gemini settings
+  • commands/gemini/*.toml (optional) - Gemini custom commands
+  • agents/claude-code/*.md (optional) - Claude Code subagent definitions
 
 Use --agent to validate a specific agent's settings.
 Use --strict to fail on warnings."
