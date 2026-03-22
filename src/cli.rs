@@ -329,6 +329,13 @@ pub struct ConfigSyncArgs {
     )]
     pub backup: bool,
 
+    /// Remove stale auxiliary files that Claudius previously deployed
+    #[arg(
+        long,
+        help = "Remove stale skills, commands, and subagents previously deployed by Claudius"
+    )]
+    pub prune: bool,
+
     /// Override target configuration file path
     #[arg(short = 'T', long, env = "TARGET_CONFIG_PATH", value_hint = clap::ValueHint::FilePath)]
     pub target_config: Option<PathBuf>,
@@ -396,6 +403,14 @@ pub struct SkillsSyncArgs {
         help = "Target system-wide skills directory instead of project-local skills directory"
     )]
     pub global: bool,
+
+    /// Preview skill sync changes without writing them
+    #[arg(short, long, help = "Preview skill sync changes without writing them")]
+    pub dry_run: bool,
+
+    /// Remove stale deployed skill files that Claudius previously published
+    #[arg(long, help = "Remove stale deployed skill files previously published by Claudius")]
+    pub prune: bool,
 
     /// Specify the agent (defaults to Claude)
     #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]

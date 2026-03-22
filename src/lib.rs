@@ -2,6 +2,7 @@
 
 pub mod agent_paths;
 pub mod app_config;
+pub mod asset_sync;
 pub mod bootstrap;
 pub mod cli;
 pub mod codex_settings;

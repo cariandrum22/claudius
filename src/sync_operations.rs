@@ -2,6 +2,7 @@
 
 use crate::agent_paths;
 use crate::app_config::{Agent, AppConfig, ClaudeCodeScope};
+use crate::asset_sync::{self, SyncBehavior};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
 use crate::json_merge::deep_merge_json_maps;
@@ -11,7 +12,6 @@ use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 use tracing::{debug, info, warn};
@@ -41,6 +41,39 @@ pub struct ReadConfigResult {
 pub struct CodexGlobalSyncOptions {
     pub requirements: bool,
     pub managed_config: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SupportingAssetSyncReport {
+    pub assets: Vec<SupportingAssetReport>,
+}
+
+impl SupportingAssetSyncReport {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.assets.is_empty()
+    }
+
+    fn push(&mut self, asset: SupportingAssetReport) {
+        if !asset.is_empty() {
+            self.assets.push(asset);
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SupportingAssetReport {
+    pub label: &'static str,
+    pub target_dir: PathBuf,
+    pub synced_files: Vec<String>,
+    pub pruned_files: Vec<String>,
+}
+
+impl SupportingAssetReport {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.synced_files.is_empty() && self.pruned_files.is_empty()
+    }
 }
 
 /// Agent context for sync operation
@@ -570,6 +603,30 @@ fn print_gemini_dry_run(claude_config: &ClaudeConfig) -> Result<()> {
     println!("\n--- Gemini settings (.gemini/settings.json) ---");
     println!("{}", serde_json::to_string_pretty(&claude_config)?);
     Ok(())
+}
+
+pub fn print_supporting_assets_dry_run(report: &SupportingAssetSyncReport) {
+    if report.is_empty() {
+        return;
+    }
+
+    for asset in &report.assets {
+        println!("\n--- {} ({}) ---", asset.label, asset.target_dir.display());
+
+        if !asset.synced_files.is_empty() {
+            println!("Would sync {} file(s):", asset.synced_files.len());
+            for path in &asset.synced_files {
+                println!("  + {path}");
+            }
+        }
+
+        if !asset.pruned_files.is_empty() {
+            println!("Would prune {} stale file(s):", asset.pruned_files.len());
+            for path in &asset.pruned_files {
+                println!("  - {path}");
+            }
+        }
+    }
 }
 
 fn print_claude_code_global_dry_run(
@@ -1391,16 +1448,35 @@ fn deep_merge_toml_value(target: &mut TomlValue, overlay: &TomlValue) {
 }
 
 /// Sync skills and other agent-specific auxiliary content.
-pub fn sync_supporting_assets_if_exists(config: &Config, agent_context: AgentContext) {
-    sync_skills_if_exists(config, agent_context);
-    sync_gemini_commands_if_exists(config);
-    sync_claude_code_agents_if_exists(config, agent_context);
+#[must_use]
+pub fn sync_supporting_assets(
+    config: &Config,
+    agent_context: AgentContext,
+    behavior: SyncBehavior,
+) -> SupportingAssetSyncReport {
+    let mut report = SupportingAssetSyncReport::default();
+
+    if let Some(asset) = sync_skills_if_exists(config, agent_context, behavior) {
+        report.push(asset);
+    }
+    if let Some(asset) = sync_gemini_commands_if_exists(config, behavior) {
+        report.push(asset);
+    }
+    if let Some(asset) = sync_claude_code_agents_if_exists(config, agent_context, behavior) {
+        report.push(asset);
+    }
+
+    report
 }
 
-fn sync_skills_if_exists(config: &Config, agent_context: AgentContext) {
+fn sync_skills_if_exists(
+    config: &Config,
+    agent_context: AgentContext,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
     if config.agent == Some(Agent::Codex) {
         debug!("Skipping Codex skills sync (experimental; use `claudius skills sync --enable-codex-skills`)");
-        return;
+        return None;
     }
 
     if agent_context.is_claude_code
@@ -1410,145 +1486,169 @@ fn sync_skills_if_exists(config: &Config, agent_context: AgentContext) {
         )
     {
         debug!("Skipping Claude Code skills sync for managed/local scope");
-        return;
+        return None;
     }
 
-    let Some(source_dir) = config.resolve_skills_source_dir() else {
-        return;
-    };
+    let source_dir = config.resolve_skills_source_dir();
 
-    if source_dir != config.skills_dir {
-        warn!("Legacy commands directory detected; syncing skills from {}", source_dir.display());
+    if let Some(path) = source_dir.as_ref().filter(|path| **path != config.skills_dir) {
+        warn!("Legacy commands directory detected; syncing skills from {}", path.display());
     }
 
     debug!("Syncing skills");
-    debug!("Source: {}", source_dir.display());
+    if let Some(path) = &source_dir {
+        debug!("Source: {}", path.display());
+    }
     debug!("Target: {}", config.skills_target_dir.display());
 
-    match skills::sync_skills(&source_dir, &config.skills_target_dir) {
-        Ok(synced) => {
-            if !synced.is_empty() {
-                info!("Synced {} skill(s)", synced.len());
-                for skill in &synced {
-                    debug!("  - {}", skill);
-                }
-            }
+    match skills::sync_skills_with_options(
+        source_dir.as_deref(),
+        &config.skills_target_dir,
+        behavior,
+    ) {
+        Ok(sync_report) => {
+            log_supporting_asset_result(
+                "skill",
+                &sync_report.synced_files,
+                &sync_report.pruned_files,
+                behavior.dry_run,
+            );
+            Some(SupportingAssetReport {
+                label: "Skills",
+                target_dir: sync_report.target_dir,
+                synced_files: sync_report.synced_files,
+                pruned_files: sync_report.pruned_files,
+            })
         },
         Err(e) => {
             warn!("Failed to sync skills: {}", e);
+            None
         },
     }
 }
 
-fn sync_gemini_commands_if_exists(config: &Config) {
-    let Some(source_dir) = config.resolve_gemini_commands_source_dir() else {
-        return;
-    };
-
+fn sync_gemini_commands_if_exists(
+    config: &Config,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
+    let source_dir = config.resolve_gemini_commands_source_dir();
     let target_dir = match config.gemini_commands_target_dir() {
         Ok(Some(path)) => path,
-        Ok(None) => return,
+        Ok(None) => return None,
         Err(e) => {
             warn!("Failed to determine Gemini commands target directory: {}", e);
-            return;
+            return None;
         },
     };
 
-    sync_directory_tree_if_exists("Gemini command", &source_dir, &target_dir);
+    sync_directory_tree_if_exists(
+        "Gemini command",
+        "Gemini commands",
+        source_dir.as_deref(),
+        &target_dir,
+        behavior,
+    )
 }
 
-fn sync_claude_code_agents_if_exists(config: &Config, agent_context: AgentContext) {
+fn sync_claude_code_agents_if_exists(
+    config: &Config,
+    agent_context: AgentContext,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
     if !agent_context.is_claude_code
         || matches!(
             agent_context.claude_code_scope,
             Some(ClaudeCodeScope::Managed | ClaudeCodeScope::Local)
         )
     {
-        return;
+        return None;
     }
 
-    let Some(source_dir) = config.resolve_claude_code_agents_source_dir() else {
-        return;
-    };
-
+    let source_dir = config.resolve_claude_code_agents_source_dir();
     let target_dir = match config.claude_code_agents_target_dir() {
         Ok(Some(path)) => path,
-        Ok(None) => return,
+        Ok(None) => return None,
         Err(e) => {
             warn!("Failed to determine Claude Code agents target directory: {}", e);
-            return;
+            return None;
         },
     };
 
-    sync_directory_tree_if_exists("Claude Code subagent", &source_dir, &target_dir);
+    sync_directory_tree_if_exists(
+        "Claude Code subagent",
+        "Claude Code subagents",
+        source_dir.as_deref(),
+        &target_dir,
+        behavior,
+    )
 }
 
-fn sync_directory_tree_if_exists(label: &str, source_dir: &Path, target_dir: &Path) {
-    debug!("Syncing {label}s");
-    debug!("Source: {}", source_dir.display());
+fn sync_directory_tree_if_exists(
+    log_label: &str,
+    report_label: &'static str,
+    source_dir: Option<&Path>,
+    target_dir: &Path,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
+    debug!("Syncing {log_label}s");
+    if let Some(path) = source_dir {
+        debug!("Source: {}", path.display());
+    }
     debug!("Target: {}", target_dir.display());
 
-    match sync_directory_tree(source_dir, target_dir) {
-        Ok(synced) => {
-            if !synced.is_empty() {
-                info!("Synced {} {} file(s)", synced.len(), label);
-                for entry in &synced {
-                    debug!("  - {}", entry);
-                }
-            }
+    match sync_directory_tree(source_dir, target_dir, behavior) {
+        Ok(sync_report) => {
+            log_supporting_asset_result(
+                log_label,
+                &sync_report.synced_files,
+                &sync_report.pruned_files,
+                behavior.dry_run,
+            );
+            Some(SupportingAssetReport {
+                label: report_label,
+                target_dir: sync_report.target_dir,
+                synced_files: sync_report.synced_files,
+                pruned_files: sync_report.pruned_files,
+            })
         },
-        Err(e) => warn!("Failed to sync {label}s: {}", e),
+        Err(e) => {
+            warn!("Failed to sync {log_label}s: {}", e);
+            None
+        },
     }
 }
 
-fn sync_directory_tree(source_dir: &Path, target_dir: &Path) -> Result<Vec<String>> {
-    fs::create_dir_all(target_dir)
-        .with_context(|| format!("Failed to create target directory: {}", target_dir.display()))?;
-
-    if !source_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut synced = Vec::new();
-    sync_directory_tree_recursive(source_dir, source_dir, target_dir, &mut synced)?;
-    synced.sort();
-    Ok(synced)
-}
-
-fn sync_directory_tree_recursive(
-    root_dir: &Path,
-    current_dir: &Path,
+fn sync_directory_tree(
+    source_dir: Option<&Path>,
     target_dir: &Path,
-    synced: &mut Vec<String>,
-) -> Result<()> {
-    for entry in fs::read_dir(current_dir)
-        .with_context(|| format!("Failed to read directory: {}", current_dir.display()))?
-    {
-        let dir_entry = entry?;
-        let path = dir_entry.path();
-        let relative = path
-            .strip_prefix(root_dir)
-            .with_context(|| format!("Failed to compute relative path for {}", path.display()))?;
-        let destination = target_dir.join(relative);
+    behavior: SyncBehavior,
+) -> Result<asset_sync::ManagedTreeSyncReport> {
+    let mappings =
+        source_dir.map_or_else(|| Ok(Vec::new()), asset_sync::collect_directory_tree_mappings)?;
+    asset_sync::sync_managed_tree(target_dir, &mappings, behavior)
+}
 
-        if path.is_dir() {
-            fs::create_dir_all(&destination).with_context(|| {
-                format!("Failed to create directory: {}", destination.display())
-            })?;
-            sync_directory_tree_recursive(root_dir, &path, target_dir, synced)?;
-            continue;
-        }
-
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-        }
-
-        fs::copy(&path, &destination).with_context(|| {
-            format!("Failed to copy file from {} to {}", path.display(), destination.display())
-        })?;
-        synced.push(relative.to_string_lossy().replace('\\', "/"));
+fn log_supporting_asset_result(
+    label: &str,
+    synced_files: &[String],
+    pruned_files: &[String],
+    dry_run: bool,
+) {
+    if dry_run {
+        return;
     }
 
-    Ok(())
+    if !synced_files.is_empty() {
+        info!("Synced {} {} file(s)", synced_files.len(), label);
+        for entry in synced_files {
+            debug!("  + {}", entry);
+        }
+    }
+
+    if !pruned_files.is_empty() {
+        info!("Pruned {} stale {} file(s)", pruned_files.len(), label);
+        for entry in pruned_files {
+            debug!("  - {}", entry);
+        }
+    }
 }

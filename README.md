@@ -248,8 +248,15 @@ claudius config sync --global
 # Preview changes without writing
 claudius config sync --dry-run
 
+# Preview config and auxiliary file deletions
+claudius config sync --dry-run --prune
+
 # Create backup before syncing
 claudius config sync --backup
+
+# Remove stale skills, Gemini commands, and Claude Code subagents that
+# Claudius previously deployed
+claudius config sync --prune
 
 # Use custom configuration paths
 claudius config sync --config /path/to/servers.json --target-config /path/to/target.json
@@ -307,6 +314,12 @@ claudius skills sync --global
 
 # Sync skills to global ~/.gemini/skills/
 claudius skills sync --global --agent gemini
+
+# Preview skill changes and stale-file removals
+claudius skills sync --dry-run --prune
+
+# Remove stale deployed skill files that Claudius previously published
+claudius skills sync --prune
 
 # Codex skills are experimental and must be explicitly enabled
 # (synced to both .codex/skills and .agents/skills for compatibility)
@@ -554,6 +567,10 @@ Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/
 explicit opt-in; when enabled they are synced to both `~/.codex/skills/` and
 `~/.agents/skills/` for compatibility.
 
+By default, skill and auxiliary file sync is non-destructive. Use `--prune` to remove
+stale files that Claudius previously deployed. Pruning only touches files tracked in
+Claudius-managed target trees and leaves unrelated files alone.
+
 To override a shared skill for a specific agent, place it under
 `~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
 
@@ -655,7 +672,8 @@ Features:
 ### Skills
 - All skill directories are synced
 - Existing skills are overwritten
-- Removed source files don't delete deployed skills
+- Removed source files stay deployed unless `--prune` is used
+- `--prune` removes only files previously deployed by Claudius
 
 ## Code Coverage
 

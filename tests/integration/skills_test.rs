@@ -2,6 +2,7 @@ use crate::fixtures::TestFixture;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
+use std::fs;
 
 #[cfg(test)]
 mod tests {
@@ -180,5 +181,55 @@ mod tests {
 
         // But skills should exist
         assert!(fixture.project_file_exists(".claude/skills/cmd/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_prune_updates_and_removes_only_managed_files() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_skill("keep", "# Keep Skill\nVersion 1").unwrap();
+        fixture.with_skill("remove", "# Remove Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut initial_sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        initial_sync
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync"])
+            .assert()
+            .success();
+
+        fs::write(
+            fixture.config.join("skills").join("keep").join("SKILL.md"),
+            "# Keep Skill\nVersion 2",
+        )
+        .unwrap();
+        fs::remove_dir_all(fixture.config.join("skills").join("remove")).unwrap();
+        fs::create_dir_all(fixture.project.join(".claude").join("skills").join("manual")).unwrap();
+        fs::write(
+            fixture.project.join(".claude").join("skills").join("manual").join("notes.txt"),
+            "manual",
+        )
+        .unwrap();
+
+        let mut prune_sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        prune_sync
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--prune"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Successfully synced 1 skill(s):"))
+            .stdout(predicate::str::contains("Pruned 1 stale skill file(s)"));
+
+        assert_eq!(
+            fixture.read_project_file(".claude/skills/keep/SKILL.md").unwrap(),
+            "# Keep Skill\nVersion 2"
+        );
+        assert!(!fixture.project_file_exists(".claude/skills/remove/SKILL.md"));
+        assert!(fixture.project_file_exists(".claude/skills/manual/notes.txt"));
     }
 }

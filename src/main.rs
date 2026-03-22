@@ -7,15 +7,16 @@ use claudius::profiling::profile_flamegraph;
 use claudius::{
     agent_paths,
     app_config::AppConfig,
+    asset_sync::SyncBehavior,
     bootstrap,
     cli::{self, Cli},
     config::{reader, Config},
     secrets::SecretResolver,
     skills,
     sync_operations::{
-        determine_agent, handle_backup, handle_dry_run, merge_all_configs, read_configurations,
-        sync_supporting_assets_if_exists, write_configurations, AgentContext,
-        CodexGlobalSyncOptions,
+        determine_agent, handle_backup, handle_dry_run, merge_all_configs,
+        print_supporting_assets_dry_run, read_configurations, sync_supporting_assets,
+        write_configurations, AgentContext, CodexGlobalSyncOptions,
     },
     template::{
         append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
@@ -205,7 +206,7 @@ fn run_init(force: bool, app_config: Option<&AppConfig>) -> Result<()> {
 }
 
 fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) -> Result<()> {
-    let cli::SkillsSyncArgs { global, agent, enable_codex_skills } = args;
+    let cli::SkillsSyncArgs { global, agent, enable_codex_skills, dry_run, prune } = args;
 
     let effective_agent = determine_agent(agent, app_config);
 
@@ -216,7 +217,14 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
 
     let config = Config::new_with_agent(global, effective_agent)?;
     let Some(source_dir) = config.resolve_skills_source_dir() else {
-        println!("No skills to sync");
+        let skill_targets = determine_skill_sync_targets(&config)?;
+        let reports = skill_targets
+            .iter()
+            .map(|target_dir| {
+                skills::sync_skills_with_options(None, target_dir, SyncBehavior { dry_run, prune })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        print_skill_sync_result(&reports, dry_run);
         return Ok(());
     };
 
@@ -228,37 +236,19 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
     }
 
     let skill_targets = determine_skill_sync_targets(&config)?;
-    let mut synced_skills = Vec::new();
-    for (index, target_dir) in skill_targets.iter().enumerate() {
-        match skills::sync_skills(&source_dir, target_dir) {
-            Ok(synced) if index == 0 => synced_skills = synced,
-            Ok(_) => {},
-            Err(e) => {
-                error!("Failed to sync skills: {e:#}");
-                std::process::exit(1);
-            },
-        }
-    }
+    let reports = skill_targets
+        .iter()
+        .map(|target_dir| {
+            skills::sync_skills_with_options(
+                Some(&source_dir),
+                target_dir,
+                SyncBehavior { dry_run, prune },
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-    match synced_skills.is_empty() {
-        true => {
-            println!("No skills to sync");
-            Ok(())
-        },
-        false => {
-            println!("Successfully synced {} skill(s):", synced_skills.len());
-            for skill in &synced_skills {
-                println!("  - {skill}");
-            }
-            if skill_targets.len() > 1 {
-                println!("Published to:");
-                for target_dir in &skill_targets {
-                    println!("  - {}", target_dir.display());
-                }
-            }
-            Ok(())
-        },
-    }
+    print_skill_sync_result(&reports, dry_run);
+    Ok(())
 }
 
 fn determine_skill_sync_targets(config: &Config) -> Result<Vec<std::path::PathBuf>> {
@@ -286,6 +276,7 @@ fn build_sync_options(
         config,
         dry_run,
         backup,
+        prune,
         target_config,
         global,
         agent,
@@ -329,6 +320,7 @@ fn build_sync_options(
         target_config_path: effective_target_config,
         dry_run,
         backup,
+        prune,
         global: effective_global,
         agent_override: agent,
         claude_code_scope: scope,
@@ -851,6 +843,7 @@ struct SyncOptions {
     target_config_path: Option<std::path::PathBuf>,
     dry_run: bool,
     backup: bool,
+    prune: bool,
     global: bool,
     agent_override: Option<claudius::app_config::Agent>,
     claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
@@ -890,6 +883,7 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
         let flags = SyncExecutionFlags {
             backup: options.backup,
             dry_run: options.dry_run,
+            prune: options.prune,
             codex_global: CodexGlobalSyncOptions {
                 requirements: options.codex_requirements,
                 managed_config: options.codex_managed_config,
@@ -909,7 +903,11 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
         warn!("No agent configuration files found in config directory");
         // Still sync skills if they exist
         let config = Config::new_with_agent(true, None)?;
-        sync_supporting_assets_if_exists(&config, AgentContext::new(None, None));
+        let _ = sync_supporting_assets(
+            &config,
+            AgentContext::new(None, None),
+            SyncBehavior { dry_run: options.dry_run, prune: options.prune },
+        );
         return Ok(());
     }
 
@@ -946,6 +944,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
         let flags = SyncExecutionFlags {
             backup: options.backup,
             dry_run: options.dry_run,
+            prune: options.prune,
             codex_global: CodexGlobalSyncOptions::default(),
         };
 
@@ -1022,6 +1021,7 @@ fn log_sync_paths(paths: &SyncPaths, global: bool, config: &Config) {
 struct SyncExecutionFlags {
     backup: bool,
     dry_run: bool,
+    prune: bool,
     codex_global: CodexGlobalSyncOptions,
 }
 
@@ -1058,6 +1058,11 @@ fn execute_sync_operation(
 
     // Output results
     if flags.dry_run {
+        let supporting_assets = sync_supporting_assets(
+            config,
+            agent_context,
+            SyncBehavior { dry_run: true, prune: flags.prune },
+        );
         handle_dry_run(
             config,
             &paths.target_config,
@@ -1065,7 +1070,8 @@ fn execute_sync_operation(
             &read_result,
             agent_context,
             flags.codex_global,
-        )
+        )?;
+        print_supporting_assets_dry_run(&supporting_assets);
     } else {
         write_configurations(
             config,
@@ -1075,8 +1081,79 @@ fn execute_sync_operation(
             agent_context,
             flags.codex_global,
         )?;
-        sync_supporting_assets_if_exists(config, agent_context);
-        Ok(())
+        let _ = sync_supporting_assets(
+            config,
+            agent_context,
+            SyncBehavior { dry_run: false, prune: flags.prune },
+        );
+    }
+
+    Ok(())
+}
+
+fn print_skill_sync_result(reports: &[skills::SkillSyncReport], dry_run: bool) {
+    if reports.iter().all(skills::SkillSyncReport::is_empty) {
+        println!("No skills to sync");
+        return;
+    }
+
+    if dry_run {
+        print_skill_sync_dry_run(reports);
+        return;
+    }
+
+    print_skill_sync_summary(reports);
+}
+
+fn print_skill_sync_dry_run(reports: &[skills::SkillSyncReport]) {
+    println!("Dry run mode - not writing changes");
+    for report in reports {
+        if report.is_empty() {
+            continue;
+        }
+
+        println!("\n--- Skills ({}) ---", report.target_dir.display());
+        if !report.synced_skills.is_empty() {
+            println!("Would sync {} skill(s):", report.synced_skills.len());
+            for skill in &report.synced_skills {
+                println!("  + {skill}");
+            }
+        }
+        if !report.pruned_files.is_empty() {
+            println!("Would prune {} stale file(s):", report.pruned_files.len());
+            for path in &report.pruned_files {
+                println!("  - {path}");
+            }
+        }
+    }
+}
+
+fn print_skill_sync_summary(reports: &[skills::SkillSyncReport]) {
+    let synced_skills =
+        reports.first().map_or_else(Vec::new, |report| report.synced_skills.clone());
+    if !synced_skills.is_empty() {
+        println!("Successfully synced {} skill(s):", synced_skills.len());
+        for skill in &synced_skills {
+            println!("  - {skill}");
+        }
+    }
+
+    for report in reports.iter().filter(|report| !report.pruned_files.is_empty()) {
+        println!(
+            "Pruned {} stale skill file(s) from {}:",
+            report.pruned_files.len(),
+            report.target_dir.display()
+        );
+        for path in &report.pruned_files {
+            println!("  - {path}");
+        }
+    }
+
+    if reports.len() > 1 {
+        println!("Published to:");
+        for report in reports {
+            println!("  - {}", report.target_dir.display());
+        }
     }
 }
 
