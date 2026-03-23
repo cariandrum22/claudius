@@ -104,8 +104,9 @@ mod tests {
         fs::create_dir_all(&project_dir).unwrap();
         std::env::set_current_dir(&project_dir).unwrap();
 
-        let codex_target = project_dir.join(".codex").join("skills");
-        let agents_target = project_dir.join(".agents").join("skills");
+        let canonical_project_dir = fs::canonicalize(&project_dir).unwrap();
+        let codex_target = canonical_project_dir.join(".codex").join("skills");
+        let agents_target = canonical_project_dir.join(".agents").join("skills");
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
@@ -114,7 +115,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
         let codex_only = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
-        assert_eq!(codex_only.skills_target_dir, project_dir.join(".codex").join("skills"));
+        assert_eq!(codex_only.skills_target_dir, codex_target);
         assert_eq!(codex_only.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
@@ -124,7 +125,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
         let both = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
-        assert_eq!(both.skills_target_dir, project_dir.join(".codex").join("skills"));
+        assert_eq!(both.skills_target_dir, codex_target);
         assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
     }
 
@@ -141,8 +142,9 @@ mod tests {
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
 
-        let codex_target = temp_dir.path().join(".codex").join("skills");
-        let agents_target = temp_dir.path().join(".agents").join("skills");
+        let canonical_home_dir = fs::canonicalize(temp_dir.path()).unwrap();
+        let codex_target = canonical_home_dir.join(".codex").join("skills");
+        let agents_target = canonical_home_dir.join(".agents").join("skills");
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
@@ -151,7 +153,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
         let codex_only = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
-        assert_eq!(codex_only.skills_target_dir, temp_dir.path().join(".codex").join("skills"));
+        assert_eq!(codex_only.skills_target_dir, codex_target);
         assert_eq!(codex_only.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
@@ -161,7 +163,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
         let both = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
-        assert_eq!(both.skills_target_dir, temp_dir.path().join(".codex").join("skills"));
+        assert_eq!(both.skills_target_dir, codex_target);
         assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
     }
 
