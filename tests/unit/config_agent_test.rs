@@ -104,9 +104,9 @@ mod tests {
         fs::create_dir_all(&project_dir).unwrap();
         std::env::set_current_dir(&project_dir).unwrap();
 
-        let canonical_project_dir = fs::canonicalize(&project_dir).unwrap();
-        let codex_target = canonical_project_dir.join(".codex").join("skills");
-        let agents_target = canonical_project_dir.join(".agents").join("skills");
+        let current_project_dir = std::env::current_dir().unwrap();
+        let codex_target = current_project_dir.join(".codex").join("skills");
+        let agents_target = current_project_dir.join(".agents").join("skills");
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
@@ -142,9 +142,9 @@ mod tests {
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
 
-        let canonical_home_dir = fs::canonicalize(temp_dir.path()).unwrap();
-        let codex_target = canonical_home_dir.join(".codex").join("skills");
-        let agents_target = canonical_home_dir.join(".agents").join("skills");
+        let resolved_home_dir = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
+        let codex_target = resolved_home_dir.join(".codex").join("skills");
+        let agents_target = resolved_home_dir.join(".agents").join("skills");
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
