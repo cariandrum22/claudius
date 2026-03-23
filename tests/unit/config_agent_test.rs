@@ -90,6 +90,83 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_codex_skills_target_dirs_project_local_modes() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
+
+        let project_dir = temp_dir.path().join("project");
+        fs::create_dir_all(&project_dir).unwrap();
+        std::env::set_current_dir(&project_dir).unwrap();
+
+        let codex_target = project_dir.join(".codex").join("skills");
+        let agents_target = project_dir.join(".agents").join("skills");
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
+        let auto = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
+        assert_eq!(auto.skills_target_dir, codex_target);
+        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), Some(agents_target.clone()));
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
+        let codex_only = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
+        assert_eq!(codex_only.skills_target_dir, project_dir.join(".codex").join("skills"));
+        assert_eq!(codex_only.codex_compat_skills_target_dir().unwrap(), None);
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
+        let agents_only = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
+        assert_eq!(agents_only.skills_target_dir, agents_target.clone());
+        assert_eq!(agents_only.codex_compat_skills_target_dir().unwrap(), None);
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
+        let both = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
+        assert_eq!(both.skills_target_dir, project_dir.join(".codex").join("skills"));
+        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
+    }
+
+    #[test]
+    #[serial]
+    fn test_codex_skills_target_dirs_global_modes() {
+        let _env_guard = EnvGuard::new();
+        let temp_dir = TempDir::new().unwrap();
+
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        std::env::set_var("HOME", temp_dir.path());
+
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("mcpServers.json"), "{}").unwrap();
+
+        let codex_target = temp_dir.path().join(".codex").join("skills");
+        let agents_target = temp_dir.path().join(".agents").join("skills");
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
+        let auto = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
+        assert_eq!(auto.skills_target_dir, codex_target);
+        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), Some(agents_target.clone()));
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
+        let codex_only = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
+        assert_eq!(codex_only.skills_target_dir, temp_dir.path().join(".codex").join("skills"));
+        assert_eq!(codex_only.codex_compat_skills_target_dir().unwrap(), None);
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
+        let agents_only = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
+        assert_eq!(agents_only.skills_target_dir, agents_target.clone());
+        assert_eq!(agents_only.codex_compat_skills_target_dir().unwrap(), None);
+
+        fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
+        let both = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
+        assert_eq!(both.skills_target_dir, temp_dir.path().join(".codex").join("skills"));
+        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_with_gemini_agent_local() {
         let _env_guard = EnvGuard::new();
         let temp_dir = TempDir::new().unwrap();
