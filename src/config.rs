@@ -1,5 +1,6 @@
 #![allow(clippy::self_named_module_files)]
 
+use crate::app_config::{AppConfig, CodexSkillTargetMode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -135,7 +136,7 @@ impl Config {
 
         let current_dir = if use_global { None } else { Some(std::env::current_dir()?) };
         let skills_target_dir =
-            Self::determine_skills_dir(use_global, agent, &home_dir, current_dir.as_deref());
+            Self::determine_skills_dir(use_global, agent, &home_dir, current_dir.as_deref())?;
 
         Ok(Self {
             mcp_servers_path: config_dir.join("mcpServers.json"),
@@ -239,14 +240,25 @@ impl Config {
         agent: Option<crate::app_config::Agent>,
         home_dir: &Path,
         current_dir: Option<&Path>,
-    ) -> PathBuf {
+    ) -> anyhow::Result<PathBuf> {
         let base_dir = if use_global { home_dir } else { current_dir.unwrap_or(home_dir) };
 
-        match agent {
+        Ok(match agent {
             Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
-            Some(crate::app_config::Agent::Codex) => base_dir.join(".codex").join("skills"),
+            Some(crate::app_config::Agent::Codex) => match Self::load_codex_skill_target_mode()? {
+                CodexSkillTargetMode::Agents => base_dir.join(".agents").join("skills"),
+                CodexSkillTargetMode::Auto
+                | CodexSkillTargetMode::Codex
+                | CodexSkillTargetMode::Both => base_dir.join(".codex").join("skills"),
+            },
             _ => base_dir.join(".claude").join("skills"),
-        }
+        })
+    }
+
+    fn load_codex_skill_target_mode() -> anyhow::Result<CodexSkillTargetMode> {
+        Ok(AppConfig::load()?
+            .and_then(|config| config.codex.and_then(|codex| codex.skill_target))
+            .unwrap_or_default())
     }
 
     fn skills_dir_has_entries(path: &Path) -> bool {
@@ -357,7 +369,12 @@ impl Config {
             return Ok(None);
         }
 
-        Ok(Some(self.deployment_base_dir()?.join(".agents").join("skills")))
+        Ok(match Self::load_codex_skill_target_mode()? {
+            CodexSkillTargetMode::Auto | CodexSkillTargetMode::Both => {
+                Some(self.deployment_base_dir()?.join(".agents").join("skills"))
+            },
+            CodexSkillTargetMode::Codex | CodexSkillTargetMode::Agents => None,
+        })
     }
 
     pub fn with_paths<P: Into<PathBuf>>(mcp_servers: P, target_config: P) -> Self {

@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub secret_manager: Option<SecretManagerConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<DefaultConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,6 +20,13 @@ pub struct DefaultConfig {
     pub agent: Agent,
     #[serde(skip_serializing_if = "Option::is_none", rename = "context-file")]
     pub context_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct CodexConfig {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "skill-target")]
+    pub skill_target: Option<CodexSkillTargetMode>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
@@ -40,6 +49,20 @@ pub enum ClaudeCodeScope {
     Project,
     /// Local (per-repo, per-user) configuration (.claude/*.local.* and ~/.claude.json per-project).
     Local,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodexSkillTargetMode {
+    /// Keep following Claudius's compatibility default for Codex skills.
+    #[default]
+    Auto,
+    /// Publish only to the Codex-native skills directory.
+    Codex,
+    /// Publish only to the compatibility `.agents/skills` directory.
+    Agents,
+    /// Publish to both Codex-native and compatibility directories.
+    Both,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -150,6 +173,54 @@ mod tests {
     }
 
     #[test]
+    fn test_codex_skill_target_mode_serialization() {
+        assert_eq!(
+            serde_json::to_string(&CodexSkillTargetMode::Auto)
+                .expect("Failed to serialize CodexSkillTargetMode::Auto"),
+            "\"auto\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CodexSkillTargetMode::Codex)
+                .expect("Failed to serialize CodexSkillTargetMode::Codex"),
+            "\"codex\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CodexSkillTargetMode::Agents)
+                .expect("Failed to serialize CodexSkillTargetMode::Agents"),
+            "\"agents\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CodexSkillTargetMode::Both)
+                .expect("Failed to serialize CodexSkillTargetMode::Both"),
+            "\"both\""
+        );
+    }
+
+    #[test]
+    fn test_codex_skill_target_mode_deserialization() {
+        assert_eq!(
+            serde_json::from_str::<CodexSkillTargetMode>("\"auto\"")
+                .expect("Failed to deserialize CodexSkillTargetMode::Auto"),
+            CodexSkillTargetMode::Auto
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexSkillTargetMode>("\"codex\"")
+                .expect("Failed to deserialize CodexSkillTargetMode::Codex"),
+            CodexSkillTargetMode::Codex
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexSkillTargetMode>("\"agents\"")
+                .expect("Failed to deserialize CodexSkillTargetMode::Agents"),
+            CodexSkillTargetMode::Agents
+        );
+        assert_eq!(
+            serde_json::from_str::<CodexSkillTargetMode>("\"both\"")
+                .expect("Failed to deserialize CodexSkillTargetMode::Both"),
+            CodexSkillTargetMode::Both
+        );
+    }
+
+    #[test]
     fn test_secret_manager_type_serialization() {
         assert_eq!(
             serde_json::to_string(&SecretManagerType::Vault)
@@ -194,6 +265,7 @@ mod tests {
                 agent: Agent::Claude,
                 context_file: Some("CUSTOM.md".to_string()),
             }),
+            codex: Some(CodexConfig { skill_target: Some(CodexSkillTargetMode::Agents) }),
         };
 
         let toml_str = toml::to_string(&config).expect("Failed to serialize AppConfig");
@@ -202,6 +274,8 @@ mod tests {
         assert!(toml_str.contains("[default]"));
         assert!(toml_str.contains("agent = \"claude\""));
         assert!(toml_str.contains("context-file = \"CUSTOM.md\""));
+        assert!(toml_str.contains("[codex]"));
+        assert!(toml_str.contains("skill-target = \"agents\""));
     }
 
     #[test]
@@ -213,6 +287,9 @@ type = "1password"
 [default]
 agent = "codex"
 context-file = "AGENTS.md"
+
+[codex]
+skill-target = "both"
 "#;
 
         let config: AppConfig = toml::from_str(toml_str).expect("Failed to deserialize AppConfig");
@@ -225,6 +302,10 @@ context-file = "AGENTS.md"
         let default = config.default.expect("Default config should be present");
         assert_eq!(default.agent, Agent::Codex);
         assert_eq!(default.context_file, Some("AGENTS.md".to_string()));
+        assert_eq!(
+            config.codex.expect("Codex config should be present").skill_target,
+            Some(CodexSkillTargetMode::Both)
+        );
     }
 
     #[test]

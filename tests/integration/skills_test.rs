@@ -38,6 +38,28 @@ mod tests {
         }
     }
 
+    fn run_codex_skill_sync(mode: &str) -> TestFixture {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_skill("codex-test", "# Codex Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(
+            fixture.config.join("config.toml"),
+            format!("[codex]\nskill-target = \"{mode}\"\n"),
+        )
+        .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "codex", "--enable-codex-skills"])
+            .assert()
+            .success();
+
+        fixture
+    }
+
     #[test]
     #[serial]
     fn test_skills_sync_project_local() {
@@ -131,20 +153,39 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_skills_sync_codex_project_local_uses_compatibility_targets() {
+    fn test_skills_sync_codex_auto_targets_both_project_local() {
         let _env_guard = EnvGuard::new();
-        let fixture = TestFixture::new().unwrap();
-        fixture.setup_env();
+        let fixture = run_codex_skill_sync("auto");
 
-        fixture.with_skill("codex-test", "# Codex Skill").unwrap();
-        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
+        assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
+    }
 
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
-        cmd.current_dir(&fixture.project)
-            .env("XDG_CONFIG_HOME", fixture.config_home())
-            .args(["skills", "sync", "--agent", "codex", "--enable-codex-skills"])
-            .assert()
-            .success();
+    #[test]
+    #[serial]
+    fn test_skills_sync_codex_mode_targets_only_codex_project_local() {
+        let _env_guard = EnvGuard::new();
+        let fixture = run_codex_skill_sync("codex");
+
+        assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
+        assert!(!fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_codex_mode_targets_only_agents_project_local() {
+        let _env_guard = EnvGuard::new();
+        let fixture = run_codex_skill_sync("agents");
+
+        assert!(!fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
+        assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_codex_mode_targets_both_project_local() {
+        let _env_guard = EnvGuard::new();
+        let fixture = run_codex_skill_sync("both");
 
         assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
         assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
