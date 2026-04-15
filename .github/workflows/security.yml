@@ -1,4 +1,4 @@
-name: Security Audit
+name: Repository Security Audit
 
 on:
   schedule:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   audit:
-    name: Security Audit
+    name: Scheduled Security Audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
