@@ -50,6 +50,7 @@ target/llvm-cov/
 !README.md
 !CLAUDE.md
 !CHANGELOG.md
+!SECURITY.md
 !docs/*.md
 
 # Logs

@@ -1,0 +1,15 @@
+# Default owner for all repository changes.
+* @cariandrum22
+
+# Repository policy and automation.
+/.github/ @cariandrum22
+/.github/CODEOWNERS @cariandrum22
+
+# Security- and release-sensitive files.
+/Cargo.toml @cariandrum22
+/Cargo.lock @cariandrum22
+/deny.toml @cariandrum22
+/flake.nix @cariandrum22
+/flake.lock @cariandrum22
+/src/config.rs @cariandrum22
+/src/secrets.rs @cariandrum22

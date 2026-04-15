@@ -270,13 +270,13 @@
             };
 
             check-yaml = {
-              enable = false; # No YAML files in the project
+              enable = true;
               entry = "${pkgs.writeShellScript "check-yaml" ''
                 if [ $# -eq 0 ]; then
                   exit 0
                 fi
                 for file in "$@"; do
-                  ${pkgs.yq}/bin/yq e '.' "$file" > /dev/null || exit 1
+                  ${pkgs.yq}/bin/yq '.' "$file" > /dev/null || exit 1
                 done
               ''}";
               types = [ "yaml" ];

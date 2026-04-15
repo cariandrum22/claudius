@@ -160,7 +160,7 @@ jobs:
 
   # Security audit job
   security:
-    name: Security Audit
+    name: CI Security Audit
     runs-on: ubuntu-latest
     permissions:
       security-events: write
