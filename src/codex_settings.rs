@@ -141,11 +141,31 @@ pub struct HistoryConfig {
 
 // Known field names for validation
 pub const KNOWN_CODEX_FIELDS: &[&str] = &[
+    "agents",
+    "allow_login_shell",
+    "analytics",
     "model",
+    "model_auto_compact_token_limit",
+    "model_catalog_json",
     "review_model",
+    "model_instructions_file",
     "model_provider",
+    "model_reasoning_effort",
+    "model_reasoning_summary",
+    "model_supports_reasoning_summaries",
     "model_context_window",
+    "model_verbosity",
+    "notice",
     "approval_policy",
+    "approvals_reviewer",
+    "apps",
+    "auto_review",
+    "background_terminal_max_timeout",
+    "background_terminal_timeout",
+    "commit_attribution",
+    "compact_prompt",
+    "default_permissions",
+    "disable_paste_burst",
     "notify",
     "model_providers",
     "shell_environment_policy",
@@ -153,18 +173,36 @@ pub const KNOWN_CODEX_FIELDS: &[&str] = &[
     "sandbox_workspace_write",
     "sandbox",
     "history",
+    "hooks",
+    "log_dir",
     "mcp_servers",
+    "mcp_oauth_callback_port",
+    "mcp_oauth_callback_url",
+    "mcp_oauth_credentials_store",
+    "memories",
     // Newer Codex CLI fields (non-exhaustive; used only for warning suppression)
     "check_for_update_on_startup",
     "instructions",
     "developer_instructions",
+    "default_profile",
+    "experimental_compact_prompt_file",
+    "experimental_instructions_file",
+    "experimental_use_unified_exec_tool",
+    "feedback",
     "features",
     "profile",
     "profiles",
+    "personality",
+    "plan_mode_reasoning_effort",
     "projects",
     "project_root_markers",
     "project_doc_max_bytes",
     "project_doc_fallback_filenames",
+    "service_tier",
+    "skills",
+    "sqlite_home",
+    "suppress_unstable_features_warning",
+    "tool_suggest",
     "tool_output_token_limit",
     "tui",
     "hide_agent_reasoning",
@@ -174,8 +212,14 @@ pub const KNOWN_CODEX_FIELDS: &[&str] = &[
     "forced_chatgpt_workspace_id",
     "forced_login_method",
     "chatgpt_base_url",
+    "openai_base_url",
     "otel",
     "oss_provider",
+    "permissions",
+    "tools",
+    "web_search",
+    "windows",
+    "windows_wsl_setup_acknowledged",
     // Legacy / compatibility fields
     "disable_response_storage",
 ];
@@ -199,6 +243,28 @@ pub const KNOWN_SANDBOX_WORKSPACE_WRITE_FIELDS: &[&str] =
 
 pub const KNOWN_HISTORY_FIELDS: &[&str] = &["persistence", "max_bytes"];
 
+pub const KNOWN_CODEX_FEATURE_FIELDS: &[&str] = &[
+    "apps",
+    "browser_use",
+    "codex_hooks",
+    "computer_use",
+    "enable_request_compression",
+    "fast_mode",
+    "in_app_browser",
+    "memories",
+    "multi_agent",
+    "personality",
+    "prevent_idle_sleep",
+    "shell_snapshot",
+    "shell_tool",
+    "skill_mcp_dependency_install",
+    "undo",
+    "unified_exec",
+    "web_search",
+    "web_search_cached",
+    "web_search_request",
+];
+
 const CODEX_MCP_STDIO_UNSUPPORTED_FIELDS: &[&str] =
     &["url", "bearer_token_env_var", "http_headers", "env_http_headers"];
 
@@ -216,6 +282,7 @@ pub fn validate_codex_settings(toml_value: &TomlValue) -> Vec<String> {
             }
 
             validate_nested_codex_field(key.as_str(), value, &mut warnings);
+            validate_deprecated_codex_field(key.as_str(), value, &mut warnings);
         }
     }
 
@@ -235,6 +302,7 @@ fn validate_nested_codex_field(parent_key: &str, value: &TomlValue, warnings: &m
         },
         "sandbox" => Some((KNOWN_SANDBOX_FIELDS, "sandbox", false)),
         "history" => Some((KNOWN_HISTORY_FIELDS, "history", false)),
+        "features" => Some((KNOWN_CODEX_FEATURE_FIELDS, "features", false)),
         _ => None,
     };
 
@@ -245,6 +313,64 @@ fn validate_nested_codex_field(parent_key: &str, value: &TomlValue, warnings: &m
             validate_simple_table(value, known_fields, field_name, warnings);
         }
     }
+}
+
+fn validate_deprecated_codex_field(
+    parent_key: &str,
+    value: &TomlValue,
+    warnings: &mut Vec<String>,
+) {
+    match parent_key {
+        "approval_policy" => {
+            if matches!(value, TomlValue::String(policy) if policy == "on-failure") {
+                warnings.push(
+                    "approval_policy = \"on-failure\" is deprecated; use \"on-request\" or \"never\""
+                        .to_string(),
+                );
+            }
+        },
+        "background_terminal_timeout" => warnings.push(
+            "background_terminal_timeout is deprecated; rename it to background_terminal_max_timeout"
+                .to_string(),
+        ),
+        "disable_response_storage" => warnings.push(
+            "disable_response_storage is a legacy Codex setting and no longer appears in the current config reference"
+                .to_string(),
+        ),
+        "experimental_instructions_file" => warnings.push(
+            "experimental_instructions_file is deprecated; rename it to model_instructions_file"
+                .to_string(),
+        ),
+        "experimental_use_unified_exec_tool" => warnings.push(
+            "experimental_use_unified_exec_tool is a legacy flag; prefer features.unified_exec"
+                .to_string(),
+        ),
+        "instructions" => warnings.push(
+            "instructions is reserved for future use; prefer model_instructions_file or AGENTS.md"
+                .to_string(),
+        ),
+        "features" => validate_deprecated_codex_feature_flags(value, warnings),
+        _ => {},
+    }
+}
+
+fn validate_deprecated_codex_feature_flags(value: &TomlValue, warnings: &mut Vec<String>) {
+    let TomlValue::Table(features) = value else {
+        return;
+    };
+
+    [
+        ("web_search", "web_search"),
+        ("web_search_cached", "web_search"),
+        ("web_search_request", "web_search"),
+    ]
+    .into_iter()
+    .filter(|(field, _)| features.contains_key(*field))
+    .for_each(|(field, replacement)| {
+        warnings.push(format!(
+            "features.{field} is deprecated; prefer the top-level {replacement} setting"
+        ));
+    });
 }
 
 /// Validate model providers which have an additional nesting level

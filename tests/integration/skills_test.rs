@@ -121,6 +121,44 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_skills_sync_gemini_combines_shared_and_agent_specific_skills() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_skill("shared-skill", "# Shared Skill").unwrap();
+        fixture.with_agent_skill("gemini", "gemini-skill", "# Gemini Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut initial_sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        initial_sync
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "gemini"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Legacy commands directory detected").not());
+
+        assert!(fixture.project_file_exists(".gemini/skills/shared-skill/SKILL.md"));
+        assert!(fixture.project_file_exists(".gemini/skills/gemini-skill/SKILL.md"));
+
+        fs::remove_dir_all(fixture.config.join("skills").join("gemini").join("gemini-skill"))
+            .unwrap();
+
+        let mut prune_sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        prune_sync
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "gemini", "--prune"])
+            .assert()
+            .success();
+
+        assert!(fixture.project_file_exists(".gemini/skills/shared-skill/SKILL.md"));
+        assert!(!fixture.project_file_exists(".gemini/skills/gemini-skill/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
     fn test_skills_sync_global() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();

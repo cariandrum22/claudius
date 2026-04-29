@@ -1462,6 +1462,9 @@ pub fn sync_supporting_assets(
     if let Some(asset) = sync_gemini_commands_if_exists(config, behavior) {
         report.push(asset);
     }
+    if let Some(asset) = sync_gemini_agents_if_exists(config, behavior) {
+        report.push(asset);
+    }
     if let Some(asset) = sync_claude_code_agents_if_exists(config, agent_context, behavior) {
         report.push(asset);
     }
@@ -1489,20 +1492,14 @@ fn sync_skills_if_exists(
         return None;
     }
 
-    let source_dir = config.resolve_skills_source_dir();
-
-    if let Some(path) = source_dir.as_ref().filter(|path| **path != config.skills_dir) {
-        warn!("Legacy commands directory detected; syncing skills from {}", path.display());
-    }
-
+    let source_set = collect_skill_source_set(config)?;
+    log_skill_source_details(config, &source_set);
     debug!("Syncing skills");
-    if let Some(path) = &source_dir {
-        debug!("Source: {}", path.display());
-    }
+    debug!("Source mappings: {}", source_set.mappings.len());
     debug!("Target: {}", config.skills_target_dir.display());
 
-    match skills::sync_skills_with_options(
-        source_dir.as_deref(),
+    match skills::sync_skill_mappings_with_options(
+        &source_set.mappings,
         &config.skills_target_dir,
         behavior,
     ) {
@@ -1527,6 +1524,34 @@ fn sync_skills_if_exists(
     }
 }
 
+fn collect_skill_source_set(config: &Config) -> Option<skills::SkillSourceSet> {
+    match config.config_root_dir().and_then(|config_root| {
+        skills::collect_claudius_skill_source_set(config_root, config.agent)
+    }) {
+        Ok(source_set) => Some(source_set),
+        Err(e) => {
+            warn!("Failed to collect skill sources: {}", e);
+            None
+        },
+    }
+}
+
+fn log_skill_source_details(config: &Config, source_set: &skills::SkillSourceSet) {
+    if !source_set.includes_legacy_commands {
+        return;
+    }
+
+    match config.config_root_dir() {
+        Ok(config_root) => warn!(
+            "Legacy commands directory detected; syncing skills from {}",
+            config_root.join("commands").display()
+        ),
+        Err(e) => {
+            warn!("Legacy commands directory detected but config root is unavailable: {e}");
+        },
+    }
+}
+
 fn sync_gemini_commands_if_exists(
     config: &Config,
     behavior: SyncBehavior,
@@ -1544,6 +1569,29 @@ fn sync_gemini_commands_if_exists(
     sync_directory_tree_if_exists(
         "Gemini command",
         "Gemini commands",
+        source_dir.as_deref(),
+        &target_dir,
+        behavior,
+    )
+}
+
+fn sync_gemini_agents_if_exists(
+    config: &Config,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
+    let source_dir = config.resolve_gemini_agents_source_dir();
+    let target_dir = match config.gemini_agents_target_dir() {
+        Ok(Some(path)) => path,
+        Ok(None) => return None,
+        Err(e) => {
+            warn!("Failed to determine Gemini agents target directory: {}", e);
+            return None;
+        },
+    };
+
+    sync_directory_tree_if_exists(
+        "Gemini agent",
+        "Gemini agents",
         source_dir.as_deref(),
         &target_dir,
         behavior,

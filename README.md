@@ -134,7 +134,11 @@ claudius --list-commands
    - (Optional) Edit `~/.config/claudius/codex.requirements.toml` for Codex admin-enforced constraints
    - (Optional) Edit `~/.config/claudius/codex.managed_config.toml` for Codex admin-managed defaults
    - Edit `~/.config/claudius/gemini.settings.json` to configure Gemini settings
+   - (Optional) Edit `~/.config/claudius/gemini.system_defaults.json` for Gemini system defaults
    - Add skills to `~/.config/claudius/skills/` (one directory per skill with `SKILL.md`)
+   - (Optional) Add Gemini commands to `~/.config/claudius/commands/gemini/*.toml`
+   - (Optional) Add Gemini agents to `~/.config/claudius/agents/gemini/*.md`
+   - (Optional) Add Claude Code subagents to `~/.config/claudius/agents/claude-code/*.md`
    - Add context rules to `~/.config/claudius/rules/`
 
 3. **Sync configuration:**
@@ -168,9 +172,9 @@ Claudius does not treat every target surface equally. Current support levels are
 | Surface | Actively managed | Best-effort / compatibility | Intentionally unmanaged |
 | --- | --- | --- | --- |
 | Claude Desktop | Global `claude_desktop_config.json` MCP sync, project-local `.mcp.json` MCP sync | Entire Claude Desktop target is legacy / best-effort | Extensions, Connectors, and other UI-managed app surfaces |
-| Claude Code | Project, local, user, and managed MCP/settings files; `.claude/agents`; skills; context files | Legacy `settings.json` source alias | Non-file-based product features |
-| Codex | User and admin TOML config files; context files | Experimental skills; compatibility sync to `.agents/skills` | Non-file-based product features |
-| Gemini | User and system settings; `.gemini/commands`; skills; context files | OS-specific system settings path handling | Gemini extensions |
+| Claude Code | Project, local, user, and managed MCP/settings files; `.claude/agents`; skills; context files | Legacy `settings.json` source alias | Slash commands in `.claude/commands`; non-file-based product features |
+| Codex | User and admin TOML config files; context files | Experimental skills; compatibility sync to `.agents/skills` | Cloud-managed enterprise policies, macOS MDM payloads, and other non-file-based product features |
+| Gemini | User, system, and system-default settings; `.gemini/commands`; `.gemini/agents`; skills; context files | OS-specific system path handling | Gemini extensions and custom sandbox profiles |
 
 Prefer `--agent claude-code`, `--agent codex`, or `--agent gemini` for actively managed surfaces. Use `--agent claude` only when you specifically need the legacy Claude Desktop JSON target.
 
@@ -207,14 +211,18 @@ This creates:
 - `codex.requirements.toml` with default Codex requirements (admin-enforced)
 - `codex.managed_config.toml` with default Codex managed defaults (admin-managed)
 - `gemini.settings.json` with default Gemini settings
+- `gemini.system_defaults.json` with default Gemini system defaults
 - `config.toml` with Claudius application settings (optional)
+- `commands/gemini/` for Gemini custom commands
+- `agents/gemini/` for Gemini custom agents
+- `agents/claude-code/` for Claude Code subagents
 - `skills/example/SKILL.md` - Example skill
 - `rules/example.md` - Example context file rule template
 
 ### `claudius config sync`
 
 Synchronize all agent configurations to target files.
-When present, Claudius also syncs Gemini custom commands and Claude Code subagents.
+When present, Claudius also syncs Gemini custom commands, Gemini custom agents, and Claude Code subagents.
 Claude Desktop sync is retained as a legacy / best-effort path for JSON-based workflows. Claudius does not manage Claude Desktop Extensions or Connectors.
 
 **Project-local mode (default):**
@@ -237,6 +245,7 @@ Claude Desktop sync is retained as a legacy / best-effort path for JSON-based wo
 - Gemini (`--agent gemini`):
   - User settings: `~/.gemini/settings.json`
   - System settings: `/etc/gemini-cli/settings.json` (`--gemini-system`, path varies by OS)
+  - System defaults: `/etc/gemini-cli/system-defaults.json` (`--gemini-system-defaults`, path varies by OS)
 
 ```bash
 # Basic sync to project-local files
@@ -254,7 +263,7 @@ claudius config sync --dry-run --prune
 # Create backup before syncing
 claudius config sync --backup
 
-# Remove stale skills, Gemini commands, and Claude Code subagents that
+# Remove stale skills, Gemini commands, Gemini agents, and Claude Code subagents that
 # Claudius previously deployed
 claudius config sync --prune
 
@@ -275,15 +284,18 @@ claudius config sync --global --agent codex --codex-requirements --codex-managed
 
 # Gemini system settings (system-wide)
 claudius config sync --global --agent gemini --gemini-system
+
+# Gemini system defaults (system-wide)
+claudius config sync --global --agent gemini --gemini-system-defaults
 ```
 
 ### `claudius config validate`
 
 Validate configuration source files without writing anything.
 
-This command validates MCP servers, agent settings, Gemini custom commands, and
-Claude Code subagent definitions. When Codex skills are present, it also surfaces
-their current compatibility-mode warning.
+This command validates MCP servers, agent settings, Gemini custom commands,
+Gemini custom agents, and Claude Code subagent definitions. When Codex skills are
+present, it also surfaces their current compatibility-mode warning.
 
 ```bash
 # Validate all available source files
@@ -447,6 +459,7 @@ Features:
 ├── codex.requirements.toml # Codex requirements (admin-enforced, optional)
 ├── codex.managed_config.toml # Codex managed defaults (admin-managed, optional)
 ├── gemini.settings.json # Gemini settings (optional)
+├── gemini.system_defaults.json # Gemini system defaults (optional)
 ├── settings.json      # Legacy alias for claude.settings.json (backward compatible)
 ├── skills/            # Skills (shared + agent-specific)
 │   ├── <skill>/       # Shared skill
@@ -458,6 +471,8 @@ Features:
 │   └── gemini/       # Gemini custom commands
 │       └── *.toml
 ├── agents/
+│   ├── gemini/       # Gemini custom agents
+│   │   └── *.md
 │   └── claude-code/  # Claude Code subagents
 │       └── *.md
 └── rules/             # Context file templates
@@ -506,7 +521,7 @@ Configure Claude/Claude Code settings:
 Configure Codex CLI settings (merged into `.codex/config.toml` or `~/.codex/config.toml`):
 
 ```toml
-# model = "gpt-5-codex"
+# model = "gpt-5.5"
 # approval_policy = "on-request"
 ```
 
@@ -515,10 +530,11 @@ Configure Codex CLI settings (merged into `.codex/config.toml` or `~/.codex/conf
 Admin-enforced constraints for Codex (synced with `--codex-requirements`):
 
 - Target (Unix): `/etc/codex/requirements.toml`
+- Target (Windows): `%ProgramData%\\OpenAI\\Codex\\requirements.toml`
 - Override target path: `CLAUDIUS_CODEX_REQUIREMENTS_PATH`
 
 ```toml
-# allowed_approval_policies = ["untrusted", "on-request", "on-failure"]
+# allowed_approval_policies = ["untrusted", "on-request", "never"]
 # allowed_sandbox_modes = ["read-only", "workspace-write"]
 ```
 
@@ -527,6 +543,7 @@ Admin-enforced constraints for Codex (synced with `--codex-requirements`):
 Admin-managed defaults for Codex (synced with `--codex-managed-config`):
 
 - Target (Unix): `/etc/codex/managed_config.toml`
+- Target (Windows/non-Unix): `~/.codex/managed_config.toml`
 - Override target path: `CLAUDIUS_CODEX_MANAGED_CONFIG_PATH`
 
 ```toml
@@ -547,6 +564,24 @@ Configure Gemini CLI settings (category-based schema):
   "context": {},
   "privacy": {},
   "telemetry": {}
+}
+```
+
+### gemini.system_defaults.json (Optional)
+
+Configure Gemini CLI system defaults (synced with `--gemini-system-defaults`):
+
+- Target (Unix): `/etc/gemini-cli/system-defaults.json`
+- Override target path: `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "billing": {
+    "project": "shared-project"
+  },
+  "policyPaths": ["/etc/gemini-cli/policy.json"],
+  "adminPolicyPaths": ["/etc/gemini-cli/admin-policy.json"]
 }
 ```
 
@@ -620,6 +655,7 @@ To override a shared skill for a specific agent, place it under
 
 When present, `claudius config sync` also deploys:
 - `~/.config/claudius/commands/gemini/*.toml` → `.gemini/commands/` or `~/.gemini/commands/`
+- `~/.config/claudius/agents/gemini/*.md` → `.gemini/agents/` or `~/.gemini/agents/`
 - `~/.config/claudius/agents/claude-code/*.md` → `.claude/agents/` or `~/.claude/agents/`
 
 Gemini extensions are not managed by Claudius. Install and update them through the Gemini CLI
@@ -628,6 +664,9 @@ extension workflow, then keep extension-specific settings in `gemini.settings.js
 ### Migration: commands → skills
 
 If you previously stored slash commands in `commands/*.md`, move them into skills:
+
+Claude Code still supports `.claude/commands/*.md`, but Claudius does not sync that
+surface yet. Skills keep a single cross-agent source of truth inside Claudius.
 
 ```bash
 # Example: migrate a legacy command to a skill
@@ -674,6 +713,7 @@ Claudius offers two ways to manage project context:
 - `CLAUDIUS_CODEX_REQUIREMENTS_PATH` - Override Codex `requirements.toml` target path
 - `CLAUDIUS_CODEX_MANAGED_CONFIG_PATH` - Override Codex `managed_config.toml` target path
 - `GEMINI_CLI_SYSTEM_SETTINGS_PATH` - Override Gemini CLI system settings path (used with `--gemini-system`)
+- `GEMINI_CLI_SYSTEM_DEFAULTS_PATH` - Override Gemini CLI system defaults path (used with `--gemini-system-defaults`)
 - `XDG_CONFIG_HOME` - Base directory for configuration files
 - `CLAUDIUS_SECRET_*` - Environment variables for secret injection (prefix is removed)
 - `CLAUDIUS_TEST_MOCK_OP` - Enable mock mode for 1Password CLI (for testing)
@@ -769,8 +809,8 @@ claudius config sync --agent codex   # Creates .codex/config.toml
 claudius config sync --agent gemini  # Creates .gemini/settings.json
 
 # Set default agent in config.toml
-echo '[agent]
-type = "codex"' >> ~/.config/claudius/config.toml
+echo '[default]
+agent = "codex"' >> ~/.config/claudius/config.toml
 ```
 
 ### Secret Management

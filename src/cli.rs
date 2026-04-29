@@ -16,19 +16,21 @@ It helps you:
 Claude Desktop support is retained as a legacy / best-effort MCP target.
 Prefer Claude Code, Codex, or Gemini when you need actively managed surfaces.
 
-Configuration files are stored in:
-  • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
-    - mcpServers.json: MCP server definitions
-    - claude.settings.json: Claude/Claude Code settings (optional)
-    - codex.settings.toml: Codex settings (optional)
-    - codex.requirements.toml: Codex requirements (admin-enforced, optional)
-    - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
-    - gemini.settings.json: Gemini settings (optional)
-    - settings.json: Legacy Claude settings (backward compatible)
-    - skills/: Shared and agent-specific skills (directories with SKILL.md)
-    - commands/gemini/: Gemini custom commands (*.toml)
-    - agents/claude-code/: Claude Code subagents (*.md)
-    - rules/: Agent context templates (*.md)
+    Configuration files are stored in:
+      • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
+        - mcpServers.json: MCP server definitions
+        - claude.settings.json: Claude/Claude Code settings (optional)
+        - codex.settings.toml: Codex settings (optional)
+        - codex.requirements.toml: Codex requirements (admin-enforced, optional)
+        - codex.managed_config.toml: Codex managed defaults (admin-managed, optional)
+        - gemini.settings.json: Gemini settings (optional)
+        - gemini.system_defaults.json: Gemini CLI system defaults (optional)
+        - settings.json: Legacy Claude settings (backward compatible)
+        - skills/: Shared and agent-specific skills (directories with SKILL.md)
+        - commands/gemini/: Gemini custom commands (*.toml)
+        - agents/gemini/: Gemini custom agents (*.md)
+        - agents/claude-code/: Claude Code subagents (*.md)
+        - rules/: Agent context templates (*.md)
 
 Target files:
   • ./.mcp.json (MCP servers in project-local mode, default)
@@ -38,11 +40,12 @@ Target files:
   • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
   • System-level managed-settings.json / managed-mcp.json (Claude Code managed scope)
   • ~/.codex/config.toml (Codex global config)
-  • /etc/codex/requirements.toml (Codex requirements, admin-enforced)
-  • /etc/codex/managed_config.toml (Codex managed defaults)
-  • ~/.gemini/settings.json (Gemini global config)
-  • /etc/gemini-cli/settings.json (Gemini CLI system settings)
-  • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
+      • /etc/codex/requirements.toml (Codex requirements, admin-enforced)
+      • /etc/codex/managed_config.toml (Codex managed defaults)
+      • ~/.gemini/settings.json (Gemini global config)
+      • /etc/gemini-cli/settings.json (Gemini CLI system settings)
+      • /etc/gemini-cli/system-defaults.json (Gemini CLI system defaults)
+      • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
     version,
     author
 )]
@@ -91,18 +94,20 @@ pub enum ConfigCommands {
     /// Bootstrap Claudius configuration directory with default files
     #[command(long_about = "Bootstrap Claudius configuration directory with default files.
 
-This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
-  • mcpServers.json - MCP server configuration template
-  • claude.settings.json - Claude/Claude Code settings template
-  • codex.settings.toml - Codex settings template
-  • codex.requirements.toml - Codex requirements template (admin-enforced)
-  • codex.managed_config.toml - Codex managed defaults template (admin-managed)
-  • gemini.settings.json - Gemini settings template
-  • settings.json - Legacy Claude settings (backward compatible)
-  • skills/ - Directory for shared and agent-specific skills
-  • commands/gemini/ - Gemini custom commands (*.toml)
-  • agents/claude-code/ - Claude Code subagents (*.md)
-  • rules/ - Directory for agent context rules
+    This command creates the following structure in $XDG_CONFIG_HOME/claudius/:
+      • mcpServers.json - MCP server configuration template
+      • claude.settings.json - Claude/Claude Code settings template
+      • codex.settings.toml - Codex settings template
+      • codex.requirements.toml - Codex requirements template (admin-enforced)
+      • codex.managed_config.toml - Codex managed defaults template (admin-managed)
+      • gemini.settings.json - Gemini settings template
+      • gemini.system_defaults.json - Gemini CLI system defaults template
+      • settings.json - Legacy Claude settings (backward compatible)
+      • skills/ - Directory for shared and agent-specific skills
+      • commands/gemini/ - Gemini custom commands (*.toml)
+      • agents/gemini/ - Gemini custom agents (*.md)
+      • agents/claude-code/ - Claude Code subagents (*.md)
+      • rules/ - Directory for agent context rules
 
 By default, existing files are preserved. Use --force to reinitialize.
 
@@ -119,12 +124,13 @@ Examples:
 
 This command:
   1. Reads mcpServers.json for MCP server definitions
-  2. Reads agent settings (if present):
-     - claude.settings.json (or legacy settings.json)
-     - codex.settings.toml
-     - codex.requirements.toml (optional; used with --codex-requirements)
-     - codex.managed_config.toml (optional; used with --codex-managed-config)
-     - gemini.settings.json
+     2. Reads agent settings (if present):
+        - claude.settings.json (or legacy settings.json)
+        - codex.settings.toml
+        - codex.requirements.toml (optional; used with --codex-requirements)
+        - codex.managed_config.toml (optional; used with --codex-managed-config)
+        - gemini.settings.json
+        - gemini.system_defaults.json (optional; used with --gemini-system-defaults)
   3. Writes configurations to:
      - Project-local mode (default):
        • Claude (`--agent claude`): ./.mcp.json (legacy / best-effort Desktop-compatible MCP target)
@@ -139,11 +145,13 @@ This command:
        • Codex: ~/.codex/config.toml
        • Gemini: ~/.gemini/settings.json
        • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
-  4. Syncs auxiliary agent content when present:
-     - skills/ -> agent skills directories
-     - commands/gemini/ -> .gemini/commands
-     - agents/claude-code/ -> .claude/agents
-     - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
+       • Gemini system defaults (--gemini-system-defaults): /etc/gemini-cli/system-defaults.json
+     4. Syncs auxiliary agent content when present:
+       - skills/ -> agent skills directories
+       - commands/gemini/ -> .gemini/commands
+       - agents/gemini/ -> .gemini/agents
+       - agents/claude-code/ -> .claude/agents
+       - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
 
 Note: `--agent claude` is retained for legacy Claude Desktop JSON workflows.
 For actively managed CLI surfaces, prefer `claude-code`, `codex`, or `gemini`.
@@ -169,15 +177,17 @@ Examples:
     #[command(
         long_about = "Validate Claudius configuration source files without writing anything.
 
-This command checks:
-  • mcpServers.json (required) - MCP server definitions
-  • claude.settings.json / settings.json (optional) - Claude/Claude Code settings
-  • codex.settings.toml (optional) - Codex settings
-  • codex.requirements.toml (optional) - Codex admin-enforced requirements
-  • codex.managed_config.toml (optional) - Codex admin-managed defaults
-  • gemini.settings.json (optional) - Gemini settings
-  • commands/gemini/*.toml (optional) - Gemini custom commands
-  • agents/claude-code/*.md (optional) - Claude Code subagent definitions
+    This command checks:
+      • mcpServers.json (required) - MCP server definitions
+      • claude.settings.json / settings.json (optional) - Claude/Claude Code settings
+      • codex.settings.toml (optional) - Codex settings
+      • codex.requirements.toml (optional) - Codex admin-enforced requirements
+      • codex.managed_config.toml (optional) - Codex admin-managed defaults
+      • gemini.settings.json (optional) - Gemini settings
+      • gemini.system_defaults.json (optional) - Gemini CLI system defaults
+      • commands/gemini/*.toml (optional) - Gemini custom commands
+      • agents/gemini/*.md (optional) - Gemini custom agents
+      • agents/claude-code/*.md (optional) - Claude Code subagent definitions
 
 Use --agent to validate a specific agent's settings.
 Use --strict to fail on warnings."
@@ -193,6 +203,7 @@ to report situations such as:
   • legacy settings.json still in use
   • legacy commands/*.md fallback still present
   • Claude Desktop JSON targets being used as legacy / best-effort surfaces
+  • unmanaged Claude Code slash commands in .claude/commands
   • unmanaged Gemini extensions in the selected deployment context
   • experimental Codex skill sync surfaces
   • stale deployed assets that no longer exist in the source tree
@@ -407,6 +418,13 @@ pub struct ConfigSyncArgs {
         help = "Target Gemini CLI system settings file (e.g. /etc/gemini-cli/settings.json; global Gemini only)"
     )]
     pub gemini_system: bool,
+
+    /// Target Gemini CLI system-defaults.json file (global Gemini only)
+    #[arg(
+        long,
+        help = "Target Gemini CLI system-defaults.json (e.g. /etc/gemini-cli/system-defaults.json; global Gemini only)"
+    )]
+    pub gemini_system_defaults: bool,
 }
 
 #[derive(Args, Debug, Clone, Copy)]

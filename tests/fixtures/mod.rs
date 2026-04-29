@@ -54,6 +54,13 @@ impl TestFixture {
         Ok(self)
     }
 
+    /// Create a test `gemini.system_defaults.json` file.
+    pub fn with_gemini_system_defaults(&self, content: &str) -> std::io::Result<&Self> {
+        let path = self.config.join("gemini.system_defaults.json");
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
     /// Create a test claude.settings.json file
     pub fn with_claude_settings(&self, content: &str) -> std::io::Result<&Self> {
         let path = self.config.join("claude.settings.json");
@@ -78,11 +85,35 @@ impl TestFixture {
         Ok(self)
     }
 
+    /// Create an agent-specific skill directory with SKILL.md.
+    pub fn with_agent_skill(
+        &self,
+        agent: &str,
+        name: &str,
+        content: &str,
+    ) -> std::io::Result<&Self> {
+        let skills_root = self.config.join("skills").join(agent);
+        let skill_path = skills_root.join(name);
+        fs::create_dir_all(&skill_path)?;
+        let path = skill_path.join("SKILL.md");
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
     /// Create a Gemini custom command TOML file.
     pub fn with_gemini_command(&self, name: &str, content: &str) -> std::io::Result<&Self> {
         let commands_dir = self.config.join("commands").join("gemini");
         fs::create_dir_all(&commands_dir)?;
         let path = commands_dir.join(format!("{name}.toml"));
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
+    /// Create a Gemini agent definition file.
+    pub fn with_gemini_agent(&self, name: &str, content: &str) -> std::io::Result<&Self> {
+        let agents_dir = self.config.join("agents").join("gemini");
+        fs::create_dir_all(&agents_dir)?;
+        let path = agents_dir.join(format!("{name}.md"));
         fs::write(path, content)?;
         Ok(self)
     }
