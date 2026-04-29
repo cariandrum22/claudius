@@ -45,7 +45,7 @@
 
         # Use a specific Rust version for reproducibility.
         # Keep this in sync with the MSRV in Cargo.toml.
-        rustToolchain = pkgs.rust-bin.stable."1.92.0".default;
+        rustToolchain = pkgs.rust-bin.stable."1.95.0".default;
         rustPlatform = pkgs.makeRustPlatform {
           cargo = rustToolchain;
           rustc = rustToolchain;
