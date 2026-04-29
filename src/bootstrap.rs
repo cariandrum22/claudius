@@ -69,6 +69,10 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 # agent = "claude"  # Options: "claude", "claude-code", "codex", "gemini"
 # context-file = "CONTEXT.md"  # Custom context file name (overrides agent defaults)
 
+# [codex]
+# Configure experimental Codex skills target selection
+# skill-target = "auto"  # Options: "auto", "codex", "agents", "both"
+
 # [secret-manager]
 # Configure a secret manager to resolve environment variables
 # Supported types: "vault", "1password"
@@ -503,6 +507,11 @@ mod tests {
         let mcp_content = fs::read_to_string(config_dir.join("mcpServers.json"))
             .expect("mcpServers.json should be readable");
         assert!(mcp_content.contains("filesystem"));
+
+        let app_config =
+            fs::read_to_string(config_dir.join("config.toml")).expect("config.toml should exist");
+        assert!(app_config.contains("[codex]"));
+        assert!(app_config.contains("skill-target = \"auto\""));
     }
 
     #[test]

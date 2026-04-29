@@ -344,8 +344,13 @@ claudius skills sync --dry-run --prune
 # Remove stale deployed skill files that Claudius previously published
 claudius skills sync --prune
 
-# Codex skills are experimental and must be explicitly enabled
-# (synced to both .codex/skills and .agents/skills for compatibility)
+# Codex skills are experimental and must be explicitly enabled.
+# Target selection is driven by ~/.config/claudius/config.toml:
+#
+# [codex]
+# skill-target = "auto"   # auto | codex | agents | both
+#
+# `auto` currently syncs to both .codex/skills and .agents/skills for compatibility.
 claudius skills sync --agent codex --enable-codex-skills
 ```
 
@@ -587,8 +592,15 @@ claudius config sync
 
 Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/skills/`
 (Gemini), preserving the directory structure. Codex skills are experimental and require
-explicit opt-in; when enabled they are synced to both `~/.codex/skills/` and
-`~/.agents/skills/` for compatibility.
+explicit opt-in. Configure Codex target selection in `~/.config/claudius/config.toml`:
+
+```toml
+[codex]
+skill-target = "auto" # auto | codex | agents | both
+```
+
+Today `auto` remains compatibility-oriented and publishes to both `~/.codex/skills/`
+and `~/.agents/skills/`.
 
 By default, skill and auxiliary file sync is non-destructive. Use `--prune` to remove
 stale files that Claudius previously deployed. Pruning only touches files tracked in
