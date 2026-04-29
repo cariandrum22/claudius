@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_config_doctor_global_reports_best_effort_and_experimental_surfaces() {
+    fn test_config_doctor_global_reports_best_effort_surfaces() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
@@ -177,7 +177,7 @@ mod tests {
         sync.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
             .env("HOME", fixture.home_dir())
-            .args(["skills", "sync", "--global", "--agent", "codex", "--enable-codex-skills"])
+            .args(["skills", "sync", "--global", "--agent", "codex"])
             .assert()
             .success();
 
@@ -193,10 +193,7 @@ mod tests {
                 "Claude Desktop JSON target is present as a legacy / best-effort surface.",
             ))
             .stdout(predicate::str::contains("claude_desktop_config.json"))
-            .stdout(predicate::str::contains("EXPERIMENTAL"))
-            .stdout(predicate::str::contains(
-                "Codex skill sync remains in experimental compatibility mode.",
-            ))
-            .stdout(predicate::str::contains(".agents/skills"));
+            .stdout(predicate::str::contains("Codex-specific skills source is present."))
+            .stdout(predicate::str::contains("EXPERIMENTAL").not());
     }
 }

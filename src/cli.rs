@@ -151,7 +151,7 @@ This command:
        - commands/gemini/ -> .gemini/commands
        - agents/gemini/ -> .gemini/agents
        - agents/claude-code/ -> .claude/agents
-       - Codex skills stay explicit via `claudius skills sync --agent codex --enable-codex-skills`
+       - Codex skills stay explicit via `claudius skills sync --agent codex`
 
 Note: `--agent claude` is retained for legacy Claude Desktop JSON workflows.
 For actively managed CLI surfaces, prefer `claude-code`, `codex`, or `gemini`.
@@ -205,7 +205,7 @@ to report situations such as:
   • Claude Desktop JSON targets being used as legacy / best-effort surfaces
   • unmanaged Claude Code slash commands in .claude/commands
   • unmanaged Gemini extensions in the selected deployment context
-  • experimental Codex skill sync surfaces
+  • legacy Codex compatibility skill targets in .codex/skills
   • stale deployed assets that no longer exist in the source tree
 
 Use --global to inspect global deployment targets under $HOME.
@@ -222,13 +222,13 @@ pub enum SkillsCommands {
 This command copies skills from your skills/ directory into \
 the agent's skills directory, ensuring all skills are up to date.
 
-Codex skills remain experimental and require `--enable-codex-skills`.
 Choose the Codex target behavior in $XDG_CONFIG_HOME/claudius/config.toml:
 
   [codex]
-  skill-target = \"auto\"   # auto | codex | agents | both
+  skill-target = \"auto\"   # auto | agents | both | codex
 
-`auto` currently publishes to both .codex/skills and .agents/skills for compatibility.")]
+`auto` publishes to the official .agents/skills path.
+Use `both` only if you still need compatibility copies in .codex/skills.")]
     Sync(SkillsSyncArgs),
 }
 
@@ -471,11 +471,8 @@ pub struct SkillsSyncArgs {
     #[arg(short, long, value_enum, help = "Agent to use: claude, claude-code, codex, or gemini")]
     pub agent: Option<crate::app_config::Agent>,
 
-    /// Enable Codex skills sync (experimental)
-    #[arg(
-        long,
-        help = "Enable Codex skills sync (experimental; Codex CLI skills path may change)"
-    )]
+    /// Deprecated no-op kept for backward compatibility
+    #[arg(long, help = "Deprecated: Codex skills sync is enabled by default")]
     pub enable_codex_skills: bool,
 }
 

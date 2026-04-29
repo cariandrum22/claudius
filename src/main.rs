@@ -217,9 +217,8 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
 
     let effective_agent = determine_agent(agent, app_config);
 
-    if effective_agent == Some(claudius::app_config::Agent::Codex) && !enable_codex_skills {
-        println!("Codex skills sync is experimental. Re-run with --enable-codex-skills.");
-        return Ok(());
+    if effective_agent == Some(claudius::app_config::Agent::Codex) && enable_codex_skills {
+        println!("Warning: --enable-codex-skills is deprecated and no longer required.");
     }
 
     let config = Config::new_with_agent(global, effective_agent)?;
@@ -574,8 +573,6 @@ fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
         }
     }
 
-    warnings.extend(validate_codex_skill_compatibility(config_dir));
-
     Ok(warnings)
 }
 
@@ -706,29 +703,6 @@ fn validate_claude_code_subagent_sources(config_dir: &std::path::Path) -> Result
     }
 
     Ok(warnings)
-}
-
-fn validate_codex_skill_compatibility(config_dir: &std::path::Path) -> Vec<String> {
-    let skills_dir = config_dir.join("skills");
-    let legacy_commands_dir = config_dir.join("commands");
-
-    [
-        skills_dir.join("codex"),
-        skills_dir,
-        legacy_commands_dir,
-    ]
-    .iter()
-    .find(|path| path.exists() && directory_has_entries(path))
-    .map_or_else(Vec::new, |path| {
-        vec![format!(
-            "{}: Codex skills sync remains experimental and publishes to both .codex/skills and .agents/skills for compatibility",
-            path.display()
-        )]
-    })
-}
-
-fn directory_has_entries(path: &std::path::Path) -> bool {
-    std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
 }
 
 fn collect_files_with_extension(

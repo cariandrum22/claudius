@@ -53,7 +53,7 @@ mod tests {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
             .env("XDG_CONFIG_HOME", fixture.config_home())
-            .args(["skills", "sync", "--agent", "codex", "--enable-codex-skills"])
+            .args(["skills", "sync", "--agent", "codex"])
             .assert()
             .success();
 
@@ -191,12 +191,12 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_skills_sync_codex_auto_targets_both_project_local() {
+    fn test_skills_sync_codex_auto_targets_agents_project_local() {
         let _env_guard = EnvGuard::new();
         let fixture = run_codex_skill_sync("auto");
 
-        assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
         assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
+        assert!(!fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
     }
 
     #[test]
@@ -225,7 +225,28 @@ mod tests {
         let _env_guard = EnvGuard::new();
         let fixture = run_codex_skill_sync("both");
 
+        assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
         assert!(fixture.project_file_exists(".codex/skills/codex-test/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_codex_accepts_deprecated_enable_flag() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_skill("codex-test", "# Codex Skill").unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "codex", "--enable-codex-skills"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("deprecated and no longer required"));
+
         assert!(fixture.project_file_exists(".agents/skills/codex-test/SKILL.md"));
     }
 

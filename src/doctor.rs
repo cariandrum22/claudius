@@ -353,7 +353,7 @@ fn inspect_skill_sources(
     findings: &mut Vec<DoctorFinding>,
 ) {
     let shared_skills_path = config_dir.join("skills");
-    if !shared_skill_mappings.is_empty() && agent_filter != Some(Agent::Codex) {
+    if !shared_skill_mappings.is_empty() {
         findings.push(DoctorFinding {
             status: DoctorStatus::Supported,
             summary: "Shared skills source is present.".to_string(),
@@ -390,6 +390,14 @@ fn inspect_skill_sources(
         gemini_skill_mappings,
         "Gemini-specific skills source is present.",
     );
+    push_agent_skill_finding(
+        findings,
+        agent_filter,
+        Agent::Codex,
+        config_dir.join("skills").join("codex"),
+        codex_skill_mappings,
+        "Codex-specific skills source is present.",
+    );
 
     if !legacy_command_mappings.is_empty() && agent_filter != Some(Agent::Gemini) {
         findings.push(DoctorFinding {
@@ -401,26 +409,6 @@ fn inspect_skill_sources(
                 legacy_command_mappings.len()
             )),
             recommendation: "Move each commands/*.md file into skills/<name>/SKILL.md.".to_string(),
-        });
-    }
-
-    if should_report_codex_experimental(
-        agent_filter,
-        shared_skill_mappings,
-        codex_skill_mappings,
-        legacy_command_mappings,
-    ) {
-        findings.push(DoctorFinding {
-            status: DoctorStatus::Experimental,
-            summary: "Codex skill sync remains in experimental compatibility mode.".to_string(),
-            path: Some(config_dir.join("skills").join("codex")),
-            detail: Some(
-                "Codex skill sync still uses opt-in publishing and compatibility targets."
-                    .to_string(),
-            ),
-            recommendation:
-                "Use `claudius skills sync --agent codex --enable-codex-skills` only when you need Codex skills."
-                    .to_string(),
         });
     }
 }
@@ -691,17 +679,15 @@ fn inspect_codex_targets(
 
         if had_managed_files || !source_state.codex_skills.is_empty() {
             findings.push(DoctorFinding {
-                status: DoctorStatus::Experimental,
-                summary:
-                    "Codex compatibility skills target is present for experimental sync."
-                        .to_string(),
+                status: DoctorStatus::BestEffort,
+                summary: "Codex legacy compatibility skills target is enabled.".to_string(),
                 path: Some(compat_target),
                 detail: Some(
-                    "Claudius still publishes Codex skills to both .codex/skills and .agents/skills for compatibility."
+                    "Claudius is publishing compatibility copies to .codex/skills in addition to the official .agents/skills target."
                         .to_string(),
                 ),
                 recommendation:
-                    "Keep Codex skills opt-in and expect compatibility targets to evolve."
+                    "Prefer the default .agents/skills target unless you still need legacy Codex compatibility copies."
                         .to_string(),
             });
         }
@@ -753,21 +739,6 @@ fn push_stale_finding(
     });
 }
 
-fn should_report_codex_experimental(
-    agent_filter: Option<Agent>,
-    shared_skill_mappings: &[SourceFileMapping],
-    codex_skill_mappings: &[SourceFileMapping],
-    legacy_command_mappings: &[SourceFileMapping],
-) -> bool {
-    if agent_filter == Some(Agent::Codex) {
-        return !shared_skill_mappings.is_empty()
-            || !codex_skill_mappings.is_empty()
-            || !legacy_command_mappings.is_empty();
-    }
-
-    !codex_skill_mappings.is_empty()
-}
-
 fn collect_tree_if_exists(path: &Path) -> Result<Vec<SourceFileMapping>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -803,9 +774,6 @@ fn skill_prune_command(global: bool, selected_agent: Option<Agent>) -> String {
     }
     if let Some(agent_name) = selected_agent {
         parts.push(format!("--agent {}", agent_cli_name(agent_name)));
-        if agent_name == Agent::Codex {
-            parts.push("--enable-codex-skills".to_string());
-        }
     }
     parts.push("--prune".to_string());
     parts.join(" ")

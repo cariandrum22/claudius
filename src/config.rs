@@ -246,10 +246,10 @@ impl Config {
         Ok(match agent {
             Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
             Some(crate::app_config::Agent::Codex) => match Self::load_codex_skill_target_mode()? {
-                CodexSkillTargetMode::Agents => base_dir.join(".agents").join("skills"),
+                CodexSkillTargetMode::Codex => base_dir.join(".codex").join("skills"),
                 CodexSkillTargetMode::Auto
-                | CodexSkillTargetMode::Codex
-                | CodexSkillTargetMode::Both => base_dir.join(".codex").join("skills"),
+                | CodexSkillTargetMode::Agents
+                | CodexSkillTargetMode::Both => base_dir.join(".agents").join("skills"),
             },
             _ => base_dir.join(".claude").join("skills"),
         })
@@ -373,10 +373,12 @@ impl Config {
         }
 
         Ok(match Self::load_codex_skill_target_mode()? {
-            CodexSkillTargetMode::Auto | CodexSkillTargetMode::Both => {
-                Some(self.deployment_base_dir()?.join(".agents").join("skills"))
+            CodexSkillTargetMode::Both => {
+                Some(self.deployment_base_dir()?.join(".codex").join("skills"))
             },
-            CodexSkillTargetMode::Codex | CodexSkillTargetMode::Agents => None,
+            CodexSkillTargetMode::Auto
+            | CodexSkillTargetMode::Codex
+            | CodexSkillTargetMode::Agents => None,
         })
     }
 

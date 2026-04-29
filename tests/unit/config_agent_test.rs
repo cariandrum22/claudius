@@ -110,8 +110,8 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
-        assert_eq!(auto.skills_target_dir, codex_target);
-        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), Some(agents_target.clone()));
+        assert_eq!(auto.skills_target_dir, agents_target);
+        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
         let codex_only = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
@@ -125,8 +125,8 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
         let both = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
-        assert_eq!(both.skills_target_dir, codex_target);
-        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
+        assert_eq!(both.skills_target_dir, agents_target);
+        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(codex_target));
     }
 
     #[test]
@@ -148,8 +148,8 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"auto\"\n").unwrap();
         let auto = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
-        assert_eq!(auto.skills_target_dir, codex_target);
-        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), Some(agents_target.clone()));
+        assert_eq!(auto.skills_target_dir, agents_target);
+        assert_eq!(auto.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"codex\"\n").unwrap();
         let codex_only = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
@@ -163,8 +163,8 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
         let both = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
-        assert_eq!(both.skills_target_dir, codex_target);
-        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(agents_target));
+        assert_eq!(both.skills_target_dir, agents_target);
+        assert_eq!(both.codex_compat_skills_target_dir().unwrap(), Some(codex_target));
     }
 
     #[test]

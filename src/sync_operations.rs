@@ -1478,7 +1478,9 @@ fn sync_skills_if_exists(
     behavior: SyncBehavior,
 ) -> Option<SupportingAssetReport> {
     if config.agent == Some(Agent::Codex) {
-        debug!("Skipping Codex skills sync (experimental; use `claudius skills sync --enable-codex-skills`)");
+        debug!(
+            "Skipping Codex skills during config sync; use `claudius skills sync --agent codex`"
+        );
         return None;
     }
 
