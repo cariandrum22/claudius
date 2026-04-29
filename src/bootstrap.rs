@@ -70,8 +70,10 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 # context-file = "CONTEXT.md"  # Custom context file name (overrides agent defaults)
 
 # [codex]
-# Configure experimental Codex skills target selection
-# skill-target = "auto"  # Options: "auto", "codex", "agents", "both"
+# Configure Codex skills target selection
+# skill-target = "auto"  # Options: "auto", "agents", "both", "codex"
+# "auto" follows the official .agents/skills search path.
+# "both" also writes compatibility copies to .codex/skills.
 
 # [secret-manager]
 # Configure a secret manager to resolve environment variables

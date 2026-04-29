@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use toml::Value as TomlValue;
 
-use crate::app_config::{AppConfig, SecretManagerType};
+use crate::app_config::{AppConfig, CodexSkillTargetMode, SecretManagerType};
 use crate::config::Settings;
 use crate::gemini_settings::{validate_gemini_settings, GeminiSettings};
 
@@ -32,6 +32,18 @@ pub fn validate_app_config(config: &AppConfig) -> ValidationResult {
             warnings.push(
                 "[secret-manager.onepassword] is configured but [secret-manager].type is not \"1password\"; these settings will be ignored".to_string(),
             );
+        }
+    }
+
+    if let Some(codex) = &config.codex {
+        match codex.skill_target {
+            Some(CodexSkillTargetMode::Codex) => warnings.push(
+                "[codex].skill-target = \"codex\" publishes only to the legacy .codex/skills path; prefer \"agents\" (or leave it unset) for the official Codex search path".to_string(),
+            ),
+            Some(CodexSkillTargetMode::Both) => warnings.push(
+                "[codex].skill-target = \"both\" also publishes compatibility copies to .codex/skills; prefer \"agents\" (or leave it unset) unless you still need the legacy path".to_string(),
+            ),
+            Some(CodexSkillTargetMode::Auto | CodexSkillTargetMode::Agents) | None => {},
         }
     }
 
@@ -369,7 +381,8 @@ pub fn prompt_continue() -> Result<bool> {
 mod tests {
     use super::*;
     use crate::app_config::{
-        OnePasswordConfig, OnePasswordMode, SecretManagerConfig, SecretManagerType,
+        CodexConfig, CodexSkillTargetMode, OnePasswordConfig, OnePasswordMode, SecretManagerConfig,
+        SecretManagerType,
     };
     use serde_json::json;
     use std::fs;
@@ -413,6 +426,19 @@ mod tests {
 
         let result = validate_app_config(&config);
         assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_app_config_warns_when_codex_skill_target_uses_legacy_path() {
+        let config = AppConfig {
+            secret_manager: None,
+            default: None,
+            codex: Some(CodexConfig { skill_target: Some(CodexSkillTargetMode::Both) }),
+        };
+
+        let result = validate_app_config(&config);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings.first().is_some_and(|warning| warning.contains(".codex/skills")));
     }
 
     #[test]

@@ -153,12 +153,13 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_config_validate_codex_skills_emit_compatibility_warning() {
+    fn test_config_validate_codex_compat_target_mode_warns() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
 
         fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
-        fixture.with_skill("shared-skill", "# Shared Skill").unwrap();
+        std::fs::write(fixture.config.join("config.toml"), "[codex]\nskill-target = \"both\"\n")
+            .unwrap();
 
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&fixture.project)
@@ -168,7 +169,7 @@ mod tests {
             .assert()
             .success()
             .stdout(predicate::str::contains(
-                "Codex skills sync remains experimental and publishes to both .codex/skills and .agents/skills for compatibility",
+                "[codex].skill-target = \"both\" also publishes compatibility copies to .codex/skills",
             ));
     }
 

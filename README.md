@@ -173,7 +173,7 @@ Claudius does not treat every target surface equally. Current support levels are
 | --- | --- | --- | --- |
 | Claude Desktop | Global `claude_desktop_config.json` MCP sync, project-local `.mcp.json` MCP sync | Entire Claude Desktop target is legacy / best-effort | Extensions, Connectors, and other UI-managed app surfaces |
 | Claude Code | Project, local, user, and managed MCP/settings files; `.claude/agents`; skills; context files | Legacy `settings.json` source alias | Slash commands in `.claude/commands`; non-file-based product features |
-| Codex | User and admin TOML config files; context files | Experimental skills; compatibility sync to `.agents/skills` | Cloud-managed enterprise policies, macOS MDM payloads, and other non-file-based product features |
+| Codex | User and admin TOML config files; context files; skills via `.agents/skills` | Optional compatibility copies to `.codex/skills` | Cloud-managed enterprise policies, macOS MDM payloads, and other non-file-based product features |
 | Gemini | User, system, and system-default settings; `.gemini/commands`; `.gemini/agents`; skills; context files | OS-specific system path handling | Gemini extensions and custom sandbox profiles |
 
 Prefer `--agent claude-code`, `--agent codex`, or `--agent gemini` for actively managed surfaces. Use `--agent claude` only when you specifically need the legacy Claude Desktop JSON target.
@@ -319,7 +319,7 @@ This command highlights:
 - `best-effort` legacy compatibility targets such as Claude Desktop JSON sync
 - `legacy` source layouts such as `settings.json` and `commands/*.md`
 - `unmanaged` surfaces such as Gemini extensions
-- `experimental` Codex skill sync surfaces
+- `legacy` Codex compatibility skill targets
 - stale deployed assets tracked by Claudius manifests
 
 ```bash
@@ -356,14 +356,14 @@ claudius skills sync --dry-run --prune
 # Remove stale deployed skill files that Claudius previously published
 claudius skills sync --prune
 
-# Codex skills are experimental and must be explicitly enabled.
+# Codex skills use the official .agents/skills target by default.
 # Target selection is driven by ~/.config/claudius/config.toml:
 #
 # [codex]
-# skill-target = "auto"   # auto | codex | agents | both
+# skill-target = "auto"   # auto | agents | both | codex
 #
-# `auto` currently syncs to both .codex/skills and .agents/skills for compatibility.
-claudius skills sync --agent codex --enable-codex-skills
+# `auto` publishes to .agents/skills. Use `both` only for compatibility.
+claudius skills sync --agent codex
 ```
 
 
@@ -635,16 +635,17 @@ claudius config sync
 ```
 
 Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/skills/`
-(Gemini), preserving the directory structure. Codex skills are experimental and require
-explicit opt-in. Configure Codex target selection in `~/.config/claudius/config.toml`:
+(Gemini), preserving the directory structure. Codex skills default to the official
+`~/.agents/skills/` search path. Configure optional Codex compatibility output in
+`~/.config/claudius/config.toml`:
 
 ```toml
 [codex]
-skill-target = "auto" # auto | codex | agents | both
+skill-target = "auto" # auto | agents | both | codex
 ```
 
-Today `auto` remains compatibility-oriented and publishes to both `~/.codex/skills/`
-and `~/.agents/skills/`.
+`auto` and `agents` publish to `~/.agents/skills/`. Use `both` only when you still
+need compatibility copies in `~/.codex/skills/`.
 
 By default, skill and auxiliary file sync is non-destructive. Use `--prune` to remove
 stale files that Claudius previously deployed. Pruning only touches files tracked in

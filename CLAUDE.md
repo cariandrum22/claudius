@@ -110,8 +110,10 @@ Project Directory (default):
 │   ├── settings.json          # Project-local Claude Code settings (when using --agent claude-code)
 │   ├── agents/                # Project-local Claude Code subagents
 │   └── skills/                # Project-local skills (Claude)
+├── .agents/
+│   └── skills/                # Project-local skills (Codex, default)
 ├── .codex/
-│   └── skills/                # Project-local skills (Codex, experimental)
+│   └── skills/                # Project-local Codex compatibility skills (optional)
 ├── .gemini/
 │   ├── settings.json          # Project-local Gemini settings + MCP servers (when using --agent gemini)
 │   ├── commands/              # Project-local Gemini commands
@@ -124,7 +126,7 @@ Global targets (--global):
 ├── Claude Code: ~/.claude.json + ~/.claude/settings.json
 ├── Codex: ~/.codex/config.toml
 ├── Gemini: ~/.gemini/settings.json + /etc/gemini-cli/settings.json + /etc/gemini-cli/system-defaults.json
-└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.codex/skills (Codex, experimental)
+└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.agents/skills (Codex, default), ~/.codex/skills (Codex compatibility)
 ```
 
 ### Data Flow
@@ -193,7 +195,7 @@ Synchronize configurations to target files.
 **Project-local mode (default):**
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
 - Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, skills → `./.claude/skills/`
-- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml` (skills are experimental)
+- Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
 - Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`, commands → `./.gemini/commands/`, agents → `./.gemini/agents/`, skills → `./.gemini/skills/`
 
 **Global mode (--global):**
@@ -203,7 +205,7 @@ Synchronize configurations to target files.
 - Gemini (`--agent gemini`) → `~/.gemini/settings.json`
 - Gemini system settings (`--gemini-system`) → `/etc/gemini-cli/settings.json`
 - Gemini system defaults (`--gemini-system-defaults`) → `/etc/gemini-cli/system-defaults.json`
-- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.codex/skills/` (Codex, experimental)
+- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.agents/skills/` (Codex, default), `~/.codex/skills/` (Codex compatibility)
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
@@ -233,8 +235,8 @@ claudius skills sync --agent gemini
 # Sync Gemini system defaults
 claudius config sync --global --agent gemini --gemini-system-defaults
 
-# Codex skills are experimental and must be explicitly enabled
-claudius skills sync --agent codex --enable-codex-skills
+# Sync Codex skills to the official .agents/skills target
+claudius skills sync --agent codex
 ```
 
 ### `claudius context append`
@@ -421,7 +423,8 @@ export CLAUDIUS_SECRET_PATH='/${CLAUDIUS_SECRET_BASE}api'  # Results in: /prodap
 ### Skills (skills/<skill>/SKILL.md)
 Skill definitions stored in individual directories.
 Deployed to `~/.claude/skills/` (Claude) or `~/.gemini/skills/` (Gemini), preserving the
-directory structure. Codex skills are experimental and require explicit opt-in.
+directory structure. Codex skills default to `~/.agents/skills/`, with optional
+compatibility copies to `~/.codex/skills/`.
 Claude Code still honors legacy `~/.claude/commands` slash commands, but skills are
 recommended. Claudius does not currently sync `.claude/commands`, so skills remain the
 cross-agent managed path.

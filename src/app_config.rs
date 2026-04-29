@@ -54,14 +54,14 @@ pub enum ClaudeCodeScope {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum CodexSkillTargetMode {
-    /// Keep following Claudius's compatibility default for Codex skills.
+    /// Follow Claudius's default Codex skill target (`.agents/skills`).
     #[default]
     Auto,
-    /// Publish only to the Codex-native skills directory.
+    /// Publish only to the legacy `.codex/skills` directory.
     Codex,
-    /// Publish only to the compatibility `.agents/skills` directory.
+    /// Publish only to the official `.agents/skills` directory.
     Agents,
-    /// Publish to both Codex-native and compatibility directories.
+    /// Publish to both the official `.agents/skills` and legacy `.codex/skills` directories.
     Both,
 }
 
