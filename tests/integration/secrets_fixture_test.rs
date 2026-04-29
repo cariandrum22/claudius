@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::*;
 use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
@@ -28,20 +29,6 @@ type = "1password"
 "#;
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
 
-        // Create empty mcpServers.json to prevent "No such file" error
-        fs::write(config_dir.join("mcpServers.json"), r#"{"mcpServers": {}}"#).unwrap();
-
-        // Create a test mcp servers config
-        let mcp_config = r#"{
-  "mcpServers": {
-    "test-server": {
-      "command": "echo",
-      "args": ["test"]
-    }
-  }
-}"#;
-        fs::write(config_dir.join("mcpServers.json"), mcp_config).unwrap();
-
         // Get the mock op path
         let mock_op = setup_mock_op_path();
         let mock_bin_dir = temp_dir.path().join("bin");
@@ -61,18 +48,22 @@ type = "1password"
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
-            .env("CLAUDIUS_TEST_MOCK_OP", "1")
             .env(
                 "PATH",
                 format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
             )
             .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
             .env("CLAUDIUS_SECRET_DB_PASSWORD", "op://vault/database/password")
-            .arg("--debug")
-            .args(["config", "sync"])
-            .arg("--dry-run");
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("printf 'API_KEY=%s\nDB_PASSWORD=%s\n' \"$API_KEY\" \"$DB_PASSWORD\"");
 
-        cmd.assert().success();
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("API_KEY=secret-api-key-12345"))
+            .stdout(predicate::str::contains("DB_PASSWORD=db-password-xyz789"));
     }
 
     #[test]
@@ -88,9 +79,6 @@ type = "1password"
 type = "1password"
 "#;
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
-
-        // Create empty mcpServers.json to prevent "No such file" error
-        fs::write(config_dir.join("mcpServers.json"), r#"{"mcpServers": {}}"#).unwrap();
 
         // Get the mock op path
         let mock_op = setup_mock_op_path();
@@ -111,18 +99,20 @@ type = "1password"
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
-            .env("CLAUDIUS_TEST_MOCK_OP", "1")
             .env(
                 "PATH",
                 format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
             )
             .env("CLAUDIUS_SECRET_INVALID", "op://invalid/reference/field")
-            .args(["config", "sync"])
-            .arg("--dry-run");
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("printf 'INVALID=%s\n' \"$INVALID\"");
 
-        // The command should succeed but keep the unresolved reference
-        // This is the resilient behavior - we warn but don't fail
-        cmd.assert().success();
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("INVALID=op://invalid/reference/field"));
     }
 
     #[test]
@@ -138,20 +128,6 @@ type = "1password"
 type = "1password"
 "#;
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
-
-        // Create empty mcpServers.json to prevent "No such file" error
-        fs::write(config_dir.join("mcpServers.json"), r#"{"mcpServers": {}}"#).unwrap();
-
-        // Create a test mcp servers config
-        let mcp_config = r#"{
-  "mcpServers": {
-    "test-server": {
-      "command": "echo",
-      "args": ["test"]
-    }
-  }
-}"#;
-        fs::write(config_dir.join("mcpServers.json"), mcp_config).unwrap();
 
         // Get the mock op path
         let mock_op = setup_mock_op_path();
@@ -172,17 +148,21 @@ type = "1password"
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
-            .env("CLAUDIUS_TEST_MOCK_OP", "1")
             .env(
                 "PATH",
                 format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
             )
             .env("CLAUDIUS_SECRET_OP_SECRET", "op://vault/test-item/api-key")
             .env("CLAUDIUS_SECRET_PLAIN_SECRET", "plain-text-value")
-            .arg("--debug")
-            .args(["config", "sync"])
-            .arg("--dry-run");
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("printf 'OP_SECRET=%s\nPLAIN_SECRET=%s\n' \"$OP_SECRET\" \"$PLAIN_SECRET\"");
 
-        cmd.assert().success().success();
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("OP_SECRET=secret-api-key-12345"))
+            .stdout(predicate::str::contains("PLAIN_SECRET=plain-text-value"));
     }
 }

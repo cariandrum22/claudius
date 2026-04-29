@@ -39,7 +39,8 @@ mod tests {
     #[serial]
     fn test_onepassword_non_op_reference() {
         cleanup_claudius_secrets();
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set a non-op:// value
@@ -56,7 +57,8 @@ mod tests {
     #[serial]
     fn test_vault_warning() {
         cleanup_claudius_secrets();
-        let config = SecretManagerConfig { manager_type: SecretManagerType::Vault };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::Vault, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set a test environment variable

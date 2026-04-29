@@ -79,6 +79,11 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 #
 # Example for 1Password:
 # type = "1password"
+# [secret-manager.onepassword]
+# Optional auth policy for 1Password resolution during `claudius secrets run`.
+# Leave `mode` unset to keep using your ambient `op` environment.
+# mode = "service-account"  # "desktop", "manual", or "service-account"
+# service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
 #
 # When using 1Password, environment variables starting with CLAUDIUS_SECRET_*
 # that contain values starting with op:// will be resolved using 1Password CLI.
