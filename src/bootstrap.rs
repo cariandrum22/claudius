@@ -122,6 +122,15 @@ const DEFAULT_GEMINI_SETTINGS: &str = r#"{
 }
 "#;
 
+/// Default Gemini CLI system defaults content
+const DEFAULT_GEMINI_SYSTEM_DEFAULTS: &str = r#"{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "general": {},
+  "ui": {},
+  "tools": {}
+}
+"#;
+
 /// Default Codex TOML settings content
 const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
 # Configure your Codex CLI settings here
@@ -130,15 +139,15 @@ const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
 # See the configuration reference for the latest options:
 # https://developers.openai.com/codex/config-reference
 
-# Model selection (examples: "gpt-5-codex", "openai/gpt-4.1", "anthropic/claude-3-5-sonnet")
-# model = "gpt-5-codex"
-# review_model = "gpt-5-codex"
+# Model selection (examples: "gpt-5.5", "openai/gpt-4.1", "anthropic/claude-3-5-sonnet")
+# model = "gpt-5.5"
+# review_model = "gpt-5.5"
 
 # The model provider to use if not specified in the model name
 # model_provider = "openai"
 
 # Approval policy for running commands:
-# - "untrusted" | "on-failure" | "on-request" | "never"
+# - "untrusted" | "on-request" | "never"
 # approval_policy = "on-request"
 
 # List of notification channels
@@ -197,7 +206,7 @@ const DEFAULT_CODEX_REQUIREMENTS: &str = r#"# Codex requirements.toml
 # https://developers.openai.com/codex/config-reference
 #
 # Example:
-# allowed_approval_policies = ["untrusted", "on-request", "on-failure"]
+# allowed_approval_policies = ["untrusted", "on-request", "never"]
 # allowed_sandbox_modes = ["read-only", "workspace-write"]
 "#;
 
@@ -319,6 +328,7 @@ fn init_agent_settings(config_dir: &Path, force: bool) -> Result<()> {
         ("codex.requirements.toml", DEFAULT_CODEX_REQUIREMENTS),
         ("codex.managed_config.toml", DEFAULT_CODEX_MANAGED_CONFIG),
         ("gemini.settings.json", DEFAULT_GEMINI_SETTINGS),
+        ("gemini.system_defaults.json", DEFAULT_GEMINI_SYSTEM_DEFAULTS),
     ];
 
     agent_settings.into_iter().try_for_each(|(filename, content)| {
@@ -367,6 +377,17 @@ fn init_rules_directory(config_dir: &Path, force: bool) -> Result<()> {
 
     let example_rule_path = rules_dir.join("example.md");
     create_file_if_needed(&example_rule_path, EXAMPLE_RULE, force, "example rule")
+}
+
+/// Initialize auxiliary source directories for agent-specific assets.
+fn init_auxiliary_source_directories(config_dir: &Path, force: bool) -> Result<()> {
+    [
+        config_dir.join("commands").join("gemini"),
+        config_dir.join("agents").join("gemini"),
+        config_dir.join("agents").join("claude-code"),
+    ]
+    .into_iter()
+    .try_for_each(|path| create_directory(&path, force))
 }
 
 /// Initialize context files in project directory based on config
@@ -452,6 +473,7 @@ pub fn bootstrap_config(config_dir: &Path, force: bool) -> Result<()> {
     init_app_config(config_dir, force)?;
     init_skills_directory(config_dir, force)?;
     init_rules_directory(config_dir, force)?;
+    init_auxiliary_source_directories(config_dir, force)?;
 
     info!("Bootstrap complete at: {}", config_dir.display());
     Ok(())
@@ -484,7 +506,15 @@ pub fn bootstrap_config_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use tempfile::TempDir;
+
+    fn assert_paths_exist(base: &Path, paths: &[&str]) {
+        assert!(
+            paths.iter().all(|path| base.join(path).exists()),
+            "Expected bootstrap to create: {paths:?}"
+        );
+    }
 
     #[test]
     fn test_bootstrap_creates_structure() {
@@ -493,20 +523,27 @@ mod tests {
 
         bootstrap_config(&config_dir, false).expect("bootstrap_config should succeed");
 
-        // Check all files and directories exist
-        assert!(config_dir.exists());
-        assert!(config_dir.join("mcpServers.json").exists());
-        assert!(config_dir.join("claude.settings.json").exists());
-        assert!(config_dir.join("codex.settings.toml").exists());
-        assert!(config_dir.join("codex.requirements.toml").exists());
-        assert!(config_dir.join("codex.managed_config.toml").exists());
-        assert!(config_dir.join("gemini.settings.json").exists());
-        assert!(config_dir.join("settings.json").exists());
-        assert!(config_dir.join("config.toml").exists());
-        assert!(config_dir.join("skills").exists());
-        assert!(config_dir.join("skills/example/SKILL.md").exists());
-        assert!(config_dir.join("rules").exists());
-        assert!(config_dir.join("rules/example.md").exists());
+        assert_paths_exist(
+            &config_dir,
+            &[
+                "mcpServers.json",
+                "claude.settings.json",
+                "codex.settings.toml",
+                "codex.requirements.toml",
+                "codex.managed_config.toml",
+                "gemini.settings.json",
+                "gemini.system_defaults.json",
+                "settings.json",
+                "config.toml",
+                "skills",
+                "skills/example/SKILL.md",
+                "commands/gemini",
+                "agents/gemini",
+                "agents/claude-code",
+                "rules",
+                "rules/example.md",
+            ],
+        );
 
         // Verify content
         let mcp_content = fs::read_to_string(config_dir.join("mcpServers.json"))

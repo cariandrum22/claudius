@@ -262,39 +262,7 @@ impl Config {
     }
 
     fn skills_dir_has_entries(path: &Path) -> bool {
-        fs::read_dir(path).map(|mut entries| entries.next().is_some()).unwrap_or(false)
-    }
-
-    fn agent_skills_subdir(agent: crate::app_config::Agent) -> &'static str {
-        match agent {
-            crate::app_config::Agent::Claude => "claude",
-            crate::app_config::Agent::ClaudeCode => "claude-code",
-            crate::app_config::Agent::Codex => "codex",
-            crate::app_config::Agent::Gemini => "gemini",
-        }
-    }
-
-    #[must_use]
-    pub fn resolve_skills_source_dir(&self) -> Option<PathBuf> {
-        if let Some(agent) = self.agent {
-            let candidate = self.skills_dir.join(Self::agent_skills_subdir(agent));
-            if candidate.exists() && Self::skills_dir_has_entries(&candidate) {
-                return Some(candidate);
-            }
-        }
-
-        let has_shared_skills =
-            self.skills_dir.exists() && Self::skills_dir_has_entries(&self.skills_dir);
-        if has_shared_skills {
-            return Some(self.skills_dir.clone());
-        }
-
-        let legacy_commands = self.skills_dir.parent()?.join("commands");
-        if legacy_commands.exists() {
-            return Some(legacy_commands);
-        }
-
-        self.skills_dir.exists().then_some(self.skills_dir.clone())
+        fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
     }
 
     #[must_use]
@@ -304,6 +272,16 @@ impl Config {
         }
 
         let candidate = self.skills_dir.parent()?.join("commands").join("gemini");
+        (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
+    }
+
+    #[must_use]
+    pub fn resolve_gemini_agents_source_dir(&self) -> Option<PathBuf> {
+        if self.agent != Some(crate::app_config::Agent::Gemini) {
+            return None;
+        }
+
+        let candidate = self.skills_dir.parent()?.join("agents").join("gemini");
         (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
     }
 
@@ -333,6 +311,18 @@ impl Config {
         std::env::current_dir().map_err(Into::into)
     }
 
+    /// Return the Claudius configuration root directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the root directory cannot be derived from the
+    /// configured skills path.
+    pub fn config_root_dir(&self) -> anyhow::Result<&Path> {
+        self.skills_dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Failed to determine Claudius config root directory"))
+    }
+
     /// Determine the Gemini custom commands target directory.
     ///
     /// # Errors
@@ -344,6 +334,19 @@ impl Config {
         }
 
         Ok(Some(self.deployment_base_dir()?.join(".gemini").join("commands")))
+    }
+
+    /// Determine the Gemini agents target directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment base directory cannot be determined.
+    pub fn gemini_agents_target_dir(&self) -> anyhow::Result<Option<PathBuf>> {
+        if self.agent != Some(crate::app_config::Agent::Gemini) {
+            return Ok(None);
+        }
+
+        Ok(Some(self.deployment_base_dir()?.join(".gemini").join("agents")))
     }
 
     /// Determine the Claude Code subagents target directory.

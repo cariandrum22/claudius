@@ -113,6 +113,27 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_validate_gemini_agent_missing_frontmatter_fails() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_gemini_agent("triage", "Focus on Gemini-specific regressions.")
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "gemini"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("must start with YAML frontmatter delimited by ---"));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_validate_claude_code_subagent_missing_frontmatter_fails() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
@@ -148,6 +169,81 @@ mod tests {
             .success()
             .stdout(predicate::str::contains(
                 "Codex skills sync remains experimental and publishes to both .codex/skills and .agents/skills for compatibility",
+            ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_gemini_system_defaults_supports_current_fields() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_gemini_system_defaults(
+                r#"{
+  "billing": {"project": "shared-project"},
+  "policyPaths": ["/etc/gemini-cli/policy.json"],
+  "adminPolicyPaths": ["/etc/gemini-cli/admin-policy.json"]
+}"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "gemini"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Configuration validation passed"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_warns_on_deprecated_codex_fields() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(
+            fixture.config.join("codex.settings.toml"),
+            r#"
+model = "gpt-5.5"
+approval_policy = "on-failure"
+instructions = "Use this project policy"
+experimental_instructions_file = "legacy.md"
+background_terminal_timeout = 1000
+experimental_use_unified_exec_tool = true
+
+[features]
+web_search = true
+"#,
+        )
+        .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("approval_policy = \"on-failure\" is deprecated"))
+            .stdout(predicate::str::contains(
+                "instructions is reserved for future use; prefer model_instructions_file or AGENTS.md",
+            ))
+            .stdout(predicate::str::contains(
+                "experimental_instructions_file is deprecated; rename it to model_instructions_file",
+            ))
+            .stdout(predicate::str::contains(
+                "background_terminal_timeout is deprecated; rename it to background_terminal_max_timeout",
+            ))
+            .stdout(predicate::str::contains(
+                "experimental_use_unified_exec_tool is a legacy flag; prefer features.unified_exec",
+            ))
+            .stdout(predicate::str::contains(
+                "features.web_search is deprecated; prefer the top-level web_search setting",
             ));
     }
 

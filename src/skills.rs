@@ -1,6 +1,9 @@
-use crate::asset_sync::{self, ManagedTreeSyncReport, SourceFileMapping, SyncBehavior};
+use crate::{
+    app_config::Agent,
+    asset_sync::{self, ManagedTreeSyncReport, SourceFileMapping, SyncBehavior},
+};
 use anyhow::{Context, Result};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +15,12 @@ pub struct SkillSyncReport {
     pub synced_skills: Vec<String>,
     pub synced_files: Vec<String>,
     pub pruned_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillSourceSet {
+    pub mappings: Vec<SourceFileMapping>,
+    pub includes_legacy_commands: bool,
 }
 
 impl SkillSyncReport {
@@ -58,9 +67,23 @@ pub fn sync_skills_with_options(
     behavior: SyncBehavior,
 ) -> Result<SkillSyncReport> {
     let mappings = collect_skill_mappings(source_dir_opt)?;
-    let synced_skills = skill_names_from_mappings(&mappings);
+    sync_skill_mappings_with_options(&mappings, target_dir, behavior)
+}
+
+/// Sync already-collected skill mappings into a target directory.
+///
+/// # Errors
+///
+/// Returns an error if the managed-file manifest cannot be updated or the
+/// target tree cannot be written.
+pub fn sync_skill_mappings_with_options(
+    mappings: &[SourceFileMapping],
+    target_dir: &Path,
+    behavior: SyncBehavior,
+) -> Result<SkillSyncReport> {
+    let synced_skills = skill_names_from_mappings(mappings);
     let ManagedTreeSyncReport { target_dir: synced_target_dir, synced_files, pruned_files } =
-        asset_sync::sync_managed_tree(target_dir, &mappings, behavior)?;
+        asset_sync::sync_managed_tree(target_dir, mappings, behavior)?;
 
     Ok(SkillSyncReport { target_dir: synced_target_dir, synced_skills, synced_files, pruned_files })
 }
@@ -170,6 +193,151 @@ pub fn collect_skill_mappings(source_dir_opt: Option<&Path>) -> Result<Vec<Sourc
     Ok(mappings)
 }
 
+/// Collect shared, legacy, and agent-specific skill mappings from the Claudius
+/// config tree with override precedence applied per skill name.
+///
+/// Precedence order:
+/// 1. legacy `commands/*.md`
+/// 2. shared `skills/<skill>/...`
+/// 3. agent-specific `skills/<agent>/<skill>/...`
+///
+/// A higher-precedence source replaces the full skill directory from a
+/// lower-precedence source.
+///
+/// # Errors
+///
+/// Returns an error if the Claudius skill or command trees cannot be read.
+pub fn collect_claudius_skill_source_set(
+    config_dir: &Path,
+    agent: Option<Agent>,
+) -> Result<SkillSourceSet> {
+    let skills_root = config_dir.join("skills");
+    let commands_root = config_dir.join("commands");
+    let legacy_mappings = collect_legacy_command_mappings(&commands_root)?;
+    let includes_legacy_commands = !legacy_mappings.is_empty();
+    let shared_mappings = collect_shared_skill_mappings(&skills_root)?;
+    let agent_mappings = agent.map_or_else(
+        || Ok(Vec::new()),
+        |selected| collect_agent_skill_mappings(&skills_root, selected),
+    )?;
+
+    let mut merged = BTreeMap::<String, Vec<SourceFileMapping>>::new();
+    extend_skill_groups(&mut merged, legacy_mappings);
+    extend_skill_groups(&mut merged, shared_mappings);
+    extend_skill_groups(&mut merged, agent_mappings);
+
+    let mappings = merged
+        .into_values()
+        .flat_map(std::iter::IntoIterator::into_iter)
+        .collect::<Vec<_>>();
+
+    Ok(SkillSourceSet { mappings, includes_legacy_commands })
+}
+
+/// Collect mappings for shared skills in `skills/`, excluding agent-specific
+/// subdirectories such as `skills/gemini/`.
+///
+/// # Errors
+///
+/// Returns an error if the shared skills tree cannot be read.
+pub fn collect_shared_skill_mappings(skills_root: &Path) -> Result<Vec<SourceFileMapping>> {
+    if !skills_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = fs::read_dir(skills_root)
+        .with_context(|| format!("Failed to read skills directory: {}", skills_root.display()))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    let mut mappings = Vec::new();
+    for entry in entries {
+        let path = entry.path();
+        let entry_name = entry
+            .file_name()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid skill entry name"))?
+            .to_string();
+
+        if path.is_dir() {
+            if is_agent_skill_subdir(&entry_name) {
+                continue;
+            }
+
+            let skill_files = asset_sync::collect_directory_tree_mappings(&path)?;
+            mappings.extend(skill_files.into_iter().map(|mapping| SourceFileMapping {
+                source_path: mapping.source_path,
+                relative_path: normalize_skill_relative_path(&entry_name, &mapping.relative_path),
+            }));
+            continue;
+        }
+
+        if path.is_file() && path.extension().and_then(|value| value.to_str()) == Some("md") {
+            let skill_name_str = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Invalid skill file stem"))?;
+            let skill_name = skill_name_str.to_string();
+            mappings.push(SourceFileMapping {
+                source_path: path,
+                relative_path: normalize_skill_relative_path(&skill_name, SKILL_FILE_NAME),
+            });
+        }
+    }
+
+    mappings.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(mappings)
+}
+
+/// Collect mappings for agent-specific skills under `skills/<agent>/`.
+///
+/// # Errors
+///
+/// Returns an error if the agent-specific skill tree cannot be read.
+pub fn collect_agent_skill_mappings(
+    skills_root: &Path,
+    agent: Agent,
+) -> Result<Vec<SourceFileMapping>> {
+    let candidate = skills_root.join(agent_skill_subdir(agent));
+    collect_skill_mappings(candidate.exists().then_some(candidate.as_path()))
+}
+
+/// Collect mappings for legacy `commands/*.md` fallback skills.
+///
+/// # Errors
+///
+/// Returns an error if the commands directory cannot be read.
+pub fn collect_legacy_command_mappings(commands_root: &Path) -> Result<Vec<SourceFileMapping>> {
+    if !commands_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = fs::read_dir(commands_root)
+        .with_context(|| format!("Failed to read commands directory: {}", commands_root.display()))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    let mut mappings = Vec::new();
+    for entry in entries {
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("md") {
+            continue;
+        }
+
+        let skill_name_str = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid skill file stem"))?;
+        let skill_name = skill_name_str.to_string();
+        mappings.push(SourceFileMapping {
+            source_path: path,
+            relative_path: normalize_skill_relative_path(&skill_name, SKILL_FILE_NAME),
+        });
+    }
+
+    Ok(mappings)
+}
+
 fn skill_names_from_mappings(mappings: &[SourceFileMapping]) -> Vec<String> {
     mappings
         .iter()
@@ -177,6 +345,40 @@ fn skill_names_from_mappings(mappings: &[SourceFileMapping]) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn extend_skill_groups(
+    groups: &mut BTreeMap<String, Vec<SourceFileMapping>>,
+    mappings: Vec<SourceFileMapping>,
+) {
+    let mut grouped = BTreeMap::<String, Vec<SourceFileMapping>>::new();
+    for mapping in mappings {
+        let skill_name = mapping
+            .relative_path
+            .split('/')
+            .next()
+            .expect("skill mappings always contain a top-level directory")
+            .to_string();
+        grouped.entry(skill_name).or_default().push(mapping);
+    }
+
+    for (skill_name, mut group_mappings) in grouped {
+        group_mappings.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        groups.insert(skill_name, group_mappings);
+    }
+}
+
+fn agent_skill_subdir(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Claude => "claude",
+        Agent::ClaudeCode => "claude-code",
+        Agent::Codex => "codex",
+        Agent::Gemini => "gemini",
+    }
+}
+
+pub fn is_agent_skill_subdir(name: &str) -> bool {
+    matches!(name, "claude" | "claude-code" | "codex" | "gemini")
 }
 
 fn normalize_skill_relative_path(skill_name: &str, suffix: &str) -> String {
@@ -296,6 +498,55 @@ mod tests {
 
         assert_eq!(report.pruned_files, vec!["review/SKILL.md".to_string()]);
         assert!(!target_dir.join("review").exists());
+    }
+
+    #[test]
+    fn test_collect_shared_skill_mappings_skips_agent_subdirs() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let skills_dir = temp_dir.path().join("skills");
+        let shared_dir = skills_dir.join("shared");
+        let gemini_dir = skills_dir.join("gemini").join("agent-only");
+
+        fs::create_dir_all(&shared_dir).expect("Failed to create shared skill");
+        fs::create_dir_all(&gemini_dir).expect("Failed to create gemini skill");
+        fs::write(shared_dir.join(SKILL_FILE_NAME), "# Shared").expect("Failed to write shared");
+        fs::write(gemini_dir.join(SKILL_FILE_NAME), "# Gemini").expect("Failed to write gemini");
+
+        let mappings =
+            collect_shared_skill_mappings(&skills_dir).expect("shared skill mappings should load");
+        let relative_paths =
+            mappings.iter().map(|mapping| mapping.relative_path.clone()).collect::<Vec<_>>();
+
+        assert_eq!(relative_paths, vec!["shared/SKILL.md".to_string()]);
+    }
+
+    #[test]
+    fn test_collect_claudius_skill_source_set_prefers_agent_specific_over_shared_and_legacy() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+        let shared_dir = config_dir.join("skills").join("review");
+        let agent_dir = config_dir.join("skills").join("gemini").join("review");
+        let commands_dir = config_dir.join("commands");
+
+        fs::create_dir_all(&shared_dir).expect("Failed to create shared dir");
+        fs::create_dir_all(&agent_dir).expect("Failed to create agent dir");
+        fs::create_dir_all(&commands_dir).expect("Failed to create commands dir");
+
+        fs::write(commands_dir.join("review.md"), "# Legacy").expect("Failed to write legacy");
+        fs::write(shared_dir.join(SKILL_FILE_NAME), "# Shared").expect("Failed to write shared");
+        fs::write(agent_dir.join(SKILL_FILE_NAME), "# Agent").expect("Failed to write agent");
+
+        let source_set = collect_claudius_skill_source_set(&config_dir, Some(Agent::Gemini))
+            .expect("skill source set should load");
+        let first_mapping = source_set.mappings.first().expect("expected a mapping");
+
+        assert!(source_set.includes_legacy_commands);
+        assert_eq!(source_set.mappings.len(), 1);
+        assert_eq!(first_mapping.relative_path, "review/SKILL.md");
+        assert_eq!(
+            fs::read_to_string(&first_mapping.source_path).expect("source should read"),
+            "# Agent"
+        );
     }
 
     #[test]

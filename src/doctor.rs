@@ -78,6 +78,7 @@ struct SourceSurfaceState {
     gemini_skills: Vec<SourceFileMapping>,
     codex_skills: Vec<SourceFileMapping>,
     gemini_commands: Vec<SourceFileMapping>,
+    gemini_agents: Vec<SourceFileMapping>,
     claude_code_agents: Vec<SourceFileMapping>,
 }
 
@@ -150,15 +151,26 @@ pub fn render_report(report: &DoctorReport) -> String {
 
 fn load_source_surface_state(config_dir: &Path) -> Result<SourceSurfaceState> {
     Ok(SourceSurfaceState {
-        shared_skills: collect_shared_skill_mappings(&config_dir.join("skills"))?,
-        legacy_commands: collect_legacy_command_mappings(&config_dir.join("commands"))?,
-        claude_skills: collect_agent_skill_mappings(&config_dir.join("skills").join("claude"))?,
-        claude_code_skills: collect_agent_skill_mappings(
-            &config_dir.join("skills").join("claude-code"),
+        shared_skills: skills::collect_shared_skill_mappings(&config_dir.join("skills"))?,
+        legacy_commands: skills::collect_legacy_command_mappings(&config_dir.join("commands"))?,
+        claude_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::Claude,
         )?,
-        gemini_skills: collect_agent_skill_mappings(&config_dir.join("skills").join("gemini"))?,
-        codex_skills: collect_agent_skill_mappings(&config_dir.join("skills").join("codex"))?,
+        claude_code_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::ClaudeCode,
+        )?,
+        gemini_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::Gemini,
+        )?,
+        codex_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::Codex,
+        )?,
         gemini_commands: collect_tree_if_exists(&config_dir.join("commands").join("gemini"))?,
+        gemini_agents: collect_tree_if_exists(&config_dir.join("agents").join("gemini"))?,
         claude_code_agents: collect_tree_if_exists(&config_dir.join("agents").join("claude-code"))?,
     })
 }
@@ -189,6 +201,7 @@ fn collect_findings(
         config_dir,
         options.agent_filter,
         &source_state.gemini_commands,
+        &source_state.gemini_agents,
         &source_state.claude_code_agents,
         &mut findings,
     );
@@ -312,6 +325,19 @@ fn inspect_gemini_sources(
                 .to_string(),
         });
     }
+
+    let system_defaults = config_dir.join("gemini.system_defaults.json");
+    if system_defaults.exists() {
+        findings.push(DoctorFinding {
+            status: DoctorStatus::Supported,
+            summary: "Gemini system defaults source is present.".to_string(),
+            path: Some(system_defaults),
+            detail: None,
+            recommendation:
+                "Sync it with `claudius config sync --global --agent gemini --gemini-system-defaults` when admin defaults change."
+                    .to_string(),
+        });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -403,6 +429,7 @@ fn inspect_auxiliary_sources(
     config_dir: &Path,
     agent_filter: Option<Agent>,
     gemini_command_mappings: &[SourceFileMapping],
+    gemini_agent_mappings: &[SourceFileMapping],
     claude_code_agent_mappings: &[SourceFileMapping],
     findings: &mut Vec<DoctorFinding>,
 ) {
@@ -414,6 +441,19 @@ fn inspect_auxiliary_sources(
             detail: Some(format!(
                 "{} Gemini command file(s) are ready to sync.",
                 gemini_command_mappings.len()
+            )),
+            recommendation: "Deploy them with `claudius config sync --agent gemini`.".to_string(),
+        });
+    }
+
+    if matches_filter(agent_filter, Agent::Gemini) && !gemini_agent_mappings.is_empty() {
+        findings.push(DoctorFinding {
+            status: DoctorStatus::Supported,
+            summary: "Gemini agent source is present.".to_string(),
+            path: Some(config_dir.join("agents").join("gemini")),
+            detail: Some(format!(
+                "{} Gemini agent file(s) are ready to sync.",
+                gemini_agent_mappings.len()
             )),
             recommendation: "Deploy them with `claudius config sync --agent gemini`.".to_string(),
         });
@@ -483,6 +523,25 @@ fn inspect_unmanaged_targets(
     deployment_base_dir: &Path,
     findings: &mut Vec<DoctorFinding>,
 ) {
+    if matches_filter(agent_filter, Agent::ClaudeCode) {
+        let commands_dir = deployment_base_dir.join(".claude").join("commands");
+        if directory_has_entries(&commands_dir) {
+            findings.push(DoctorFinding {
+                status: DoctorStatus::Unmanaged,
+                summary: "Claude Code slash commands are present in an unmanaged target directory."
+                    .to_string(),
+                path: Some(commands_dir),
+                detail: Some(
+                    "Claude Code still supports .claude/commands, but Claudius does not sync that surface yet."
+                        .to_string(),
+                ),
+                recommendation:
+                    "Keep managing slash commands directly in .claude/commands or migrate shared workflows into Claudius skills."
+                        .to_string(),
+            });
+        }
+    }
+
     if matches_filter(agent_filter, Agent::Gemini) {
         let extensions_dir = deployment_base_dir.join(".gemini").join("extensions");
         if directory_has_entries(&extensions_dir) {
@@ -559,6 +618,16 @@ fn inspect_gemini_targets(
         findings,
         inspect_managed_tree(&gemini_command_target, &source_state.gemini_commands)?,
         "Claudius-managed Gemini commands target has stale deployed files.",
+        config_prune_command(options.global, Agent::Gemini),
+    );
+
+    let gemini_agent_target = gemini_config
+        .gemini_agents_target_dir()?
+        .unwrap_or_else(|| deployment_base_dir.join(".gemini").join("agents"));
+    push_stale_finding(
+        findings,
+        inspect_managed_tree(&gemini_agent_target, &source_state.gemini_agents)?,
+        "Claudius-managed Gemini agents target has stale deployed files.",
         config_prune_command(options.global, Agent::Gemini),
     );
 
@@ -707,76 +776,6 @@ fn collect_tree_if_exists(path: &Path) -> Result<Vec<SourceFileMapping>> {
     crate::asset_sync::collect_directory_tree_mappings(path)
 }
 
-fn collect_agent_skill_mappings(path: &Path) -> Result<Vec<SourceFileMapping>> {
-    skills::collect_skill_mappings(path.exists().then_some(path))
-}
-
-fn collect_shared_skill_mappings(skills_root: &Path) -> Result<Vec<SourceFileMapping>> {
-    if !skills_root.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut mappings = Vec::new();
-    let mut entries = fs::read_dir(skills_root)
-        .with_context(|| format!("Failed to read directory: {}", skills_root.display()))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-
-    for entry in entries {
-        let path = entry.path();
-        let entry_name = entry.file_name();
-        let entry_name_lossy = entry_name.to_string_lossy();
-        if is_agent_skill_subdir(&entry_name_lossy) {
-            continue;
-        }
-
-        if !path.is_dir() {
-            continue;
-        }
-
-        let skill_name = entry_name_lossy.to_string();
-        let nested = crate::asset_sync::collect_directory_tree_mappings(&path)?;
-        mappings.extend(nested.into_iter().map(|mapping| SourceFileMapping {
-            source_path: mapping.source_path,
-            relative_path: format!("{skill_name}/{}", mapping.relative_path),
-        }));
-    }
-
-    mappings.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    Ok(mappings)
-}
-
-fn collect_legacy_command_mappings(commands_root: &Path) -> Result<Vec<SourceFileMapping>> {
-    if !commands_root.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut mappings = Vec::new();
-    let mut entries = fs::read_dir(commands_root)
-        .with_context(|| format!("Failed to read directory: {}", commands_root.display()))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-
-    for entry in entries {
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-            continue;
-        }
-
-        let skill_name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Invalid legacy command file name"))?
-            .to_string();
-        mappings.push(SourceFileMapping {
-            source_path: path,
-            relative_path: format!("{skill_name}/SKILL.md"),
-        });
-    }
-
-    Ok(mappings)
-}
-
 fn combine_mappings(mapping_sets: &[&[SourceFileMapping]]) -> Vec<SourceFileMapping> {
     let mut combined = mapping_sets
         .iter()
@@ -823,7 +822,7 @@ fn config_prune_command(global: bool, agent: Agent) -> String {
 }
 
 fn directory_has_entries(path: &Path) -> bool {
-    fs::read_dir(path).map(|mut entries| entries.next().is_some()).unwrap_or(false)
+    fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
 }
 
 fn matches_filter(agent_filter: Option<Agent>, candidate: Agent) -> bool {
@@ -841,8 +840,4 @@ fn agent_cli_name(agent: Agent) -> &'static str {
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
     }
-}
-
-fn is_agent_skill_subdir(name: &str) -> bool {
-    matches!(name, "claude" | "claude-code" | "codex" | "gemini")
 }

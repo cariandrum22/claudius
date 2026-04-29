@@ -4,6 +4,7 @@ const CLAUDE_CODE_MANAGED_DIR_ENV: &str = "CLAUDIUS_CLAUDE_CODE_MANAGED_DIR";
 const CODEX_REQUIREMENTS_PATH_ENV: &str = "CLAUDIUS_CODEX_REQUIREMENTS_PATH";
 const CODEX_MANAGED_CONFIG_PATH_ENV: &str = "CLAUDIUS_CODEX_MANAGED_CONFIG_PATH";
 const GEMINI_CLI_SYSTEM_SETTINGS_PATH_ENV: &str = "GEMINI_CLI_SYSTEM_SETTINGS_PATH";
+const GEMINI_CLI_SYSTEM_DEFAULTS_PATH_ENV: &str = "GEMINI_CLI_SYSTEM_DEFAULTS_PATH";
 
 #[must_use]
 pub fn claude_code_managed_dir() -> PathBuf {
@@ -51,6 +52,15 @@ pub fn gemini_cli_system_settings_path() -> PathBuf {
         .map_or_else(default_gemini_cli_system_settings_path, PathBuf::from)
 }
 
+#[must_use]
+pub fn gemini_cli_system_defaults_path() -> PathBuf {
+    std::env::var(GEMINI_CLI_SYSTEM_DEFAULTS_PATH_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map_or_else(default_gemini_cli_system_defaults_path, PathBuf::from)
+}
+
 #[cfg(target_os = "macos")]
 fn default_claude_code_managed_dir() -> PathBuf {
     PathBuf::from("/Library/Application Support/ClaudeCode")
@@ -78,7 +88,7 @@ fn default_codex_requirements_path() -> PathBuf {
 
 #[cfg(windows)]
 fn default_codex_requirements_path() -> PathBuf {
-    PathBuf::from(r"C:\ProgramData\codex\requirements.toml")
+    PathBuf::from(r"C:\ProgramData\OpenAI\Codex\requirements.toml")
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -125,6 +135,26 @@ fn default_gemini_cli_system_settings_path() -> PathBuf {
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn default_gemini_cli_system_settings_path() -> PathBuf {
     PathBuf::from("/etc/gemini-cli/settings.json")
+}
+
+#[cfg(target_os = "macos")]
+fn default_gemini_cli_system_defaults_path() -> PathBuf {
+    PathBuf::from("/Library/Application Support/GeminiCli/system-defaults.json")
+}
+
+#[cfg(target_os = "linux")]
+fn default_gemini_cli_system_defaults_path() -> PathBuf {
+    PathBuf::from("/etc/gemini-cli/system-defaults.json")
+}
+
+#[cfg(windows)]
+fn default_gemini_cli_system_defaults_path() -> PathBuf {
+    PathBuf::from(r"C:\ProgramData\gemini-cli\system-defaults.json")
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn default_gemini_cli_system_defaults_path() -> PathBuf {
+    PathBuf::from("/etc/gemini-cli/system-defaults.json")
 }
 
 #[cfg(test)]
@@ -184,5 +214,17 @@ mod tests {
         assert_eq!(gemini_cli_system_settings_path(), path);
 
         std::env::remove_var(GEMINI_CLI_SYSTEM_SETTINGS_PATH_ENV);
+    }
+
+    #[test]
+    #[serial]
+    fn test_gemini_cli_system_defaults_path_env_override() {
+        let temp_dir = TempDir::new().expect("temp dir should be created for test");
+        let path = temp_dir.path().join("system-defaults.json");
+        std::env::set_var(GEMINI_CLI_SYSTEM_DEFAULTS_PATH_ENV, &path);
+
+        assert_eq!(gemini_cli_system_defaults_path(), path);
+
+        std::env::remove_var(GEMINI_CLI_SYSTEM_DEFAULTS_PATH_ENV);
     }
 }

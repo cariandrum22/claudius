@@ -18,9 +18,18 @@ mod tests {
         fixture.with_settings(r#"{"apiKeyHelper":"legacy-helper"}"#).unwrap();
         fixture.with_skill("shared-skill", "# Shared Skill").unwrap();
         fixture
+            .with_gemini_system_defaults(r#"{"billing":{"project":"shared-project"}}"#)
+            .unwrap();
+        fixture
             .with_gemini_command(
                 "review",
                 "description = \"Review the current diff\"\nprompt = \"Review this change set.\"",
+            )
+            .unwrap();
+        fixture
+            .with_gemini_agent(
+                "triage",
+                "---\nname: triage\ndescription: Triage Gemini issues\n---\nFocus on Gemini-specific issues.",
             )
             .unwrap();
         fixture
@@ -41,7 +50,9 @@ mod tests {
             .success()
             .stdout(predicate::str::contains("SUPPORTED"))
             .stdout(predicate::str::contains("Shared skills source is present."))
+            .stdout(predicate::str::contains("Gemini system defaults source is present."))
             .stdout(predicate::str::contains("Gemini custom command source is present."))
+            .stdout(predicate::str::contains("Gemini agent source is present."))
             .stdout(predicate::str::contains("Claude Code subagent source is present."))
             .stdout(predicate::str::contains("LEGACY"))
             .stdout(predicate::str::contains(
@@ -68,6 +79,12 @@ mod tests {
                 "description = \"Review the current diff\"\nprompt = \"Review this change set.\"",
             )
             .unwrap();
+        fixture
+            .with_gemini_agent(
+                "triage",
+                "---\nname: triage\ndescription: Triage Gemini issues\n---\nFocus on Gemini-specific issues.",
+            )
+            .unwrap();
 
         let mut sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
         sync.current_dir(&fixture.project)
@@ -79,6 +96,7 @@ mod tests {
 
         fs::remove_file(fixture.config.join("commands").join("gemini").join("review.toml"))
             .unwrap();
+        fs::remove_file(fixture.config.join("agents").join("gemini").join("triage.md")).unwrap();
         fs::create_dir_all(fixture.project.join(".gemini").join("extensions").join("sample"))
             .unwrap();
         fs::write(
@@ -108,7 +126,38 @@ mod tests {
             .stdout(predicate::str::contains(
                 "Claudius-managed Gemini commands target has stale deployed files.",
             ))
+            .stdout(predicate::str::contains(
+                "Claudius-managed Gemini agents target has stale deployed files.",
+            ))
             .stdout(predicate::str::contains("claudius config sync --agent gemini --prune"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_doctor_reports_unmanaged_claude_code_slash_commands() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fs::create_dir_all(fixture.project.join(".claude").join("commands")).unwrap();
+        fs::write(
+            fixture.project.join(".claude").join("commands").join("review.md"),
+            "# Review command",
+        )
+        .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "doctor", "--agent", "claude-code"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("UNMANAGED"))
+            .stdout(predicate::str::contains(
+                "Claude Code slash commands are present in an unmanaged target directory.",
+            ))
+            .stdout(predicate::str::contains(".claude/commands"));
     }
 
     #[test]

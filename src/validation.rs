@@ -48,7 +48,7 @@ struct GeminiCommandFile {
 }
 
 #[derive(Debug, Deserialize)]
-struct ClaudeCodeSubagentFrontmatter {
+struct MarkdownAgentFrontmatter {
     name: String,
     description: String,
     #[serde(flatten)]
@@ -284,11 +284,54 @@ pub fn validate_claude_code_subagent_file<P: AsRef<Path>>(path: P) -> Result<Val
         anyhow::anyhow!("Failed to extract Markdown body from {}", path_ref.display())
     })?;
 
-    let metadata: ClaudeCodeSubagentFrontmatter =
+    let metadata: MarkdownAgentFrontmatter =
         serde_yaml::from_str(frontmatter).with_context(|| {
             format!("Failed to parse Claude Code subagent frontmatter: {}", path_ref.display())
         })?;
 
+    Ok(validate_markdown_agent_metadata(&metadata, body))
+}
+
+/// Validates a Gemini custom agent definition file.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to read the file
+/// - The file is missing YAML frontmatter
+/// - The YAML frontmatter is invalid
+/// - Required metadata fields are missing or have invalid types
+pub fn validate_gemini_agent_file<P: AsRef<Path>>(path: P) -> Result<ValidationResult> {
+    let path_ref = path.as_ref();
+    let content = fs::read_to_string(path_ref)
+        .with_context(|| format!("Failed to read Gemini agent file: {}", path_ref.display()))?;
+
+    let captures = YAML_FRONTMATTER_RE.captures(&content).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Gemini agent file must start with YAML frontmatter delimited by ---: {}",
+            path_ref.display()
+        )
+    })?;
+
+    let frontmatter = captures.get(1).map(|capture| capture.as_str()).ok_or_else(|| {
+        anyhow::anyhow!("Failed to extract YAML frontmatter from {}", path_ref.display())
+    })?;
+    let body = captures.get(2).map(|capture| capture.as_str()).ok_or_else(|| {
+        anyhow::anyhow!("Failed to extract Markdown body from {}", path_ref.display())
+    })?;
+
+    let metadata: MarkdownAgentFrontmatter =
+        serde_yaml::from_str(frontmatter).with_context(|| {
+            format!("Failed to parse Gemini agent frontmatter: {}", path_ref.display())
+        })?;
+
+    Ok(validate_markdown_agent_metadata(&metadata, body))
+}
+
+fn validate_markdown_agent_metadata(
+    metadata: &MarkdownAgentFrontmatter,
+    body: &str,
+) -> ValidationResult {
     let mut warnings = Vec::new();
     if metadata.name.trim().is_empty() {
         warnings.push("Required frontmatter field 'name' should not be empty".to_string());
@@ -297,10 +340,10 @@ pub fn validate_claude_code_subagent_file<P: AsRef<Path>>(path: P) -> Result<Val
         warnings.push("Required frontmatter field 'description' should not be empty".to_string());
     }
     if body.trim().is_empty() {
-        warnings.push("Subagent Markdown body should not be empty".to_string());
+        warnings.push("Agent Markdown body should not be empty".to_string());
     }
 
-    Ok(ValidationResult { warnings })
+    ValidationResult { warnings }
 }
 
 /// Prompt user to continue after a warning

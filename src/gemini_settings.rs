@@ -43,10 +43,16 @@ pub struct GeminiSettings {
     pub output: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub advanced: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub admin: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_policy_paths: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<Value>,
@@ -64,6 +70,9 @@ pub struct GeminiSettings {
     pub mcp: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_paths: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub skills: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,7 +87,9 @@ pub struct GeminiSettings {
 pub const KNOWN_GEMINI_FIELDS: &[&str] = &[
     "$schema",
     "admin",
+    "adminPolicyPaths",
     "advanced",
+    "billing",
     "context",
     "experimental",
     "extensions",
@@ -90,6 +101,7 @@ pub const KNOWN_GEMINI_FIELDS: &[&str] = &[
     "model",
     "modelConfigs",
     "output",
+    "policyPaths",
     "privacy",
     "security",
     "skills",

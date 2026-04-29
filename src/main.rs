@@ -17,7 +17,8 @@ use claudius::{
     sync_operations::{
         determine_agent, handle_backup, handle_dry_run, merge_all_configs,
         print_supporting_assets_dry_run, read_configurations, sync_supporting_assets,
-        write_configurations, AgentContext, CodexGlobalSyncOptions,
+        write_configurations, AgentContext, CodexGlobalSyncOptions, ReadConfigResult,
+        SupportingAssetSyncReport,
     },
     template::{
         append_rules_to_context_file, append_template_to_context_file, ensure_rules_directory,
@@ -222,22 +223,13 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
     }
 
     let config = Config::new_with_agent(global, effective_agent)?;
-    let Some(source_dir) = config.resolve_skills_source_dir() else {
-        let skill_targets = determine_skill_sync_targets(&config)?;
-        let reports = skill_targets
-            .iter()
-            .map(|target_dir| {
-                skills::sync_skills_with_options(None, target_dir, SyncBehavior { dry_run, prune })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        print_skill_sync_result(&reports, dry_run);
-        return Ok(());
-    };
+    let source_set =
+        skills::collect_claudius_skill_source_set(config.config_root_dir()?, config.agent)?;
 
-    if source_dir != config.skills_dir {
+    if source_set.includes_legacy_commands {
         println!(
             "Legacy commands directory detected; syncing skills from {}",
-            source_dir.display()
+            config.config_root_dir()?.join("commands").display()
         );
     }
 
@@ -245,8 +237,8 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
     let reports = skill_targets
         .iter()
         .map(|target_dir| {
-            skills::sync_skills_with_options(
-                Some(&source_dir),
+            skills::sync_skill_mappings_with_options(
+                &source_set.mappings,
                 target_dir,
                 SyncBehavior { dry_run, prune },
             )
@@ -274,6 +266,92 @@ fn run_config_sync(args: cli::ConfigSyncArgs, app_config: Option<&AppConfig>) ->
     run_sync(&options, app_config)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SyncFlagSet {
+    scope: Option<claudius::app_config::ClaudeCodeScope>,
+    codex_requirements: bool,
+    codex_managed_config: bool,
+    gemini_system: bool,
+    gemini_system_defaults: bool,
+}
+
+impl SyncFlagSet {
+    fn validate(self, effective_agent: Option<claudius::app_config::Agent>) -> Result<()> {
+        if self.scope.is_some() && effective_agent != Some(claudius::app_config::Agent::ClaudeCode)
+        {
+            anyhow::bail!("--scope is only supported with --agent claude-code");
+        }
+
+        if self.codex_requirements && effective_agent != Some(claudius::app_config::Agent::Codex) {
+            anyhow::bail!("--codex-requirements is only supported with --agent codex");
+        }
+
+        if self.codex_managed_config && effective_agent != Some(claudius::app_config::Agent::Codex)
+        {
+            anyhow::bail!("--codex-managed-config is only supported with --agent codex");
+        }
+
+        if self.gemini_system && effective_agent != Some(claudius::app_config::Agent::Gemini) {
+            anyhow::bail!("--gemini-system is only supported with --agent gemini");
+        }
+
+        if self.gemini_system_defaults
+            && effective_agent != Some(claudius::app_config::Agent::Gemini)
+        {
+            anyhow::bail!("--gemini-system-defaults is only supported with --agent gemini");
+        }
+
+        if self.gemini_system && self.gemini_system_defaults {
+            anyhow::bail!("--gemini-system and --gemini-system-defaults are mutually exclusive");
+        }
+
+        Ok(())
+    }
+
+    fn validate_global_constraints(self, effective_global: bool) -> Result<()> {
+        if self.codex_requirements && !effective_global {
+            anyhow::bail!(
+                "--codex-requirements requires --global (Codex requirements are system-wide)"
+            );
+        }
+
+        if self.codex_managed_config && !effective_global {
+            anyhow::bail!(
+                "--codex-managed-config requires --global (Codex managed_config.toml is system-wide)",
+            );
+        }
+
+        if self.gemini_system && !effective_global {
+            anyhow::bail!(
+                "--gemini-system requires --global (Gemini system settings are system-wide)"
+            );
+        }
+
+        if self.gemini_system_defaults && !effective_global {
+            anyhow::bail!(
+                "--gemini-system-defaults requires --global (Gemini system defaults are system-wide)"
+            );
+        }
+
+        Ok(())
+    }
+
+    fn resolve_target_config(
+        self,
+        target_config: Option<std::path::PathBuf>,
+    ) -> Option<std::path::PathBuf> {
+        target_config.or_else(|| {
+            if self.gemini_system {
+                Some(agent_paths::gemini_cli_system_settings_path())
+            } else if self.gemini_system_defaults {
+                Some(agent_paths::gemini_cli_system_defaults_path())
+            } else {
+                None
+            }
+        })
+    }
+}
+
 fn build_sync_options(
     args: cli::ConfigSyncArgs,
     app_config: Option<&AppConfig>,
@@ -290,36 +368,22 @@ fn build_sync_options(
         codex_requirements,
         codex_managed_config,
         gemini_system,
+        gemini_system_defaults,
     } = args;
-
-    let effective_agent = determine_agent(agent, app_config);
-    validate_sync_agent_flags(
-        effective_agent,
+    let flags = SyncFlagSet {
         scope,
         codex_requirements,
         codex_managed_config,
         gemini_system,
-    )?;
+        gemini_system_defaults,
+    };
 
-    let effective_global = compute_effective_global(global, scope);
-    if codex_requirements && !effective_global {
-        anyhow::bail!(
-            "--codex-requirements requires --global (Codex requirements are system-wide)"
-        );
-    }
+    let effective_agent = determine_agent(agent, app_config);
+    flags.validate(effective_agent)?;
 
-    if codex_managed_config && !effective_global {
-        anyhow::bail!(
-            "--codex-managed-config requires --global (Codex managed_config.toml is system-wide)",
-        );
-    }
-
-    if gemini_system && !effective_global {
-        anyhow::bail!("--gemini-system requires --global (Gemini system settings are system-wide)");
-    }
-
-    let effective_target_config = target_config
-        .or_else(|| gemini_system.then_some(agent_paths::gemini_cli_system_settings_path()));
+    let effective_global = compute_effective_global(global, flags.scope);
+    flags.validate_global_constraints(effective_global)?;
+    let effective_target_config = flags.resolve_target_config(target_config);
 
     Ok(SyncOptions {
         config_path: config,
@@ -329,37 +393,12 @@ fn build_sync_options(
         prune,
         global: effective_global,
         agent_override: agent,
-        claude_code_scope: scope,
-        codex_requirements,
-        codex_managed_config,
-        gemini_system,
+        claude_code_scope: flags.scope,
+        codex_requirements: flags.codex_requirements,
+        codex_managed_config: flags.codex_managed_config,
+        gemini_system: flags.gemini_system,
+        gemini_system_defaults: flags.gemini_system_defaults,
     })
-}
-
-fn validate_sync_agent_flags(
-    effective_agent: Option<claudius::app_config::Agent>,
-    scope: Option<claudius::app_config::ClaudeCodeScope>,
-    codex_requirements: bool,
-    codex_managed_config: bool,
-    gemini_system: bool,
-) -> Result<()> {
-    if scope.is_some() && effective_agent != Some(claudius::app_config::Agent::ClaudeCode) {
-        anyhow::bail!("--scope is only supported with --agent claude-code");
-    }
-
-    if codex_requirements && effective_agent != Some(claudius::app_config::Agent::Codex) {
-        anyhow::bail!("--codex-requirements is only supported with --agent codex");
-    }
-
-    if codex_managed_config && effective_agent != Some(claudius::app_config::Agent::Codex) {
-        anyhow::bail!("--codex-managed-config is only supported with --agent codex");
-    }
-
-    if gemini_system && effective_agent != Some(claudius::app_config::Agent::Gemini) {
-        anyhow::bail!("--gemini-system is only supported with --agent gemini");
-    }
-
-    Ok(())
 }
 
 fn compute_effective_global(
@@ -582,8 +621,14 @@ fn select_codex_managed_config_source(
 fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
 
-    let gemini_settings_path = config_dir.join("gemini.settings.json");
-    if gemini_settings_path.exists() {
+    let gemini_settings_paths =
+        [config_dir.join("gemini.settings.json"), config_dir.join("gemini.system_defaults.json")];
+
+    for gemini_settings_path in gemini_settings_paths {
+        if !gemini_settings_path.exists() {
+            continue;
+        }
+
         let content = std::fs::read_to_string(&gemini_settings_path)
             .with_context(|| format!("Failed to read {}", gemini_settings_path.display()))?;
         let json_value: serde_json::Value = serde_json::from_str(&content).with_context(|| {
@@ -601,6 +646,7 @@ fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> 
     }
 
     warnings.extend(validate_gemini_command_sources(config_dir)?);
+    warnings.extend(validate_gemini_agent_sources(config_dir)?);
 
     Ok(warnings)
 }
@@ -618,6 +664,25 @@ fn validate_gemini_command_sources(config_dir: &std::path::Path) -> Result<Vec<S
                 .warnings
                 .into_iter()
                 .map(|warning| format!("{}: {warning}", command_file.display())),
+        );
+    }
+
+    Ok(warnings)
+}
+
+fn validate_gemini_agent_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+    let agents_dir = config_dir.join("agents").join("gemini");
+    let mut agent_files = Vec::new();
+    collect_files_with_extension(&agents_dir, "md", &mut agent_files)?;
+
+    for agent_file in agent_files {
+        let result = claudius::validation::validate_gemini_agent_file(&agent_file)?;
+        warnings.extend(
+            result
+                .warnings
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", agent_file.display())),
         );
     }
 
@@ -663,9 +728,7 @@ fn validate_codex_skill_compatibility(config_dir: &std::path::Path) -> Vec<Strin
 }
 
 fn directory_has_entries(path: &std::path::Path) -> bool {
-    std::fs::read_dir(path)
-        .map(|mut entries| entries.next().is_some())
-        .unwrap_or(false)
+    std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
 }
 
 fn collect_files_with_extension(
@@ -878,6 +941,7 @@ struct SyncOptions {
     codex_requirements: bool,
     codex_managed_config: bool,
     gemini_system: bool,
+    gemini_system_defaults: bool,
 }
 
 fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()> {
@@ -890,18 +954,22 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
         && !options.codex_requirements
         && !options.codex_managed_config
         && !options.gemini_system
+        && !options.gemini_system_defaults
         && app_config.is_none_or(|cfg| cfg.default.is_none())
     {
         sync_all_available_agents(options, app_config)
     } else {
         // Single agent sync (current behavior)
         let (agent_context, config, paths) = setup_sync_context(
-            options.agent_override,
+            SyncContextRequest {
+                agent_override: options.agent_override,
+                global: options.global,
+                config_path: options.config_path.clone(),
+                target_config_path: options.target_config_path.clone(),
+                claude_code_scope: options.claude_code_scope,
+                gemini_system_defaults: options.gemini_system_defaults,
+            },
             app_config,
-            options.global,
-            options.config_path.clone(),
-            options.target_config_path.clone(),
-            options.claude_code_scope,
         )?;
 
         // Log configuration paths
@@ -916,6 +984,7 @@ fn run_sync(options: &SyncOptions, app_config: Option<&AppConfig>) -> Result<()>
                 requirements: options.codex_requirements,
                 managed_config: options.codex_managed_config,
             },
+            sync_supporting_assets: !options.gemini_system && !options.gemini_system_defaults,
         };
 
         execute_sync_operation(&config, &paths, agent_context, flags)
@@ -957,12 +1026,15 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
         println!("===============================================");
 
         let (agent_context, config, paths) = setup_sync_context(
-            Some(*agent),
+            SyncContextRequest {
+                agent_override: Some(*agent),
+                global: true,
+                config_path: options.config_path.clone(),
+                target_config_path: options.target_config_path.clone(),
+                claude_code_scope: None,
+                gemini_system_defaults: false,
+            },
             app_config,
-            true,
-            options.config_path.clone(),
-            options.target_config_path.clone(),
-            None,
         )?;
 
         // Log configuration paths
@@ -974,6 +1046,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
             dry_run: options.dry_run,
             prune: options.prune,
             codex_global: CodexGlobalSyncOptions::default(),
+            sync_supporting_assets: true,
         };
 
         execute_sync_operation(&config, &paths, agent_context, flags)?;
@@ -985,33 +1058,36 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
 
 /// Setup sync context with agent and paths
 fn setup_sync_context(
-    agent_override: Option<claudius::app_config::Agent>,
+    request: SyncContextRequest,
     app_config: Option<&AppConfig>,
-    global: bool,
-    config_opt: Option<std::path::PathBuf>,
-    target_config_opt: Option<std::path::PathBuf>,
-    claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
 ) -> Result<(AgentContext, Config, SyncPaths)> {
-    let agent = determine_agent(agent_override, app_config);
+    let agent = determine_agent(request.agent_override, app_config);
     if let Some(a) = agent {
         debug!("Using agent: {:?}", a);
     }
 
-    if claude_code_scope.is_some() && agent != Some(claudius::app_config::Agent::ClaudeCode) {
+    if request.claude_code_scope.is_some() && agent != Some(claudius::app_config::Agent::ClaudeCode)
+    {
         anyhow::bail!("--scope is only supported with --agent claude-code");
     }
 
-    let agent_context = AgentContext::new(agent, claude_code_scope);
-    let config = Config::new_with_agent(global, agent)?;
+    let agent_context = AgentContext::new(agent, request.claude_code_scope);
+    let mut config = Config::new_with_agent(request.global, agent)?;
+
+    if request.gemini_system_defaults && agent_context.is_gemini {
+        let config_dir =
+            Config::get_config_dir().context("Failed to determine Claudius config directory")?;
+        config.settings_path = config_dir.join("gemini.system_defaults.json");
+    }
 
     let default_target_config = match agent_context.claude_code_scope {
         Some(claudius::app_config::ClaudeCodeScope::Managed)
-            if agent_context.is_claude_code && global =>
+            if agent_context.is_claude_code && request.global =>
         {
             agent_paths::claude_code_managed_mcp_path()
         },
         Some(claudius::app_config::ClaudeCodeScope::Local)
-            if agent_context.is_claude_code && !global =>
+            if agent_context.is_claude_code && !request.global =>
         {
             let base_dirs = directories::BaseDirs::new()
                 .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
@@ -1021,8 +1097,8 @@ fn setup_sync_context(
     };
 
     let paths = SyncPaths {
-        mcp_servers: config_opt.unwrap_or_else(|| config.mcp_servers_path.clone()),
-        target_config: target_config_opt.unwrap_or(default_target_config),
+        mcp_servers: request.config_path.unwrap_or_else(|| config.mcp_servers_path.clone()),
+        target_config: request.target_config_path.unwrap_or(default_target_config),
     };
 
     Ok((agent_context, config, paths))
@@ -1051,6 +1127,17 @@ struct SyncExecutionFlags {
     dry_run: bool,
     prune: bool,
     codex_global: CodexGlobalSyncOptions,
+    sync_supporting_assets: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SyncContextRequest {
+    agent_override: Option<claudius::app_config::Agent>,
+    global: bool,
+    config_path: Option<std::path::PathBuf>,
+    target_config_path: Option<std::path::PathBuf>,
+    claude_code_scope: Option<claudius::app_config::ClaudeCodeScope>,
+    gemini_system_defaults: bool,
 }
 
 /// Execute the main sync operation
@@ -1060,19 +1147,8 @@ fn execute_sync_operation(
     agent_context: AgentContext,
     flags: SyncExecutionFlags,
 ) -> Result<()> {
-    // Read configurations
     let read_result = read_configurations(config, &paths.mcp_servers, agent_context)?;
-
-    debug!("Reading target configuration");
-    let mut claude_config = if config.is_global && agent_context.is_codex {
-        // For Codex in global mode, don't read from paths.target_config (Codex uses ~/.codex/config.toml).
-        claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() }
-    } else {
-        reader::read_claude_config(&paths.target_config)
-            .context("Failed to read target configuration")?
-    };
-
-    // Process configurations
+    let mut claude_config = load_target_claude_config(config, &paths.target_config, agent_context)?;
     if flags.backup {
         handle_backup(
             config,
@@ -1084,39 +1160,92 @@ fn execute_sync_operation(
     }
     merge_all_configs(&mut claude_config, &read_result, agent_context, config.is_global)?;
 
-    // Output results
+    finalize_sync_operation(config, paths, agent_context, flags, &claude_config, &read_result)
+}
+
+fn load_target_claude_config(
+    config: &Config,
+    target_config: &std::path::Path,
+    agent_context: AgentContext,
+) -> Result<claudius::config::ClaudeConfig> {
+    debug!("Reading target configuration");
+
+    if config.is_global && agent_context.is_codex {
+        return Ok(claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() });
+    }
+
+    reader::read_claude_config(target_config).context("Failed to read target configuration")
+}
+
+fn finalize_sync_operation(
+    config: &Config,
+    paths: &SyncPaths,
+    agent_context: AgentContext,
+    flags: SyncExecutionFlags,
+    claude_config: &claudius::config::ClaudeConfig,
+    read_result: &ReadConfigResult,
+) -> Result<()> {
     if flags.dry_run {
-        let supporting_assets = sync_supporting_assets(
-            config,
-            agent_context,
-            SyncBehavior { dry_run: true, prune: flags.prune },
-        );
-        handle_dry_run(
-            config,
-            &paths.target_config,
-            &claude_config,
-            &read_result,
-            agent_context,
-            flags.codex_global,
-        )?;
-        print_supporting_assets_dry_run(&supporting_assets);
-    } else {
-        write_configurations(
-            config,
-            &claude_config,
-            &paths.target_config,
-            &read_result,
-            agent_context,
-            flags.codex_global,
-        )?;
-        let _ = sync_supporting_assets(
-            config,
-            agent_context,
-            SyncBehavior { dry_run: false, prune: flags.prune },
-        );
+        return run_sync_dry_run(config, paths, agent_context, flags, claude_config, read_result);
+    }
+
+    write_configurations(
+        config,
+        claude_config,
+        &paths.target_config,
+        read_result,
+        agent_context,
+        flags.codex_global,
+    )?;
+    sync_supporting_assets_if_enabled(config, agent_context, flags, false);
+
+    Ok(())
+}
+
+fn run_sync_dry_run(
+    config: &Config,
+    paths: &SyncPaths,
+    agent_context: AgentContext,
+    flags: SyncExecutionFlags,
+    claude_config: &claudius::config::ClaudeConfig,
+    read_result: &ReadConfigResult,
+) -> Result<()> {
+    let supporting_assets = collect_supporting_assets_report(config, agent_context, flags, true);
+
+    handle_dry_run(
+        config,
+        &paths.target_config,
+        claude_config,
+        read_result,
+        agent_context,
+        flags.codex_global,
+    )?;
+
+    if let Some(report) = supporting_assets {
+        print_supporting_assets_dry_run(&report);
     }
 
     Ok(())
+}
+
+fn collect_supporting_assets_report(
+    config: &Config,
+    agent_context: AgentContext,
+    flags: SyncExecutionFlags,
+    dry_run: bool,
+) -> Option<SupportingAssetSyncReport> {
+    flags.sync_supporting_assets.then(|| {
+        sync_supporting_assets(config, agent_context, SyncBehavior { dry_run, prune: flags.prune })
+    })
+}
+
+fn sync_supporting_assets_if_enabled(
+    config: &Config,
+    agent_context: AgentContext,
+    flags: SyncExecutionFlags,
+    dry_run: bool,
+) {
+    let _ = collect_supporting_assets_report(config, agent_context, flags, dry_run);
 }
 
 fn print_skill_sync_result(reports: &[skills::SkillSyncReport], dry_run: bool) {
@@ -1431,7 +1560,7 @@ fn build_installed_rules_list(
     for rule_name in copied_rules {
         let rule_path = relative_rules_path.join(format!("{rule_name}.md"));
         let rule_path_str = rule_path.to_string_lossy().replace('\\', "/");
-        writeln!(&mut rule_list, "- `{rule_path_str}`: {}", rule_name.replace('/', " / "),)
+        writeln!(&mut rule_list, "- `{rule_path_str}`: {}", rule_name.replace('/', " / "))
             .map_err(|e| anyhow::anyhow!("Failed to format rules list: {e}"))?;
     }
 
