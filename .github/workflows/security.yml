@@ -155,6 +155,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
