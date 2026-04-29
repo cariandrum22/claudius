@@ -2,6 +2,8 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use serial_test::serial;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -17,6 +19,48 @@ mod tests {
         // Use cargo manifest dir to reliably find the test fixtures
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(manifest_dir).join("tests").join("fixtures").join("mock_op.sh")
+    }
+
+    fn escape_for_toml(path: &std::path::Path) -> String {
+        path.to_string_lossy().replace('\\', "\\\\")
+    }
+
+    fn write_service_account_mock_op(script_path: &std::path::Path, expected_token: &str) {
+        let script = format!(
+            r#"#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+    echo "2.20.0"
+    exit 0
+fi
+
+if [[ "$1" == "read" && "$2" == "op://vault/test-item/api-key" ]]; then
+    if [[ "${{OP_SERVICE_ACCOUNT_TOKEN:-}}" != "{expected_token}" ]]; then
+        echo "unexpected OP_SERVICE_ACCOUNT_TOKEN" >&2
+        exit 1
+    fi
+
+    if [[ -n "${{OP_SESSION:-}}" || -n "${{OP_ACCOUNT:-}}" ]]; then
+        echo "unexpected session-based auth env" >&2
+        exit 1
+    fi
+
+    echo "secret-api-key-12345"
+    exit 0
+fi
+
+echo "ERROR: Unknown command or reference" >&2
+exit 1
+"#
+        );
+
+        fs::write(script_path, script).unwrap();
+
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(script_path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(script_path, permissions).unwrap();
+        }
     }
 
     // ===========================
@@ -237,6 +281,190 @@ type = "1password"
             .success()
             .stdout(predicate::str::contains("OP=secret-api-key-12345"))
             .stdout(predicate::str::contains("PLAIN=plain-value"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_run_with_onepassword_service_account_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join("config").join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let token_path = temp_dir.path().join("service-account.token");
+        fs::write(&token_path, "service-account-token-123\n").unwrap();
+
+        let config_content = format!(
+            r#"
+[secret-manager]
+type = "1password"
+
+[secret-manager.onepassword]
+mode = "service-account"
+service-account-token-path = "{}"
+"#,
+            escape_for_toml(&token_path)
+        );
+        fs::write(config_dir.join("config.toml"), config_content).unwrap();
+
+        let mock_bin_dir = temp_dir.path().join("bin");
+        fs::create_dir_all(&mock_bin_dir).unwrap();
+        write_service_account_mock_op(&mock_bin_dir.join("op"), "service-account-token-123");
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(temp_dir.path())
+            .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
+            .env(
+                "PATH",
+                format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
+            )
+            .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
+            .arg("--debug")
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(
+                "echo API_KEY=$API_KEY; if [ -n \"$OP_SERVICE_ACCOUNT_TOKEN\" ]; then echo OP_SERVICE_ACCOUNT_TOKEN=set; else echo OP_SERVICE_ACCOUNT_TOKEN=unset; fi",
+            );
+
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("API_KEY=secret-api-key-12345"))
+            .stdout(predicate::str::contains("OP_SERVICE_ACCOUNT_TOKEN=unset"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_run_with_onepassword_manual_config_accepts_account_specific_session_env() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join("config").join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_content = r#"
+[secret-manager]
+type = "1password"
+
+[secret-manager.onepassword]
+mode = "manual"
+"#;
+        fs::write(config_dir.join("config.toml"), config_content).unwrap();
+
+        let mock_op = setup_mock_op_path();
+        let mock_bin_dir = temp_dir.path().join("bin");
+        fs::create_dir_all(&mock_bin_dir).unwrap();
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&mock_op, mock_bin_dir.join("op")).unwrap();
+        }
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(temp_dir.path())
+            .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
+            .env(
+                "PATH",
+                format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
+            )
+            .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
+            .env("OP_ACCOUNT", "my")
+            .env("OP_SESSION_my", "manual-session-token")
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("echo API_KEY=$API_KEY");
+
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("API_KEY=secret-api-key-12345"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_run_with_onepassword_manual_config_rejects_mismatched_account_session_env() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join("config").join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_content = r#"
+[secret-manager]
+type = "1password"
+
+[secret-manager.onepassword]
+mode = "manual"
+"#;
+        fs::write(config_dir.join("config.toml"), config_content).unwrap();
+
+        let mock_op = setup_mock_op_path();
+        let mock_bin_dir = temp_dir.path().join("bin");
+        fs::create_dir_all(&mock_bin_dir).unwrap();
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&mock_op, mock_bin_dir.join("op")).unwrap();
+        }
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(temp_dir.path())
+            .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
+            .env(
+                "PATH",
+                format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
+            )
+            .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
+            .env("OP_ACCOUNT", "my")
+            .env("OP_SESSION_other", "manual-session-token")
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("echo API_KEY=$API_KEY");
+
+        cmd.assert().failure().stderr(predicate::str::contains("OP_SESSION_my"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_run_with_legacy_onepassword_service_account_env_overrides() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_dir = temp_dir.path().join("config").join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        fs::write(
+            config_dir.join("config.toml"),
+            r#"
+[secret-manager]
+type = "1password"
+"#,
+        )
+        .unwrap();
+
+        let token_path = temp_dir.path().join("service-account.token");
+        fs::write(&token_path, "service-account-token-legacy\n").unwrap();
+
+        let mock_bin_dir = temp_dir.path().join("bin");
+        fs::create_dir_all(&mock_bin_dir).unwrap();
+        write_service_account_mock_op(&mock_bin_dir.join("op"), "service-account-token-legacy");
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(temp_dir.path())
+            .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
+            .env(
+                "PATH",
+                format!("{}:{}", mock_bin_dir.display(), std::env::var("PATH").unwrap_or_default()),
+            )
+            .env("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key")
+            .env("CLAUDIUS_OP_MODE", "service-account")
+            .env("CLAUDIUS_OP_SERVICE_ACCOUNT_TOKEN_PATH", token_path.to_string_lossy().to_string())
+            .args(["secrets", "run"])
+            .arg("--")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg("echo API_KEY=$API_KEY");
+
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("API_KEY=secret-api-key-12345"));
     }
 
     // ===========================

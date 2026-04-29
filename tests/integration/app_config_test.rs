@@ -46,40 +46,39 @@ type = "1password"
 
     #[test]
     #[serial]
-    fn test_vault_warning() {
+    fn test_config_sync_does_not_require_manual_session_for_op_references() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path().join("config").join("claudius");
         fs::create_dir_all(&config_dir).unwrap();
 
-        // Create a config file with Vault
         let config_content = r#"
 [secret-manager]
-type = "vault"
+type = "1password"
+
+[secret-manager.onepassword]
+mode = "manual"
 "#;
         fs::write(config_dir.join("config.toml"), config_content).unwrap();
 
-        // Create minimal mcpServers.json
         let mcp_content = r#"{
         "mcpServers": {}
     }"#;
         fs::write(config_dir.join("mcpServers.json"), mcp_content).unwrap();
 
-        // Create a project directory for the sync operation
         let project_dir = temp_dir.path().join("project");
         fs::create_dir_all(&project_dir).unwrap();
 
-        // Set a secret env var
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.current_dir(&project_dir)
             .env("XDG_CONFIG_HOME", temp_dir.path().join("config"))
-            .env("CLAUDIUS_SECRET_TEST", "test_value")
+            .env("CLAUDIUS_SECRET_TEST", "op://vault/test-item/api-key")
             .arg("--debug")
             .args(["config", "sync"])
             .arg("--dry-run");
 
-        cmd.assert().success().stderr(predicate::str::contains(
-            "Vault secret manager is configured but not yet implemented",
-        ));
+        cmd.assert()
+            .success()
+            .stderr(predicate::str::contains("requires OP_SESSION").not());
     }
 
     #[test]

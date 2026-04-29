@@ -120,7 +120,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
         let agents_only = Config::new_with_agent(false, Some(Agent::Codex)).unwrap();
-        assert_eq!(agents_only.skills_target_dir, agents_target.clone());
+        assert_eq!(agents_only.skills_target_dir, agents_target);
         assert_eq!(agents_only.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();
@@ -158,7 +158,7 @@ mod tests {
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"agents\"\n").unwrap();
         let agents_only = Config::new_with_agent(true, Some(Agent::Codex)).unwrap();
-        assert_eq!(agents_only.skills_target_dir, agents_target.clone());
+        assert_eq!(agents_only.skills_target_dir, agents_target);
         assert_eq!(agents_only.codex_compat_skills_target_dir().unwrap(), None);
 
         fs::write(config_dir.join("config.toml"), "[codex]\nskill-target = \"both\"\n").unwrap();

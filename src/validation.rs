@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use toml::Value as TomlValue;
 
+use crate::app_config::{AppConfig, SecretManagerType};
 use crate::config::Settings;
 use crate::gemini_settings::{validate_gemini_settings, GeminiSettings};
 
@@ -17,6 +18,24 @@ static YAML_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 #[derive(Debug)]
 pub struct ValidationResult {
     pub warnings: Vec<String>,
+}
+
+/// Validates Claudius app configuration and returns semantic warnings.
+#[must_use]
+pub fn validate_app_config(config: &AppConfig) -> ValidationResult {
+    let mut warnings = Vec::new();
+
+    if let Some(secret_manager) = &config.secret_manager {
+        if secret_manager.onepassword.is_some()
+            && secret_manager.manager_type != SecretManagerType::OnePassword
+        {
+            warnings.push(
+                "[secret-manager.onepassword] is configured but [secret-manager].type is not \"1password\"; these settings will be ignored".to_string(),
+            );
+        }
+    }
+
+    ValidationResult { warnings }
 }
 
 #[derive(Debug, Deserialize)]
@@ -306,9 +325,52 @@ pub fn prompt_continue() -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_config::{
+        OnePasswordConfig, OnePasswordMode, SecretManagerConfig, SecretManagerType,
+    };
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_validate_app_config_warns_when_onepassword_subtable_is_ignored() {
+        let config = AppConfig {
+            secret_manager: Some(SecretManagerConfig {
+                manager_type: SecretManagerType::Vault,
+                onepassword: Some(OnePasswordConfig {
+                    mode: Some(OnePasswordMode::ServiceAccount),
+                    service_account_token_path: Some("~/.config/op/service-account.token".into()),
+                }),
+            }),
+            default: None,
+            codex: None,
+        };
+
+        let result = validate_app_config(&config);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result
+            .warnings
+            .first()
+            .is_some_and(|warning| warning.contains("[secret-manager.onepassword]")));
+    }
+
+    #[test]
+    fn test_validate_app_config_allows_matching_onepassword_config() {
+        let config = AppConfig {
+            secret_manager: Some(SecretManagerConfig {
+                manager_type: SecretManagerType::OnePassword,
+                onepassword: Some(OnePasswordConfig {
+                    mode: Some(OnePasswordMode::ServiceAccount),
+                    service_account_token_path: Some("~/.config/op/service-account.token".into()),
+                }),
+            }),
+            default: None,
+            codex: None,
+        };
+
+        let result = validate_app_config(&config);
+        assert!(result.warnings.is_empty());
+    }
 
     #[test]
     fn test_validate_claude_settings_known_fields() {

@@ -564,9 +564,18 @@ context-file = "CLAUDE.md"  # optional custom filename
 [secret-manager]
 type = "1password"  # or "vault"
 
+[secret-manager.onepassword]
+# Optional auth policy for 1Password resolution during `claudius secrets run`.
+# Leave `mode` unset to keep using your ambient `op` environment.
+mode = "service-account"  # or "desktop" or "manual"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+
 # When using 1Password:
 # - Install 1Password CLI (`op`)
-# - Sign in with `op signin`
+# - Choose one of:
+#   - `mode = "desktop"` for desktop app integration
+#   - `mode = "manual"` after `op signin`
+#   - `mode = "service-account"` for headless hosts
 # - Use op:// references in CLAUDIUS_SECRET_* variables
 #
 # For op:// references in URLs, use {{op://...}} syntax:
@@ -771,6 +780,13 @@ type = "codex"' >> ~/.config/claudius/config.toml
 echo '[secret-manager]
 type = "1password"' >> ~/.config/claudius/config.toml
 
+# Optional: make headless Linux use a 1Password service account token file
+cat <<'EOF' >> ~/.config/claudius/config.toml
+[secret-manager.onepassword]
+mode = "service-account"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+EOF
+
 # Use secrets in environment
 export CLAUDIUS_SECRET_API_KEY=op://vault/api/key
 export CLAUDIUS_SECRET_DB_PASS=op://vault/db/password
@@ -783,6 +799,17 @@ export CLAUDIUS_SECRET_AUTH="Bearer {{op://vault/tokens/api}}"
 claudius secrets run -- ./my-app
 # API_KEY, DB_PASS, BASE_URL, and AUTH are available to my-app with resolved values
 ```
+
+Environment overrides are also available when you need to switch auth policy without editing
+`config.toml`:
+
+```bash
+export CLAUDIUS_1PASSWORD_MODE=service-account
+export CLAUDIUS_1PASSWORD_SERVICE_ACCOUNT_TOKEN_PATH=~/.config/op/service-accounts/headless-linux-cli.token
+```
+
+For backward compatibility, Claudius also accepts the legacy names
+`CLAUDIUS_OP_MODE` and `CLAUDIUS_OP_SERVICE_ACCOUNT_TOKEN_PATH`.
 
 ### Team Collaboration
 
