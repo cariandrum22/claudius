@@ -28,29 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Setup job for caching and environment preparation
-  setup:
-    name: Setup
-    runs-on: ubuntu-latest
-    outputs:
-      rust-cache-key: ${{ steps.cache-keys.outputs.rust }}
-      cargo-cache-key: ${{ steps.cache-keys.outputs.cargo }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0  # For proper git history
-
-      - name: Generate cache keys
-        id: cache-keys
-        run: |
-          echo "rust=${{ runner.os }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}" >> $GITHUB_OUTPUT
-          echo "cargo=${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}" >> $GITHUB_OUTPUT
-
   # Comprehensive test job with matrix
   test:
     name: Test on ${{ matrix.os }} with Rust ${{ matrix.rust }}
-    needs: setup
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,21 +41,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Configure pre-commit cache
-        run: |
-          echo "PRE_COMMIT_HOME=${RUNNER_TEMP}/pre-commit-cache" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/pre-commit-cache"
-
-      - name: Cache pre-commit environment
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.PRE_COMMIT_HOME }}
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
-
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
@@ -86,9 +53,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ needs.setup.outputs.cargo-cache-key }}-${{ matrix.rust }}
+          key: ${{ runner.os }}-cargo-registry-${{ matrix.rust }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ needs.setup.outputs.cargo-cache-key }}-
+            ${{ runner.os }}-cargo-registry-${{ matrix.rust }}-
+            ${{ runner.os }}-cargo-registry-
 
       - name: Cache cargo build
         uses: actions/cache@v5
@@ -109,24 +77,10 @@ jobs:
   # Code coverage job
   coverage:
     name: Code Coverage
-    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Configure pre-commit cache
-        run: |
-          echo "PRE_COMMIT_HOME=${RUNNER_TEMP}/pre-commit-cache" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/pre-commit-cache"
-
-      - name: Cache pre-commit environment
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.PRE_COMMIT_HOME }}
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -144,9 +98,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ needs.setup.outputs.cargo-cache-key }}-stable
+          key: ${{ runner.os }}-cargo-registry-stable-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ needs.setup.outputs.cargo-cache-key }}-
+            ${{ runner.os }}-cargo-registry-stable-
+            ${{ runner.os }}-cargo-registry-
 
       - name: Generate coverage report
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
@@ -167,19 +122,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Configure pre-commit cache
-        run: |
-          echo "PRE_COMMIT_HOME=${RUNNER_TEMP}/pre-commit-cache" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/pre-commit-cache"
-
-      - name: Cache pre-commit environment
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.PRE_COMMIT_HOME }}
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -220,19 +162,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Configure pre-commit cache
-        run: |
-          echo "PRE_COMMIT_HOME=${RUNNER_TEMP}/pre-commit-cache" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/pre-commit-cache"
-
-      - name: Cache pre-commit environment
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.PRE_COMMIT_HOME }}
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -256,27 +185,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Configure pre-commit cache
-        run: |
-          echo "PRE_COMMIT_HOME=${RUNNER_TEMP}/pre-commit-cache" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/pre-commit-cache"
-
-      - name: Cache pre-commit environment
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.PRE_COMMIT_HOME }}
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
-
       - name: Install Nix
-        uses: cachix/install-nix-action@v25
+        uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup Cachix
-        uses: cachix/cachix-action@v14
+        uses: cachix/cachix-action@v17
         with:
           name: nix-community
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -302,7 +218,9 @@ jobs:
         run: |
           if [[ "${{ needs.test.result }}" != "success" ]] ||
              [[ "${{ needs.coverage.result }}" != "success" ]] ||
-             [[ "${{ needs.build.result }}" != "success" ]]; then
+             [[ "${{ needs.security.result }}" != "success" ]] ||
+             [[ "${{ needs.build.result }}" != "success" ]] ||
+             [[ "${{ needs['nix-check'].result }}" != "success" ]]; then
             echo "One or more required jobs failed"
             exit 1
           fi
