@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -65,11 +65,13 @@ pub enum CodexSkillTargetMode {
     Both,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SecretManagerConfig {
     #[serde(rename = "type")]
     pub manager_type: SecretManagerType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onepassword: Option<OnePasswordConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,6 +80,36 @@ pub enum SecretManagerType {
     Vault,
     #[serde(rename = "1password")]
     OnePassword, // Represents 1Password
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub struct OnePasswordConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<OnePasswordMode>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "service-account-token-path")]
+    pub service_account_token_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnePasswordMode {
+    Desktop,
+    Manual,
+    ServiceAccount,
+}
+
+impl FromStr for OnePasswordMode {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "desktop" => Ok(Self::Desktop),
+            "manual" => Ok(Self::Manual),
+            "service-account" => Ok(Self::ServiceAccount),
+            _ => Err("expected one of: desktop, manual, service-account"),
+        }
+    }
 }
 
 impl AppConfig {
@@ -260,6 +292,12 @@ mod tests {
         let config = AppConfig {
             secret_manager: Some(SecretManagerConfig {
                 manager_type: SecretManagerType::OnePassword,
+                onepassword: Some(OnePasswordConfig {
+                    mode: Some(OnePasswordMode::ServiceAccount),
+                    service_account_token_path: Some(
+                        "~/.config/op/service-accounts/headless-linux-cli.token".to_string(),
+                    ),
+                }),
             }),
             default: Some(DefaultConfig {
                 agent: Agent::Claude,
@@ -271,6 +309,9 @@ mod tests {
         let toml_str = toml::to_string(&config).expect("Failed to serialize AppConfig");
         assert!(toml_str.contains("[secret-manager]"));
         assert!(toml_str.contains("type = \"1password\""));
+        assert!(toml_str.contains("[secret-manager.onepassword]"));
+        assert!(toml_str.contains("mode = \"service-account\""));
+        assert!(toml_str.contains("service-account-token-path"));
         assert!(toml_str.contains("[default]"));
         assert!(toml_str.contains("agent = \"claude\""));
         assert!(toml_str.contains("context-file = \"CUSTOM.md\""));
@@ -284,6 +325,10 @@ mod tests {
 [secret-manager]
 type = "1password"
 
+[secret-manager.onepassword]
+mode = "service-account"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+
 [default]
 agent = "codex"
 context-file = "AGENTS.md"
@@ -294,9 +339,16 @@ skill-target = "both"
 
         let config: AppConfig = toml::from_str(toml_str).expect("Failed to deserialize AppConfig");
         assert!(config.secret_manager.is_some());
+        let secret_manager = config.secret_manager.expect("Secret manager should be present");
+        assert_eq!(secret_manager.manager_type, SecretManagerType::OnePassword);
         assert_eq!(
-            config.secret_manager.expect("Secret manager should be present").manager_type,
-            SecretManagerType::OnePassword
+            secret_manager.onepassword,
+            Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::ServiceAccount),
+                service_account_token_path: Some(
+                    "~/.config/op/service-accounts/headless-linux-cli.token".to_string(),
+                ),
+            })
         );
         assert!(config.default.is_some());
         let default = config.default.expect("Default config should be present");
@@ -399,6 +451,63 @@ agent = "claude"
         let config: AppConfig = toml::from_str(toml_str).expect("Failed to deserialize AppConfig");
         assert!(config.secret_manager.is_none());
         assert_eq!(config.default.expect("Default config should be present").agent, Agent::Claude);
+    }
+
+    #[test]
+    fn test_onepassword_mode_serialization() {
+        assert_eq!(
+            serde_json::to_string(&OnePasswordMode::Desktop)
+                .expect("Failed to serialize OnePasswordMode::Desktop"),
+            "\"desktop\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OnePasswordMode::Manual)
+                .expect("Failed to serialize OnePasswordMode::Manual"),
+            "\"manual\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OnePasswordMode::ServiceAccount)
+                .expect("Failed to serialize OnePasswordMode::ServiceAccount"),
+            "\"service-account\""
+        );
+    }
+
+    #[test]
+    fn test_onepassword_mode_deserialization() {
+        assert_eq!(
+            serde_json::from_str::<OnePasswordMode>("\"desktop\"")
+                .expect("Failed to deserialize OnePasswordMode::Desktop"),
+            OnePasswordMode::Desktop
+        );
+        assert_eq!(
+            serde_json::from_str::<OnePasswordMode>("\"manual\"")
+                .expect("Failed to deserialize OnePasswordMode::Manual"),
+            OnePasswordMode::Manual
+        );
+        assert_eq!(
+            serde_json::from_str::<OnePasswordMode>("\"service-account\"")
+                .expect("Failed to deserialize OnePasswordMode::ServiceAccount"),
+            OnePasswordMode::ServiceAccount
+        );
+    }
+
+    #[test]
+    fn test_onepassword_mode_from_str() {
+        assert_eq!(
+            "desktop".parse::<OnePasswordMode>().expect("desktop should parse"),
+            OnePasswordMode::Desktop
+        );
+        assert_eq!(
+            "manual".parse::<OnePasswordMode>().expect("manual should parse"),
+            OnePasswordMode::Manual
+        );
+        assert_eq!(
+            "service-account"
+                .parse::<OnePasswordMode>()
+                .expect("service-account should parse"),
+            OnePasswordMode::ServiceAccount
+        );
+        assert!("invalid".parse::<OnePasswordMode>().is_err());
     }
 
     #[test]

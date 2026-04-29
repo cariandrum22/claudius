@@ -32,8 +32,11 @@ fn main() -> Result<()> {
 
     initialize_tracing(cli.debug, cli.trace);
 
-    let app_config = load_and_log_config()?;
-    resolve_and_inject_secrets(app_config.as_ref());
+    let log_app_config_warnings = !matches!(
+        cli.command.as_ref(),
+        Some(cli::Commands::Config(cli::ConfigCommands::Validate(_)))
+    );
+    let app_config = load_and_log_config(log_app_config_warnings)?;
 
     if cli.list_commands {
         print_available_commands();
@@ -71,7 +74,7 @@ fn initialize_tracing(debug: bool, trace: bool) {
 }
 
 /// Load application configuration and log its status
-fn load_and_log_config() -> Result<Option<AppConfig>> {
+fn load_and_log_config(log_app_config_warnings: bool) -> Result<Option<AppConfig>> {
     let app_config = AppConfig::load().context("Failed to load app configuration")?;
 
     if let Some(ref config) = app_config {
@@ -80,6 +83,12 @@ fn load_and_log_config() -> Result<Option<AppConfig>> {
         if let Some(ref secret_manager) = config.secret_manager {
             debug!("Secret manager configured: {:?}", secret_manager.manager_type);
         }
+
+        if log_app_config_warnings {
+            for warning in claudius::validation::validate_app_config(config).warnings {
+                warn!("{warning}");
+            }
+        }
     } else {
         debug!("No app configuration file found at: {}", AppConfig::config_path()?.display());
     }
@@ -87,26 +96,21 @@ fn load_and_log_config() -> Result<Option<AppConfig>> {
     Ok(app_config)
 }
 
-/// Resolve and inject secrets from environment variables
-fn resolve_and_inject_secrets(app_config: Option<&AppConfig>) {
-    let secret_manager_config = app_config.and_then(|c| c.secret_manager);
+/// Resolve and inject secrets from environment variables for `secrets run`.
+fn resolve_and_inject_secrets(app_config: Option<&AppConfig>) -> Result<()> {
+    let secret_manager_config = app_config.and_then(|c| c.secret_manager.clone());
     let resolver = SecretResolver::new(secret_manager_config);
 
-    match resolver.resolve_env_vars() {
-        Ok(resolved_vars) => {
-            if !resolved_vars.is_empty() {
-                debug!("Resolved {} secret(s) from environment variables", resolved_vars.len());
-                for key in resolved_vars.keys() {
-                    debug!("  - {} (from CLAUDIUS_SECRET_{})", key, key);
-                }
-                SecretResolver::inject_env_vars(resolved_vars);
-            }
-        },
-        Err(e) => {
-            error!("Failed to resolve secrets: {}", e);
-            std::process::exit(1);
-        },
+    let resolved_vars = resolver.resolve_env_vars()?;
+    if !resolved_vars.is_empty() {
+        debug!("Resolved {} secret(s) from environment variables", resolved_vars.len());
+        for key in resolved_vars.keys() {
+            debug!("  - {} (from CLAUDIUS_SECRET_{})", key, key);
+        }
+        SecretResolver::inject_env_vars(resolved_vars);
     }
+
+    Ok(())
 }
 
 /// Dispatch to the appropriate command handler
@@ -374,51 +378,13 @@ fn run_config_validate(
     args: cli::ConfigValidateArgs,
     app_config: Option<&AppConfig>,
 ) -> Result<()> {
-    use claudius::app_config::Agent;
-
     let cli::ConfigValidateArgs { agent, strict } = args;
     let effective_agent =
         agent.or_else(|| app_config.and_then(|cfg| cfg.default.as_ref()).map(|d| d.agent));
 
     let config_dir =
         Config::get_config_dir().context("Failed to determine Claudius config directory")?;
-
-    let mut warnings = Vec::new();
-
-    // MCP servers (required)
-    let mcp_servers_path = config_dir.join("mcpServers.json");
-    let mcp_servers = reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
-        format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
-    })?;
-
-    for (name, server) in &mcp_servers.mcp_servers {
-        if server.command.is_none() && server.url.is_none() {
-            warnings.push(format!(
-                "{}: mcpServers.{name} must define either command or url",
-                mcp_servers_path.display(),
-            ));
-        }
-    }
-
-    match effective_agent {
-        Some(Agent::Claude) => {
-            warnings.extend(validate_claude_settings_sources(&config_dir)?);
-        },
-        Some(Agent::ClaudeCode) => {
-            warnings.extend(validate_claude_code_sources(&config_dir)?);
-        },
-        Some(Agent::Codex) => {
-            warnings.extend(validate_codex_sources(&config_dir)?);
-        },
-        Some(Agent::Gemini) => {
-            warnings.extend(validate_gemini_sources(&config_dir)?);
-        },
-        None => {
-            warnings.extend(validate_claude_code_sources(&config_dir)?);
-            warnings.extend(validate_codex_sources(&config_dir)?);
-            warnings.extend(validate_gemini_sources(&config_dir)?);
-        },
-    }
+    let warnings = collect_config_validation_warnings(&config_dir, effective_agent, app_config)?;
 
     if warnings.is_empty() {
         println!("Configuration validation passed");
@@ -435,6 +401,60 @@ fn run_config_validate(
     }
 
     Ok(())
+}
+
+fn collect_config_validation_warnings(
+    config_dir: &std::path::Path,
+    effective_agent: Option<claudius::app_config::Agent>,
+    app_config: Option<&AppConfig>,
+) -> Result<Vec<String>> {
+    let mut warnings = app_config
+        .map(|config| claudius::validation::validate_app_config(config).warnings)
+        .unwrap_or_default();
+
+    warnings.extend(validate_mcp_server_sources(config_dir)?);
+    warnings.extend(validate_agent_sources(config_dir, effective_agent)?);
+
+    Ok(warnings)
+}
+
+fn validate_mcp_server_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+    let mcp_servers_path = config_dir.join("mcpServers.json");
+    let mcp_servers = reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
+        format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
+    })?;
+
+    Ok(mcp_servers
+        .mcp_servers
+        .iter()
+        .filter(|(_, server)| server.command.is_none() && server.url.is_none())
+        .map(|(name, _)| {
+            format!(
+                "{}: mcpServers.{name} must define either command or url",
+                mcp_servers_path.display(),
+            )
+        })
+        .collect())
+}
+
+fn validate_agent_sources(
+    config_dir: &std::path::Path,
+    effective_agent: Option<claudius::app_config::Agent>,
+) -> Result<Vec<String>> {
+    use claudius::app_config::Agent;
+
+    match effective_agent {
+        Some(Agent::Claude) => validate_claude_settings_sources(config_dir),
+        Some(Agent::ClaudeCode) => validate_claude_code_sources(config_dir),
+        Some(Agent::Codex) => validate_codex_sources(config_dir),
+        Some(Agent::Gemini) => validate_gemini_sources(config_dir),
+        None => {
+            let mut warnings = validate_claude_code_sources(config_dir)?;
+            warnings.extend(validate_codex_sources(config_dir)?);
+            warnings.extend(validate_gemini_sources(config_dir)?);
+            Ok(warnings)
+        },
+    }
 }
 
 fn run_config_doctor(args: cli::ConfigDoctorArgs) -> Result<()> {
@@ -1204,9 +1224,14 @@ fn handle_exit_status(status: std::process::ExitStatus) -> ! {
     std::process::exit(0);
 }
 
-fn run_command(command: &[String], _app_config: Option<&AppConfig>) -> Result<()> {
+fn run_command(command: &[String], app_config: Option<&AppConfig>) -> Result<()> {
     if command.is_empty() {
         error!("No command specified");
+        std::process::exit(1);
+    }
+
+    if let Err(error) = resolve_and_inject_secrets(app_config) {
+        error!("Failed to resolve secrets: {}", error);
         std::process::exit(1);
     }
 
@@ -1231,7 +1256,7 @@ fn run_command(command: &[String], _app_config: Option<&AppConfig>) -> Result<()
 }
 
 fn run_command_inner(command: &[String]) -> Result<std::process::ExitStatus> {
-    // Secrets are already resolved in main(), no need to resolve again
+    // Secrets are already resolved in run_command(), no need to resolve again
 
     // Extract command and arguments
     let (program, args) =

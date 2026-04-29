@@ -209,7 +209,15 @@ pub enum SkillsCommands {
     #[command(long_about = "Synchronize skills into agent directories.
 
 This command copies skills from your skills/ directory into \
-the agent's skills directory, ensuring all skills are up to date.")]
+the agent's skills directory, ensuring all skills are up to date.
+
+Codex skills remain experimental and require `--enable-codex-skills`.
+Choose the Codex target behavior in $XDG_CONFIG_HOME/claudius/config.toml:
+
+  [codex]
+  skill-target = \"auto\"   # auto | codex | agents | both
+
+`auto` currently publishes to both .codex/skills and .agents/skills for compatibility.")]
     Sync(SkillsSyncArgs),
 }
 

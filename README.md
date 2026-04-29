@@ -344,8 +344,13 @@ claudius skills sync --dry-run --prune
 # Remove stale deployed skill files that Claudius previously published
 claudius skills sync --prune
 
-# Codex skills are experimental and must be explicitly enabled
-# (synced to both .codex/skills and .agents/skills for compatibility)
+# Codex skills are experimental and must be explicitly enabled.
+# Target selection is driven by ~/.config/claudius/config.toml:
+#
+# [codex]
+# skill-target = "auto"   # auto | codex | agents | both
+#
+# `auto` currently syncs to both .codex/skills and .agents/skills for compatibility.
 claudius skills sync --agent codex --enable-codex-skills
 ```
 
@@ -559,9 +564,18 @@ context-file = "CLAUDE.md"  # optional custom filename
 [secret-manager]
 type = "1password"  # or "vault"
 
+[secret-manager.onepassword]
+# Optional auth policy for 1Password resolution during `claudius secrets run`.
+# Leave `mode` unset to keep using your ambient `op` environment.
+mode = "service-account"  # or "desktop" or "manual"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+
 # When using 1Password:
 # - Install 1Password CLI (`op`)
-# - Sign in with `op signin`
+# - Choose one of:
+#   - `mode = "desktop"` for desktop app integration
+#   - `mode = "manual"` after `op signin`
+#   - `mode = "service-account"` for headless hosts
 # - Use op:// references in CLAUDIUS_SECRET_* variables
 #
 # For op:// references in URLs, use {{op://...}} syntax:
@@ -587,8 +601,15 @@ claudius config sync
 
 Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/skills/`
 (Gemini), preserving the directory structure. Codex skills are experimental and require
-explicit opt-in; when enabled they are synced to both `~/.codex/skills/` and
-`~/.agents/skills/` for compatibility.
+explicit opt-in. Configure Codex target selection in `~/.config/claudius/config.toml`:
+
+```toml
+[codex]
+skill-target = "auto" # auto | codex | agents | both
+```
+
+Today `auto` remains compatibility-oriented and publishes to both `~/.codex/skills/`
+and `~/.agents/skills/`.
 
 By default, skill and auxiliary file sync is non-destructive. Use `--prune` to remove
 stale files that Claudius previously deployed. Pruning only touches files tracked in
@@ -759,6 +780,13 @@ type = "codex"' >> ~/.config/claudius/config.toml
 echo '[secret-manager]
 type = "1password"' >> ~/.config/claudius/config.toml
 
+# Optional: make headless Linux use a 1Password service account token file
+cat <<'EOF' >> ~/.config/claudius/config.toml
+[secret-manager.onepassword]
+mode = "service-account"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+EOF
+
 # Use secrets in environment
 export CLAUDIUS_SECRET_API_KEY=op://vault/api/key
 export CLAUDIUS_SECRET_DB_PASS=op://vault/db/password
@@ -771,6 +799,17 @@ export CLAUDIUS_SECRET_AUTH="Bearer {{op://vault/tokens/api}}"
 claudius secrets run -- ./my-app
 # API_KEY, DB_PASS, BASE_URL, and AUTH are available to my-app with resolved values
 ```
+
+Environment overrides are also available when you need to switch auth policy without editing
+`config.toml`:
+
+```bash
+export CLAUDIUS_1PASSWORD_MODE=service-account
+export CLAUDIUS_1PASSWORD_SERVICE_ACCOUNT_TOKEN_PATH=~/.config/op/service-accounts/headless-linux-cli.token
+```
+
+For backward compatibility, Claudius also accepts the legacy names
+`CLAUDIUS_OP_MODE` and `CLAUDIUS_OP_SERVICE_ACCOUNT_TOKEN_PATH`.
 
 ### Team Collaboration
 

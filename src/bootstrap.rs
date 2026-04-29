@@ -69,12 +69,21 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 # agent = "claude"  # Options: "claude", "claude-code", "codex", "gemini"
 # context-file = "CONTEXT.md"  # Custom context file name (overrides agent defaults)
 
+# [codex]
+# Configure experimental Codex skills target selection
+# skill-target = "auto"  # Options: "auto", "codex", "agents", "both"
+
 # [secret-manager]
 # Configure a secret manager to resolve environment variables
 # Supported types: "vault", "1password"
 #
 # Example for 1Password:
 # type = "1password"
+# [secret-manager.onepassword]
+# Optional auth policy for 1Password resolution during `claudius secrets run`.
+# Leave `mode` unset to keep using your ambient `op` environment.
+# mode = "service-account"  # "desktop", "manual", or "service-account"
+# service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
 #
 # When using 1Password, environment variables starting with CLAUDIUS_SECRET_*
 # that contain values starting with op:// will be resolved using 1Password CLI.
@@ -503,6 +512,11 @@ mod tests {
         let mcp_content = fs::read_to_string(config_dir.join("mcpServers.json"))
             .expect("mcpServers.json should be readable");
         assert!(mcp_content.contains("filesystem"));
+
+        let app_config =
+            fs::read_to_string(config_dir.join("config.toml")).expect("config.toml should exist");
+        assert!(app_config.contains("[codex]"));
+        assert!(app_config.contains("skill-target = \"auto\""));
     }
 
     #[test]

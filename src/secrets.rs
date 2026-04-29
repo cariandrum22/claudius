@@ -1,16 +1,95 @@
-#[cfg(not(test))]
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::collections::HashMap;
+use std::path::PathBuf;
 #[cfg(not(test))]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 
-use crate::app_config::{SecretManagerConfig, SecretManagerType};
+#[cfg(test)]
+use crate::app_config::OnePasswordConfig;
+use crate::app_config::{OnePasswordMode, SecretManagerConfig, SecretManagerType};
 use crate::profiling::{SecretResolutionMetrics, Timer};
 use crate::variable_expansion::expand_variables;
+
+const ONEPASSWORD_MODE_ENV: &str = "CLAUDIUS_1PASSWORD_MODE";
+const LEGACY_ONEPASSWORD_MODE_ENV: &str = "CLAUDIUS_OP_MODE";
+const ONEPASSWORD_TOKEN_PATH_ENV: &str = "CLAUDIUS_1PASSWORD_SERVICE_ACCOUNT_TOKEN_PATH";
+const LEGACY_ONEPASSWORD_TOKEN_PATH_ENV: &str = "CLAUDIUS_OP_SERVICE_ACCOUNT_TOKEN_PATH";
+const OP_SERVICE_ACCOUNT_TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";
+const ONEPASSWORD_AUTH_BASE_ENV_VARS: [&str; 5] = [
+    OP_SERVICE_ACCOUNT_TOKEN_ENV,
+    "OP_SESSION",
+    "OP_ACCOUNT",
+    "OP_CONNECT_HOST",
+    "OP_CONNECT_TOKEN",
+];
+
+fn is_op_session_env(name: &str) -> bool {
+    name == "OP_SESSION" || name.starts_with("OP_SESSION_")
+}
+
+fn onepassword_auth_env_var_names() -> Vec<String> {
+    let mut names: Vec<String> =
+        ONEPASSWORD_AUTH_BASE_ENV_VARS.iter().map(|name| (*name).to_string()).collect();
+
+    names.extend(
+        std::env::vars()
+            .map(|(name, _)| name)
+            .filter(|name| is_op_session_env(name) && name != "OP_SESSION"),
+    );
+
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+fn sanitize_onepassword_account_suffix(account: &str) -> String {
+    account
+        .chars()
+        .map(|character| if character.is_ascii_alphanumeric() { character } else { '_' })
+        .collect()
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct EffectiveOnePasswordConfig {
+    mode: Option<OnePasswordMode>,
+    service_account_token_path: Option<String>,
+}
+
+#[derive(Debug)]
+struct ScopedEnvVarChanges {
+    originals: Vec<(String, Option<String>)>,
+}
+
+impl ScopedEnvVarChanges {
+    fn capture(var_names: &[String]) -> Self {
+        let originals =
+            var_names.iter().map(|name| (name.clone(), std::env::var(name).ok())).collect();
+
+        Self { originals }
+    }
+
+    fn set_var(name: &str, value: &str) {
+        std::env::set_var(name, value);
+    }
+
+    fn remove_var(name: &str) {
+        std::env::remove_var(name);
+    }
+}
+
+impl Drop for ScopedEnvVarChanges {
+    fn drop(&mut self) {
+        for (name, original_value) in self.originals.iter().rev() {
+            match original_value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SecretResolver {
@@ -44,6 +123,7 @@ impl SecretResolver {
 
         // Phase 1: Collect environment variables
         let claudius_secrets = self.collect_claudius_secrets();
+        let _auth_guard = self.prepare_onepassword_environment(&claudius_secrets)?;
 
         // Phase 1.5: If using 1Password, perform a single preflight resolution so any interactive
         // unlock happens before parallel resolution begins.
@@ -119,6 +199,207 @@ impl SecretResolver {
 
         debug!("Found {} CLAUDIUS_SECRET_* variables", secrets.len());
         secrets
+    }
+
+    fn prepare_onepassword_environment(
+        &self,
+        secrets: &HashMap<String, String>,
+    ) -> Result<Option<ScopedEnvVarChanges>> {
+        if !Self::contains_onepassword_reference(secrets) {
+            return Ok(None);
+        }
+
+        let Some(config) = self.effective_onepassword_config()? else {
+            return Ok(None);
+        };
+        let Some(mode) = config.mode else {
+            return Ok(None);
+        };
+
+        let auth_env_vars = onepassword_auth_env_var_names();
+        let existing_service_account_token = Self::read_env_non_empty(OP_SERVICE_ACCOUNT_TOKEN_ENV);
+        let guard = ScopedEnvVarChanges::capture(&auth_env_vars);
+
+        match mode {
+            OnePasswordMode::Desktop => {
+                for name in &auth_env_vars {
+                    ScopedEnvVarChanges::remove_var(name);
+                }
+            },
+            OnePasswordMode::Manual => {
+                ScopedEnvVarChanges::remove_var(OP_SERVICE_ACCOUNT_TOKEN_ENV);
+                ScopedEnvVarChanges::remove_var("OP_CONNECT_HOST");
+                ScopedEnvVarChanges::remove_var("OP_CONNECT_TOKEN");
+
+                if !Self::has_manual_onepassword_session() {
+                    anyhow::bail!(Self::manual_mode_session_error_message());
+                }
+            },
+            OnePasswordMode::ServiceAccount => {
+                for name in &auth_env_vars {
+                    ScopedEnvVarChanges::remove_var(name);
+                }
+
+                let service_account_token = if let Some(token) = existing_service_account_token {
+                    token
+                } else if let Some(token_path) = config.service_account_token_path.as_deref() {
+                    Self::read_service_account_token(token_path)?
+                } else {
+                    anyhow::bail!(
+                        "1Password service-account mode requires OP_SERVICE_ACCOUNT_TOKEN or a configured service-account-token-path."
+                    );
+                };
+
+                ScopedEnvVarChanges::set_var(OP_SERVICE_ACCOUNT_TOKEN_ENV, &service_account_token);
+            },
+        }
+
+        Ok(Some(guard))
+    }
+
+    fn effective_onepassword_config(&self) -> Result<Option<EffectiveOnePasswordConfig>> {
+        let Some(config) = self.config.as_ref() else {
+            return Ok(None);
+        };
+
+        if config.manager_type != SecretManagerType::OnePassword {
+            return Ok(None);
+        }
+
+        let onepassword = config.onepassword.as_ref();
+        Ok(Some(EffectiveOnePasswordConfig {
+            mode: Self::read_onepassword_mode_override()?
+                .or_else(|| onepassword.and_then(|cfg| cfg.mode)),
+            service_account_token_path: Self::read_string_override(&[
+                ONEPASSWORD_TOKEN_PATH_ENV,
+                LEGACY_ONEPASSWORD_TOKEN_PATH_ENV,
+            ])
+            .or_else(|| onepassword.and_then(|cfg| cfg.service_account_token_path.clone())),
+        }))
+    }
+
+    fn read_onepassword_mode_override() -> Result<Option<OnePasswordMode>> {
+        Self::read_string_override(&[ONEPASSWORD_MODE_ENV, LEGACY_ONEPASSWORD_MODE_ENV])
+            .map(|value| {
+                value.parse::<OnePasswordMode>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "Invalid 1Password mode `{value}` from {}: {error}",
+                        Self::mode_override_source()
+                    )
+                })
+            })
+            .transpose()
+    }
+
+    fn mode_override_source() -> &'static str {
+        if Self::read_env_non_empty(ONEPASSWORD_MODE_ENV).is_some() {
+            ONEPASSWORD_MODE_ENV
+        } else {
+            LEGACY_ONEPASSWORD_MODE_ENV
+        }
+    }
+
+    fn read_string_override(names: &[&str]) -> Option<String> {
+        names.iter().find_map(|name| Self::read_env_non_empty(name))
+    }
+
+    fn read_env_non_empty(name: &str) -> Option<String> {
+        std::env::var(name)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    fn has_manual_onepassword_session() -> bool {
+        Self::manual_mode_session_env_names()
+            .iter()
+            .any(|name| Self::read_env_non_empty(name).is_some())
+    }
+
+    fn manual_mode_session_env_names() -> Vec<String> {
+        let mut names = vec!["OP_SESSION".to_string()];
+
+        if let Some(account) = Self::read_env_non_empty("OP_ACCOUNT") {
+            names.extend(Self::account_specific_session_env_names(&account));
+        } else {
+            names.extend(
+                std::env::vars()
+                    .map(|(name, _)| name)
+                    .filter(|name| is_op_session_env(name) && name != "OP_SESSION"),
+            );
+        }
+
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    fn account_specific_session_env_names(account: &str) -> Vec<String> {
+        let mut names = vec![format!("OP_SESSION_{account}")];
+        let sanitized = sanitize_onepassword_account_suffix(account);
+        if sanitized != account {
+            names.push(format!("OP_SESSION_{sanitized}"));
+        }
+
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    fn manual_mode_session_error_message() -> String {
+        let required_envs = Self::manual_mode_session_env_names();
+        let requirements = required_envs.join(" or ");
+
+        Self::read_env_non_empty("OP_ACCOUNT").map_or_else(
+            || {
+                format!(
+                    "1Password manual mode requires {requirements} to already be set. Run `op signin` first or choose another mode."
+                )
+            },
+            |account| {
+                format!(
+                "1Password manual mode requires {requirements} to already be set. OP_ACCOUNT is `{account}`, so the matching session token must be available. Run `op signin` first or choose another mode."
+                )
+            },
+        )
+    }
+
+    fn contains_onepassword_reference(secrets: &HashMap<String, String>) -> bool {
+        secrets.values().any(|value| value.contains("op://"))
+    }
+
+    fn read_service_account_token(path: &str) -> Result<String> {
+        let expanded_path = Self::expand_path(path);
+        let token = std::fs::read_to_string(&expanded_path).with_context(|| {
+            format!(
+                "Failed to read 1Password service account token from {}",
+                expanded_path.display()
+            )
+        })?;
+        let trimmed = token.trim();
+
+        if trimmed.is_empty() {
+            anyhow::bail!(
+                "1Password service account token file is empty: {}",
+                expanded_path.display()
+            );
+        }
+
+        Ok(trimmed.to_string())
+    }
+
+    fn expand_path(path: &str) -> PathBuf {
+        if path == "~" {
+            return std::env::var_os("HOME").map_or_else(|| PathBuf::from(path), PathBuf::from);
+        }
+
+        if let Some(stripped) = path.strip_prefix("~/") {
+            return std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map_or_else(|| PathBuf::from(path), |home| home.join(stripped));
+        }
+
+        PathBuf::from(path)
     }
 
     fn resolve_secrets_parallel(
@@ -532,6 +813,7 @@ fn mock_op_read(reference: &str) -> Result<String> {
 mod tests {
     use super::*;
     use serial_test::serial;
+    use tempfile::TempDir;
 
     // Mutex to ensure tests that modify environment variables run one at a time
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
@@ -548,12 +830,41 @@ mod tests {
         }
     }
 
+    fn cleanup_onepassword_env() {
+        let mut vars_to_remove = vec![
+            ONEPASSWORD_MODE_ENV.to_string(),
+            LEGACY_ONEPASSWORD_MODE_ENV.to_string(),
+            ONEPASSWORD_TOKEN_PATH_ENV.to_string(),
+            LEGACY_ONEPASSWORD_TOKEN_PATH_ENV.to_string(),
+            OP_SERVICE_ACCOUNT_TOKEN_ENV.to_string(),
+            "OP_SESSION".to_string(),
+            "OP_ACCOUNT".to_string(),
+            "OP_CONNECT_HOST".to_string(),
+            "OP_CONNECT_TOKEN".to_string(),
+            "HOME".to_string(),
+        ];
+
+        vars_to_remove.extend(
+            std::env::vars()
+                .map(|(name, _)| name)
+                .filter(|name| is_op_session_env(name) && name != "OP_SESSION"),
+        );
+
+        vars_to_remove.sort_unstable();
+        vars_to_remove.dedup();
+
+        for name in vars_to_remove {
+            std::env::remove_var(name);
+        }
+    }
+
     #[test]
     fn test_secret_resolver_new() {
         let resolver = SecretResolver::new(None);
         assert!(resolver.config.is_none());
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::Vault };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::Vault, onepassword: None };
         let resolver_with_config = SecretResolver::new(Some(config));
         assert!(resolver_with_config.config.is_some());
         assert_eq!(
@@ -638,7 +949,8 @@ mod tests {
 
     #[test]
     fn test_resolve_value_vault_config() {
-        let config = SecretManagerConfig { manager_type: SecretManagerType::Vault };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::Vault, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         let result = resolver
@@ -649,13 +961,202 @@ mod tests {
 
     #[test]
     fn test_resolve_value_onepassword_non_reference() {
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         let result = resolver
             .resolve_value("CLAUDIUS_SECRET_KEY", "plain-value")
             .expect("resolve_value should succeed");
         assert_eq!(result, None); // No op:// references, so no resolution needed
+    }
+
+    #[test]
+    #[serial]
+    fn test_manual_mode_requires_existing_session() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+
+        let config = SecretManagerConfig {
+            manager_type: SecretManagerType::OnePassword,
+            onepassword: Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::Manual),
+                service_account_token_path: None,
+            }),
+        };
+        let resolver = SecretResolver::new(Some(config));
+
+        let error = resolver.resolve_env_vars().expect_err("manual mode should require OP_SESSION");
+        assert!(error.to_string().contains("requires OP_SESSION"));
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
+    }
+
+    #[test]
+    #[serial]
+    fn test_manual_mode_accepts_account_specific_session_env() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+        std::env::set_var("OP_ACCOUNT", "my");
+        std::env::set_var("OP_SESSION_my", "session-token");
+
+        let config = SecretManagerConfig {
+            manager_type: SecretManagerType::OnePassword,
+            onepassword: Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::Manual),
+                service_account_token_path: None,
+            }),
+        };
+        let resolver = SecretResolver::new(Some(config));
+
+        let resolved = resolver.resolve_env_vars().expect("manual mode should accept OP_SESSION_*");
+        assert_eq!(resolved.get("API_KEY"), Some(&"secret-api-key-12345".to_string()));
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
+    }
+
+    #[test]
+    #[serial]
+    fn test_manual_mode_rejects_mismatched_account_specific_session_env() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+        std::env::set_var("OP_ACCOUNT", "my");
+        std::env::set_var("OP_SESSION_other", "session-token");
+
+        let config = SecretManagerConfig {
+            manager_type: SecretManagerType::OnePassword,
+            onepassword: Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::Manual),
+                service_account_token_path: None,
+            }),
+        };
+        let resolver = SecretResolver::new(Some(config));
+
+        let error = resolver
+            .resolve_env_vars()
+            .expect_err("manual mode should reject mismatched OP_SESSION_<account>");
+        assert!(error.to_string().contains("OP_SESSION_my"));
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
+    }
+
+    #[test]
+    #[serial]
+    fn test_service_account_mode_reads_token_file_and_restores_env() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let token_path = temp_dir.path().join("service-account.token");
+        std::fs::write(&token_path, "service-account-token-123\n")
+            .expect("Failed to write service account token");
+
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+        std::env::set_var("OP_SESSION", "session-before");
+        std::env::set_var("OP_SESSION_my", "session-before-account");
+        std::env::set_var("OP_ACCOUNT", "account-before");
+
+        let config = SecretManagerConfig {
+            manager_type: SecretManagerType::OnePassword,
+            onepassword: Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::ServiceAccount),
+                service_account_token_path: Some(token_path.to_string_lossy().to_string()),
+            }),
+        };
+        let resolver = SecretResolver::new(Some(config));
+
+        let resolved = resolver.resolve_env_vars().expect("service-account mode should resolve");
+        assert_eq!(resolved.get("API_KEY"), Some(&"secret-api-key-12345".to_string()));
+
+        assert_eq!(std::env::var("OP_SESSION").ok().as_deref(), Some("session-before"));
+        assert_eq!(std::env::var("OP_SESSION_my").ok().as_deref(), Some("session-before-account"));
+        assert_eq!(std::env::var("OP_ACCOUNT").ok().as_deref(), Some("account-before"));
+        assert!(std::env::var(OP_SERVICE_ACCOUNT_TOKEN_ENV).is_err());
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
+    }
+
+    #[test]
+    #[serial]
+    fn test_onepassword_mode_override_takes_precedence() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let token_path = temp_dir.path().join("service-account.token");
+        std::fs::write(&token_path, "service-account-token-override\n")
+            .expect("Failed to write service account token");
+
+        std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+        std::env::set_var(ONEPASSWORD_MODE_ENV, "service-account");
+        std::env::set_var(ONEPASSWORD_TOKEN_PATH_ENV, token_path);
+
+        let config = SecretManagerConfig {
+            manager_type: SecretManagerType::OnePassword,
+            onepassword: Some(OnePasswordConfig {
+                mode: Some(OnePasswordMode::Manual),
+                service_account_token_path: None,
+            }),
+        };
+        let resolver = SecretResolver::new(Some(config));
+
+        let resolved = resolver.resolve_env_vars().expect("env override should win over config");
+        assert_eq!(resolved.get("API_KEY"), Some(&"secret-api-key-12345".to_string()));
+
+        std::env::remove_var("CLAUDIUS_TEST_MOCK_OP");
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
+    }
+
+    #[test]
+    #[serial]
+    fn test_invalid_onepassword_mode_override_errors() {
+        let _guard = ENV_MUTEX.lock().expect("Failed to acquire mutex lock");
+
+        cleanup_claudius_secrets();
+        cleanup_onepassword_env();
+
+        std::env::set_var("CLAUDIUS_SECRET_API_KEY", "op://vault/test-item/api-key");
+        std::env::set_var(ONEPASSWORD_MODE_ENV, "unsupported");
+
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
+        let resolver = SecretResolver::new(Some(config));
+
+        let error = resolver.resolve_env_vars().expect_err("invalid mode override should fail");
+        assert!(error.to_string().contains("Invalid 1Password mode"));
+
+        std::env::remove_var("CLAUDIUS_SECRET_API_KEY");
+        cleanup_onepassword_env();
     }
 
     #[test]
@@ -745,7 +1246,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set op:// references
@@ -775,7 +1277,8 @@ mod tests {
         std::env::set_var("CLAUDIUS_SECRET_A", "op://vault/item1/field1");
         std::env::set_var("CLAUDIUS_SECRET_B", "op://vault/item1/field1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         let resolved = resolver.resolve_env_vars().expect("resolve_env_vars should succeed");
@@ -803,7 +1306,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set invalid reference (must have 3 segments to match regex)
@@ -831,7 +1335,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set up inline op:// references (Cloudflare AI Gateway example)
@@ -878,7 +1383,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Mix of inline op:// and variable references
@@ -943,7 +1449,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Set value with duplicate op:// references
@@ -978,7 +1485,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Test with delimited references in URL
@@ -1012,7 +1520,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Mix of delimited and bare references
@@ -1043,7 +1552,8 @@ mod tests {
         // Enable mock mode
         std::env::set_var("CLAUDIUS_TEST_MOCK_OP", "1");
 
-        let config = SecretManagerConfig { manager_type: SecretManagerType::OnePassword };
+        let config =
+            SecretManagerConfig { manager_type: SecretManagerType::OnePassword, onepassword: None };
         let resolver = SecretResolver::new(Some(config));
 
         // Use delimited syntax for clarity

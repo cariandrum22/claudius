@@ -1,4 +1,4 @@
-use claudius::app_config::{Agent, AppConfig, SecretManagerType};
+use claudius::app_config::{Agent, AppConfig, OnePasswordMode, SecretManagerType};
 use serial_test::serial;
 use std::fs;
 use tempfile::TempDir;
@@ -68,6 +68,7 @@ type = "1password"
 
         let secret_manager = config.secret_manager.unwrap();
         assert_eq!(secret_manager.manager_type, SecretManagerType::OnePassword);
+        assert!(secret_manager.onepassword.is_none());
     }
 
     #[test]
@@ -296,5 +297,42 @@ type = "1password"
         assert!(config.secret_manager.is_some());
         let secret_manager = config.secret_manager.unwrap();
         assert_eq!(secret_manager.manager_type, SecretManagerType::OnePassword);
+    }
+
+    #[test]
+    #[serial]
+    fn test_load_config_with_onepassword_settings() {
+        let _guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        let config_dir = temp_dir.path().join("claudius");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_content = r#"
+[secret-manager]
+type = "1password"
+
+[secret-manager.onepassword]
+mode = "service-account"
+service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.token"
+"#;
+
+        fs::write(config_dir.join("config.toml"), config_content).unwrap();
+
+        let result = AppConfig::load().unwrap();
+        assert!(result.is_some());
+
+        let config = result.unwrap();
+        let secret_manager = config.secret_manager.unwrap();
+        assert_eq!(secret_manager.manager_type, SecretManagerType::OnePassword);
+
+        let onepassword = secret_manager.onepassword.expect("1Password settings should be present");
+        assert_eq!(onepassword.mode, Some(OnePasswordMode::ServiceAccount));
+        assert_eq!(
+            onepassword.service_account_token_path.as_deref(),
+            Some("~/.config/op/service-accounts/headless-linux-cli.token")
+        );
     }
 }
