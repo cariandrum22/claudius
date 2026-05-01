@@ -1198,13 +1198,13 @@ fn build_codex_settings_for_global(
 
     if let Some(source_settings) = codex_settings {
         if let Some(source_mcp_servers) = source_settings.mcp_servers.as_ref() {
-            deep_merge_toml_maps(&mut merged_mcp_servers, source_mcp_servers);
+            merge_mcp_server_toml_maps(&mut merged_mcp_servers, source_mcp_servers);
         }
     }
 
     if let Some(ref new_mcp_servers) = claude_config.mcp_servers {
         let new_toml_servers = convert_mcp_to_toml(new_mcp_servers);
-        deep_merge_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
+        merge_mcp_server_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
     }
 
     codex_to_write.mcp_servers = (!merged_mcp_servers.is_empty()).then_some(merged_mcp_servers);
@@ -1365,7 +1365,7 @@ fn write_codex_project_local(
     if let Some(ref mcp_servers) = claude_config.mcp_servers {
         let new_toml_servers = convert_mcp_to_toml(mcp_servers);
         let mut merged_mcp_servers = codex_to_write.mcp_servers.take().unwrap_or_default();
-        deep_merge_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
+        merge_mcp_server_toml_maps(&mut merged_mcp_servers, &new_toml_servers);
         codex_to_write.mcp_servers = (!merged_mcp_servers.is_empty()).then_some(merged_mcp_servers);
     }
 
@@ -1426,6 +1426,60 @@ fn deep_merge_toml_maps(
                 target.insert(key.clone(), value.clone());
             },
         }
+    }
+}
+
+const MCP_TOML_REMOTE_ONLY_FIELDS: &[&str] =
+    &["url", "bearer_token_env_var", "http_headers", "env_http_headers", "query_params"];
+
+const MCP_TOML_STDIO_ONLY_FIELDS: &[&str] = &["command", "args", "env", "cwd"];
+
+fn merge_mcp_server_toml_maps(
+    target: &mut HashMap<String, TomlValue>,
+    overlay: &HashMap<String, TomlValue>,
+) {
+    for (key, value) in overlay {
+        match target.get_mut(key) {
+            Some(existing) => merge_mcp_server_toml_value(existing, value),
+            None => {
+                target.insert(key.clone(), value.clone());
+            },
+        }
+    }
+}
+
+fn merge_mcp_server_toml_value(target: &mut TomlValue, overlay: &TomlValue) {
+    match (target, overlay) {
+        (TomlValue::Table(target_table), TomlValue::Table(overlay_table)) => {
+            strip_mcp_transport_keys(target_table, overlay_table);
+
+            for (key, overlay_value) in overlay_table {
+                match target_table.get_mut(key) {
+                    Some(existing_value) => deep_merge_toml_value(existing_value, overlay_value),
+                    None => {
+                        target_table.insert(key.clone(), overlay_value.clone());
+                    },
+                }
+            }
+        },
+        (target_value, overlay_value) => {
+            *target_value = overlay_value.clone();
+        },
+    }
+}
+
+fn strip_mcp_transport_keys(
+    target_table: &mut toml::map::Map<String, TomlValue>,
+    overlay_table: &toml::map::Map<String, TomlValue>,
+) {
+    if overlay_table.contains_key("url") {
+        MCP_TOML_STDIO_ONLY_FIELDS.iter().for_each(|key| {
+            target_table.remove(*key);
+        });
+    } else if overlay_table.contains_key("command") {
+        MCP_TOML_REMOTE_ONLY_FIELDS.iter().for_each(|key| {
+            target_table.remove(*key);
+        });
     }
 }
 

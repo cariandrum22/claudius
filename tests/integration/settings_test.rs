@@ -343,6 +343,66 @@ agent = "claude-code"
 
     #[test]
     #[serial]
+    fn test_sync_claude_code_global_replaces_stale_stdio_transport_fields() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_mcp_servers(
+                r#"{
+        "mcpServers": {
+            "notion": {
+                "type": "http",
+                "url": "https://mcp.notion.com/mcp"
+            }
+        }
+    }"#,
+            )
+            .unwrap();
+
+        fixture
+            .with_existing_global_config(
+                r#"{
+        "mcpServers": {
+            "notion": {
+                "command": "bash",
+                "args": ["-lc", "old"],
+                "env": {
+                    "KEEP": "1"
+                },
+                "startupTimeoutSec": 30
+            }
+        }
+    }"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "sync"])
+            .arg("--global")
+            .arg("--agent")
+            .arg("claude-code")
+            .assert()
+            .success();
+
+        let content = fixture.read_home_file(".claude.json").unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let notion = json.get("mcpServers").and_then(|servers| servers.get("notion")).unwrap();
+
+        assert_eq!(
+            notion.get("url"),
+            Some(&serde_json::Value::String("https://mcp.notion.com/mcp".to_string()))
+        );
+        assert_eq!(notion.get("type"), Some(&serde_json::Value::String("http".to_string())));
+        assert!(notion.get("command").is_none());
+        assert_eq!(notion.get("startupTimeoutSec"), Some(&serde_json::Value::Number(30.into())));
+    }
+
+    #[test]
+    #[serial]
     fn test_sync_claude_code_global_backup_creates_two_backups() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();

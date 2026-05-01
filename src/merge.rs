@@ -4,7 +4,7 @@ use crate::config::{ClaudeConfig, McpServersConfig, Settings};
 use crate::json_merge::deep_merge_json_maps;
 use anyhow::Result;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 pub mod strategy;
@@ -18,6 +18,25 @@ pub struct MergeConflict {
     pub existing_value: String,
     pub new_value: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpTransport {
+    Remote,
+    Stdio,
+}
+
+const MCP_JSON_REMOTE_ONLY_EXTRA_FIELDS: &[&str] = &[
+    "bearerTokenEnvVar",
+    "bearer_token_env_var",
+    "envHttpHeaders",
+    "env_http_headers",
+    "httpHeaders",
+    "http_headers",
+    "queryParams",
+    "query_params",
+];
+
+const MCP_JSON_STDIO_ONLY_EXTRA_FIELDS: &[&str] = &["cwd"];
 
 /// Detect conflicts between existing and new MCP server configurations
 pub fn detect_mcp_conflicts<S>(
@@ -102,9 +121,24 @@ pub fn merge_configs(
         },
         MergeStrategy::InteractiveMerge => {
             let existing = claude_config.mcp_servers.get_or_insert_with(HashMap::new);
+            let mut auto_merged = HashSet::new();
+
+            for (name, config) in new_servers {
+                let Some(existing_config) = existing.get_mut(name) else {
+                    continue;
+                };
+
+                if has_transport_specific_conflict(existing_config, config) {
+                    merge_transport_specific_server(existing_config, config);
+                    auto_merged.insert(name.clone());
+                }
+            }
 
             // Detect conflicts
-            let conflicts = detect_mcp_conflicts(existing, new_servers);
+            let conflicts = detect_mcp_conflicts(existing, new_servers)
+                .into_iter()
+                .filter(|(name, _)| !auto_merged.contains(name))
+                .collect::<Vec<_>>();
 
             // Resolve each conflict interactively
             for (name, conflict) in conflicts {
@@ -119,6 +153,10 @@ pub fn merge_configs(
 
             // Add new servers that don't conflict
             for (name, config) in new_servers {
+                if auto_merged.contains(name) {
+                    continue;
+                }
+
                 if !existing.contains_key(name) {
                     existing.insert(name.clone(), config.clone());
                 }
@@ -127,6 +165,95 @@ pub fn merge_configs(
     }
 
     Ok(())
+}
+
+fn transport_for_mcp_server(server: &crate::config::McpServerConfig) -> Option<McpTransport> {
+    if server.url.is_some() {
+        Some(McpTransport::Remote)
+    } else if server.command.is_some() {
+        Some(McpTransport::Stdio)
+    } else {
+        None
+    }
+}
+
+fn has_transport_specific_conflict(
+    existing: &crate::config::McpServerConfig,
+    overlay: &crate::config::McpServerConfig,
+) -> bool {
+    match transport_for_mcp_server(overlay) {
+        Some(McpTransport::Remote) => {
+            existing.command.is_some()
+                || !existing.args.is_empty()
+                || !existing.env.is_empty()
+                || contains_any_key(&existing.extra, MCP_JSON_STDIO_ONLY_EXTRA_FIELDS)
+        },
+        Some(McpTransport::Stdio) => {
+            existing.url.is_some()
+                || existing.server_type.is_some()
+                || !existing.headers.is_empty()
+                || contains_any_key(&existing.extra, MCP_JSON_REMOTE_ONLY_EXTRA_FIELDS)
+        },
+        None => false,
+    }
+}
+
+fn merge_transport_specific_server(
+    existing: &mut crate::config::McpServerConfig,
+    overlay: &crate::config::McpServerConfig,
+) {
+    strip_transport_specific_fields(existing, overlay);
+
+    if let Some(command) = overlay.command.as_ref() {
+        existing.command = Some(command.clone());
+        existing.args = overlay.args.clone();
+        existing.env = overlay.env.clone();
+    }
+
+    if let Some(url) = overlay.url.as_ref() {
+        existing.url = Some(url.clone());
+
+        if overlay.server_type.is_some() {
+            existing.server_type.clone_from(&overlay.server_type);
+        }
+
+        overlay.headers.iter().for_each(|(key, value)| {
+            existing.headers.insert(key.clone(), value.clone());
+        });
+    }
+
+    deep_merge_json_maps(&mut existing.extra, &overlay.extra);
+}
+
+fn strip_transport_specific_fields(
+    existing: &mut crate::config::McpServerConfig,
+    overlay: &crate::config::McpServerConfig,
+) {
+    match transport_for_mcp_server(overlay) {
+        Some(McpTransport::Remote) => {
+            existing.command = None;
+            existing.args.clear();
+            existing.env.clear();
+            remove_keys(&mut existing.extra, MCP_JSON_STDIO_ONLY_EXTRA_FIELDS);
+        },
+        Some(McpTransport::Stdio) => {
+            existing.url = None;
+            existing.server_type = None;
+            existing.headers.clear();
+            remove_keys(&mut existing.extra, MCP_JSON_REMOTE_ONLY_EXTRA_FIELDS);
+        },
+        None => {},
+    }
+}
+
+fn contains_any_key(map: &HashMap<String, Value>, keys: &[&str]) -> bool {
+    keys.iter().any(|key| map.contains_key(*key))
+}
+
+fn remove_keys(map: &mut HashMap<String, Value>, keys: &[&str]) {
+    keys.iter().for_each(|key| {
+        map.remove(*key);
+    });
 }
 
 /// Detect conflicts in settings
