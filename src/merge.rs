@@ -4,7 +4,7 @@ use crate::config::{ClaudeConfig, McpServersConfig, Settings};
 use crate::json_merge::deep_merge_json_maps;
 use anyhow::Result;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 pub mod strategy;
@@ -121,7 +121,6 @@ pub fn merge_configs(
         },
         MergeStrategy::InteractiveMerge => {
             let existing = claude_config.mcp_servers.get_or_insert_with(HashMap::new);
-            let mut auto_merged = HashSet::new();
 
             for (name, config) in new_servers {
                 let Some(existing_config) = existing.get_mut(name) else {
@@ -129,16 +128,12 @@ pub fn merge_configs(
                 };
 
                 if has_transport_specific_conflict(existing_config, config) {
-                    merge_transport_specific_server(existing_config, config);
-                    auto_merged.insert(name.clone());
+                    sync_transport_specific_fields(existing_config, config);
                 }
             }
 
             // Detect conflicts
-            let conflicts = detect_mcp_conflicts(existing, new_servers)
-                .into_iter()
-                .filter(|(name, _)| !auto_merged.contains(name))
-                .collect::<Vec<_>>();
+            let conflicts = detect_mcp_conflicts(existing, new_servers);
 
             // Resolve each conflict interactively
             for (name, conflict) in conflicts {
@@ -153,10 +148,6 @@ pub fn merge_configs(
 
             // Add new servers that don't conflict
             for (name, config) in new_servers {
-                if auto_merged.contains(name) {
-                    continue;
-                }
-
                 if !existing.contains_key(name) {
                     existing.insert(name.clone(), config.clone());
                 }
@@ -198,31 +189,27 @@ fn has_transport_specific_conflict(
     }
 }
 
-fn merge_transport_specific_server(
+fn sync_transport_specific_fields(
     existing: &mut crate::config::McpServerConfig,
     overlay: &crate::config::McpServerConfig,
 ) {
     strip_transport_specific_fields(existing, overlay);
 
-    if let Some(command) = overlay.command.as_ref() {
-        existing.command = Some(command.clone());
-        existing.args = overlay.args.clone();
-        existing.env = overlay.env.clone();
-    }
-
-    if let Some(url) = overlay.url.as_ref() {
-        existing.url = Some(url.clone());
-
-        if overlay.server_type.is_some() {
+    match transport_for_mcp_server(overlay) {
+        Some(McpTransport::Remote) => {
+            existing.url.clone_from(&overlay.url);
             existing.server_type.clone_from(&overlay.server_type);
-        }
-
-        overlay.headers.iter().for_each(|(key, value)| {
-            existing.headers.insert(key.clone(), value.clone());
-        });
+            existing.headers = overlay.headers.clone();
+            sync_keys(&mut existing.extra, &overlay.extra, MCP_JSON_REMOTE_ONLY_EXTRA_FIELDS);
+        },
+        Some(McpTransport::Stdio) => {
+            existing.command.clone_from(&overlay.command);
+            existing.args = overlay.args.clone();
+            existing.env = overlay.env.clone();
+            sync_keys(&mut existing.extra, &overlay.extra, MCP_JSON_STDIO_ONLY_EXTRA_FIELDS);
+        },
+        None => {},
     }
-
-    deep_merge_json_maps(&mut existing.extra, &overlay.extra);
 }
 
 fn strip_transport_specific_fields(
@@ -253,6 +240,17 @@ fn contains_any_key(map: &HashMap<String, Value>, keys: &[&str]) -> bool {
 fn remove_keys(map: &mut HashMap<String, Value>, keys: &[&str]) {
     keys.iter().for_each(|key| {
         map.remove(*key);
+    });
+}
+
+fn sync_keys(target: &mut HashMap<String, Value>, overlay: &HashMap<String, Value>, keys: &[&str]) {
+    keys.iter().for_each(|key| match overlay.get(*key) {
+        Some(value) => {
+            target.insert((*key).to_string(), value.clone());
+        },
+        None => {
+            target.remove(*key);
+        },
     });
 }
 
@@ -464,6 +462,23 @@ mod tests {
         }
     }
 
+    fn create_remote_server_config(
+        url: &str,
+        server_type: Option<&str>,
+        headers: HashMap<String, String>,
+        extra: HashMap<String, Value>,
+    ) -> McpServerConfig {
+        McpServerConfig {
+            command: None,
+            args: vec![],
+            env: HashMap::new(),
+            server_type: server_type.map(std::string::ToString::to_string),
+            url: Some(url.to_string()),
+            headers,
+            extra,
+        }
+    }
+
     #[test]
     fn test_merge_configs_replace_strategy() {
         let mut claude_config = ClaudeConfig {
@@ -563,6 +578,85 @@ mod tests {
         let servers = claude_config.mcp_servers.expect("MCP servers should be present after merge");
         assert_eq!(servers.len(), 1);
         assert_eq!(servers.get("server1").and_then(|s| s.command.as_deref()), Some("cmd1"));
+    }
+
+    #[test]
+    fn test_sync_transport_specific_fields_preserves_common_conflicts() {
+        let mut existing = McpServerConfig {
+            command: Some("bash".to_string()),
+            args: vec!["-lc".to_string(), "old".to_string()],
+            env: HashMap::from([("KEEP".to_string(), "1".to_string())]),
+            server_type: None,
+            url: None,
+            headers: HashMap::new(),
+            extra: HashMap::from([
+                ("cwd".to_string(), json!("/tmp")),
+                ("startupTimeoutSec".to_string(), json!(30)),
+            ]),
+        };
+
+        let overlay = create_remote_server_config(
+            "https://mcp.notion.com/mcp",
+            Some("http"),
+            HashMap::new(),
+            HashMap::from([("startupTimeoutSec".to_string(), json!(60))]),
+        );
+
+        sync_transport_specific_fields(&mut existing, &overlay);
+
+        assert_eq!(existing.url.as_deref(), Some("https://mcp.notion.com/mcp"));
+        assert_eq!(existing.server_type.as_deref(), Some("http"));
+        assert!(existing.command.is_none());
+        assert!(existing.args.is_empty());
+        assert!(existing.env.is_empty());
+        assert!(!existing.extra.contains_key("cwd"));
+        assert_eq!(existing.extra.get("startupTimeoutSec"), Some(&json!(30)));
+        assert_ne!(existing, overlay);
+
+        let conflicts = detect_mcp_conflicts(
+            &HashMap::from([("notion".to_string(), existing)]),
+            &HashMap::from([("notion".to_string(), overlay)]),
+        );
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].0, "notion");
+    }
+
+    #[test]
+    fn test_merge_configs_interactive_auto_resolves_transport_only_conflict() {
+        let mut existing_headers = HashMap::new();
+        existing_headers.insert("X-Stale".to_string(), "ignore".to_string());
+        let mut remote_headers = HashMap::new();
+        remote_headers.insert("Authorization".to_string(), "Bearer token".to_string());
+
+        let mut existing = create_test_server_config("bash");
+        existing.args = vec!["-lc".to_string(), "old".to_string()];
+        existing.extra = HashMap::from([
+            ("cwd".to_string(), json!("/tmp")),
+            ("bearer_token_env_var".to_string(), json!("OLD_TOKEN")),
+        ]);
+        existing.headers = existing_headers;
+
+        let overlay = create_remote_server_config(
+            "https://example.com/mcp",
+            Some("streamable_http"),
+            remote_headers,
+            HashMap::from([("bearer_token_env_var".to_string(), json!("MCP_TOKEN"))]),
+        );
+
+        let mut claude_config = ClaudeConfig {
+            mcp_servers: Some(HashMap::from([("remote".to_string(), existing)])),
+            other: HashMap::new(),
+        };
+        let new_servers = McpServersConfig {
+            mcp_servers: HashMap::from([("remote".to_string(), overlay.clone())]),
+        };
+
+        merge_configs(&mut claude_config, &new_servers, MergeStrategy::InteractiveMerge)
+            .expect("interactive merge should auto-resolve transport-only conflicts");
+
+        let servers = claude_config.mcp_servers.expect("MCP servers should be present after merge");
+        assert_eq!(servers.get("remote"), Some(&overlay));
     }
 
     #[test]
