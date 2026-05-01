@@ -1179,4 +1179,77 @@ args = ["cmd"]
 
         Ok(())
     }
+
+    #[test]
+    #[serial]
+    fn test_codex_global_sync_replaces_stale_stdio_fields_for_remote_server() -> Result<()> {
+        let _env_guard = EnvGuard::new();
+
+        let temp_dir = TempDir::new()?;
+        let config_dir = temp_dir.path().join("config");
+        let home_dir = temp_dir.path().join("home");
+        let claudius_dir = config_dir.join("claudius");
+        let codex_dir = home_dir.join(".codex");
+
+        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(&home_dir)?;
+        fs::create_dir_all(&claudius_dir)?;
+        fs::create_dir_all(&codex_dir)?;
+
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+        std::env::set_var("HOME", &home_dir);
+
+        fs::write(
+            claudius_dir.join("mcpServers.json"),
+            r#"{
+  "mcpServers": {
+    "notion": {
+      "url": "https://mcp.notion.com/mcp"
+    }
+  }
+}"#,
+        )?;
+
+        fs::write(
+            codex_dir.join("config.toml"),
+            r#"model = "gpt-5"
+
+[mcp_servers.notion]
+command = "bash"
+args = ["-lc", "old"]
+startup_timeout_sec = 30
+"#,
+        )?;
+
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_claudius"))
+            .args(["config", "sync", "--global", "--agent", "codex"])
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!("sync command failed");
+        }
+
+        let config_content = fs::read_to_string(codex_dir.join("config.toml"))?;
+        let parsed: toml::Value = toml::from_str(&config_content)?;
+        let notion = parsed
+            .get("mcp_servers")
+            .and_then(|servers| servers.get("notion"))
+            .and_then(toml::Value::as_table)
+            .ok_or_else(|| anyhow::anyhow!("notion MCP server was not written"))?;
+
+        anyhow::ensure!(
+            notion.get("url").and_then(toml::Value::as_str) == Some("https://mcp.notion.com/mcp"),
+            "remote url should be written"
+        );
+        anyhow::ensure!(
+            notion.get("startup_timeout_sec").and_then(toml::Value::as_integer) == Some(30),
+            "common MCP fields should be preserved"
+        );
+        anyhow::ensure!(notion.get("command").is_none(), "stale stdio command should be removed");
+        anyhow::ensure!(notion.get("args").is_none(), "stale stdio args should be removed");
+
+        Ok(())
+    }
 }
