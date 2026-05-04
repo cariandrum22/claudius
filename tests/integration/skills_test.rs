@@ -415,6 +415,35 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_skills_sync_warns_on_deprecated_agent_overrides() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_agent_skill(
+                "codex",
+                "codex-only",
+                "---\nname: codex-only\ndescription: Codex override.\n---\n\nCodex-specific override.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "Deprecated full agent override directory detected for skill `codex-only` under skills/codex/codex-only; prefer canonical target overlays in skill.yaml.",
+            ));
+
+        assert!(fixture.project_file_exists(".agents/skills/codex-only/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
     fn test_skills_validate_warns_on_unsupported_canonical_entries() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();

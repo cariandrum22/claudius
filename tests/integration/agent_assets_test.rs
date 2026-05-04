@@ -127,6 +127,32 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_sync_gemini_warns_on_deprecated_agent_skill_overrides() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_gemini_settings(r#"{"general":{"preferredEditor":"code"}}"#)
+            .unwrap();
+        fixture.with_agent_skill("gemini", "gemini-skill", "# Gemini Skill").unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["config", "sync", "--agent", "gemini"])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains(
+                "Deprecated full agent override directory detected for skill `gemini-skill` under skills/gemini/gemini-skill; prefer canonical target overlays in skill.yaml.",
+            ));
+
+        assert!(fixture.project_file_exists(".gemini/skills/gemini-skill/SKILL.md"));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_sync_claude_code_syncs_subagents() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();

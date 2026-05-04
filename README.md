@@ -225,6 +225,9 @@ This creates:
 Synchronize all agent configurations to target files.
 When present, Claudius also syncs Gemini custom commands, Gemini custom agents, and Claude Code subagents.
 Claude Desktop sync is retained as a legacy / best-effort path for JSON-based workflows. Claudius does not manage Claude Desktop Extensions or Connectors.
+Deprecated full override skill directories under `skills/<agent>/<skill>/` still sync for
+Claude Code and Gemini compatibility, but Claudius emits migration warnings during sync.
+Codex surfaces the same warning via `claudius skills sync --agent codex`.
 
 **Project-local mode (default):**
 - Claude (`--agent claude`, legacy / best-effort Desktop-compatible target): MCP servers → `./.mcp.json`
@@ -337,6 +340,9 @@ claudius config doctor --global
 ### `claudius skills sync`
 
 Synchronize skills into the selected agent's skills directory.
+Deprecated full override directories under `skills/<agent>/<skill>/` still deploy for
+compatibility, but Claudius warns on every sync and recommends canonical target overlays
+in `skill.yaml`.
 
 ```bash
 # Sync skills to project-local .claude/skills/ (default: Claude)
