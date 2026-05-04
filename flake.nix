@@ -338,7 +338,7 @@
         packages = {
           default = rustPlatform.buildRustPackage {
             pname = "claudius";
-            version = "0.1.2";
+            version = "0.2.1";
             src = ./.;
 
             cargoLock = {
