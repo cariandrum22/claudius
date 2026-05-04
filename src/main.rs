@@ -125,6 +125,8 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
         },
         cli::Commands::Skills(subcommand) => match subcommand {
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
+            cli::SkillsCommands::Validate(args) => run_validate_skills(args),
+            cli::SkillsCommands::Render(args) => run_render_skills(args, app_config),
         },
         cli::Commands::Context(subcommand) => match subcommand {
             cli::ContextCommands::Append(args) => run_append_context(
@@ -231,6 +233,9 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
             config.config_root_dir()?.join("commands").display()
         );
     }
+    for warning in &source_set.warnings {
+        println!("Warning: {warning}");
+    }
 
     let skill_targets = determine_skill_sync_targets(&config)?;
     let reports = skill_targets
@@ -245,6 +250,66 @@ fn run_sync_skills(args: cli::SkillsSyncArgs, app_config: Option<&AppConfig>) ->
         .collect::<Result<Vec<_>>>()?;
 
     print_skill_sync_result(&reports, dry_run);
+    Ok(())
+}
+
+fn run_validate_skills(args: cli::SkillsValidateArgs) -> Result<()> {
+    let config_dir = Config::get_config_dir().context("Failed to determine Claudius config dir")?;
+    let report = skills::validate_claudius_skill_sources(&config_dir, args.agent)?;
+
+    println!("Skills validation succeeded for {}", config_dir.display());
+
+    if report.warnings.is_empty() {
+        println!("No skill warnings detected.");
+        return Ok(());
+    }
+
+    println!("Warnings:");
+    for warning in &report.warnings {
+        println!("  - {warning}");
+    }
+
+    if args.strict {
+        anyhow::bail!(
+            "Skills validation produced {} warning(s) under --strict",
+            report.warnings.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn run_render_skills(args: cli::SkillsRenderArgs, app_config: Option<&AppConfig>) -> Result<()> {
+    let effective_agent = determine_agent(args.agent, app_config);
+    let config_dir = Config::get_config_dir().context("Failed to determine Claudius config dir")?;
+    let source_set = skills::collect_claudius_skill_source_set(&config_dir, effective_agent)?;
+
+    for warning in &source_set.warnings {
+        println!("Warning: {warning}");
+    }
+
+    let report = skills::sync_skill_mappings_with_options(
+        &source_set.mappings,
+        &args.output,
+        SyncBehavior { dry_run: false, prune: args.prune },
+    )?;
+
+    println!(
+        "Rendered {} skill(s) for {} into {}",
+        report.synced_skills.len(),
+        effective_agent.map_or("claude", |agent| match agent {
+            claudius::app_config::Agent::Claude => "claude",
+            claudius::app_config::Agent::ClaudeCode => "claude-code",
+            claudius::app_config::Agent::Codex => "codex",
+            claudius::app_config::Agent::Gemini => "gemini",
+        }),
+        report.target_dir.display(),
+    );
+
+    if !report.pruned_files.is_empty() {
+        println!("Pruned {} stale rendered file(s).", report.pruned_files.len());
+    }
+
     Ok(())
 }
 

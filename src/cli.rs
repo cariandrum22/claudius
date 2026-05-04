@@ -214,7 +214,7 @@ Use --agent to focus on a single agent surface."
     Doctor(ConfigDoctorArgs),
 }
 
-#[derive(Subcommand, Debug, Clone, Copy)]
+#[derive(Subcommand, Debug)]
 pub enum SkillsCommands {
     /// Synchronize skills into agent directories
     #[command(long_about = "Synchronize skills into agent directories.
@@ -230,6 +230,33 @@ Choose the Codex target behavior in $XDG_CONFIG_HOME/claudius/config.toml:
 `auto` publishes to the official .agents/skills path.
 Use `both` only if you still need compatibility copies in .codex/skills.")]
     Sync(SkillsSyncArgs),
+
+    /// Validate canonical and legacy skills without deploying them
+    #[command(long_about = "Validate Claudius skills without writing deployment targets.
+
+This command:
+  • loads shared, legacy, and agent-specific skill sources
+  • validates canonical skill.yaml definitions and required files
+  • renders the selected agent view to catch schema/rendering failures early
+  • warns about deprecated full override directories and metadata that will be dropped
+
+Examples:
+  claudius skills validate
+  claudius skills validate --agent codex
+  claudius skills validate --strict")]
+    Validate(SkillsValidateArgs),
+
+    /// Render skills for an agent into a directory for inspection or tests
+    #[command(
+        long_about = "Render skills for an agent into a directory without touching native agent locations.
+
+This command is useful for debugging render output, golden tests, and schema review.
+
+Examples:
+  claudius skills render --agent claude-code --output /tmp/claude-skills
+  claudius skills render --agent codex --output /tmp/codex-skills --prune"
+    )]
+    Render(SkillsRenderArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -474,6 +501,32 @@ pub struct SkillsSyncArgs {
     /// Deprecated no-op kept for backward compatibility
     #[arg(long, help = "Deprecated: Codex skills sync is enabled by default")]
     pub enable_codex_skills: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct SkillsValidateArgs {
+    /// Validate a specific agent view instead of all supported skill render targets
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Treat warnings as errors
+    #[arg(long)]
+    pub strict: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct SkillsRenderArgs {
+    /// Specify the agent (defaults to the configured default agent or Claude)
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Output directory for rendered skills
+    #[arg(short, long, value_hint = clap::ValueHint::DirPath)]
+    pub output: PathBuf,
+
+    /// Remove stale rendered files that Claudius previously generated in the output directory
+    #[arg(long)]
+    pub prune: bool,
 }
 
 #[derive(Args, Debug, Clone)]
