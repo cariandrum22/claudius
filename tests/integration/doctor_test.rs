@@ -196,4 +196,42 @@ mod tests {
             .stdout(predicate::str::contains("Codex-specific skills source is present."))
             .stdout(predicate::str::contains("EXPERIMENTAL").not());
     }
+
+    #[test]
+    #[serial]
+    fn test_config_doctor_reports_skill_renderer_migration_warnings() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_skill(
+                "shared-review",
+                "---\nname: shared-review\ndescription: Review code changes.\ndisable-model-invocation: true\n---\n\nReview code changes.\n",
+            )
+            .unwrap();
+        fixture
+            .with_agent_skill(
+                "codex",
+                "codex-only",
+                "---\nname: codex-only\ndescription: Codex-specific override.\n---\n\nUse Codex-specific instructions.\n",
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "doctor", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "Codex full override skill directories are still in use.",
+            ))
+            .stdout(predicate::str::contains(
+                "Shared legacy skill contains Claude-specific metadata that Codex rendering will drop.",
+            ))
+            .stdout(predicate::str::contains("shared-review"))
+            .stdout(predicate::str::contains("Migrate these overrides into shared skill.yaml target overlays"));
+    }
 }

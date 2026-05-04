@@ -85,6 +85,35 @@ impl TestFixture {
         Ok(self)
     }
 
+    /// Create a canonical skill with `skill.yaml` and `instructions.md`.
+    pub fn with_canonical_skill(
+        &self,
+        name: &str,
+        skill_yaml: &str,
+        instructions: &str,
+    ) -> std::io::Result<&Self> {
+        let skill_path = self.config.join("skills").join(name);
+        fs::create_dir_all(&skill_path)?;
+        fs::write(skill_path.join("skill.yaml"), skill_yaml)?;
+        fs::write(skill_path.join("instructions.md"), instructions)?;
+        Ok(self)
+    }
+
+    /// Write an arbitrary file under a skill directory.
+    pub fn with_skill_file(
+        &self,
+        name: &str,
+        relative_path: &str,
+        content: &str,
+    ) -> std::io::Result<&Self> {
+        let path = self.config.join("skills").join(name).join(relative_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, content)?;
+        Ok(self)
+    }
+
     /// Create an agent-specific skill directory with SKILL.md.
     pub fn with_agent_skill(
         &self,

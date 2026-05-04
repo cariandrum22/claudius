@@ -1594,6 +1594,9 @@ fn collect_skill_source_set(config: &Config) -> Option<skills::SkillSourceSet> {
 
 fn log_skill_source_details(config: &Config, source_set: &skills::SkillSourceSet) {
     if !source_set.includes_legacy_commands {
+        for warning in &source_set.warnings {
+            warn!("{warning}");
+        }
         return;
     }
 
@@ -1605,6 +1608,10 @@ fn log_skill_source_details(config: &Config, source_set: &skills::SkillSourceSet
         Err(e) => {
             warn!("Legacy commands directory detected but config root is unavailable: {e}");
         },
+    }
+
+    for warning in &source_set.warnings {
+        warn!("{warning}");
     }
 }
 

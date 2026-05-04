@@ -5,9 +5,26 @@ use crate::asset_sync::{inspect_managed_tree, ManagedTreeInspection, SourceFileM
 use crate::config::Config;
 use crate::skills;
 use anyhow::{Context, Result};
+use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+static YAML_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?s)\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\z")
+        .expect("frontmatter regex should compile")
+});
+
+const CLAUDE_ONLY_SKILL_KEYS: &[&str] = &[
+    "disable-model-invocation",
+    "user-invocable",
+    "allowed-tools",
+    "arguments",
+    "argument-hint",
+    "agent",
+    "context",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DoctorStatus {
@@ -398,6 +415,16 @@ fn inspect_skill_sources(
         codex_skill_mappings,
         "Codex-specific skills source is present.",
     );
+    inspect_deprecated_agent_skill_overrides(
+        config_dir,
+        agent_filter,
+        claude_skill_mappings,
+        claude_code_skill_mappings,
+        gemini_skill_mappings,
+        codex_skill_mappings,
+        findings,
+    );
+    inspect_shared_legacy_skill_metadata_leakage(config_dir, agent_filter, findings);
 
     if !legacy_command_mappings.is_empty() && agent_filter != Some(Agent::Gemini) {
         findings.push(DoctorFinding {
@@ -410,6 +437,184 @@ fn inspect_skill_sources(
             )),
             recommendation: "Move each commands/*.md file into skills/<name>/SKILL.md.".to_string(),
         });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inspect_deprecated_agent_skill_overrides(
+    config_dir: &Path,
+    agent_filter: Option<Agent>,
+    claude_skill_mappings: &[SourceFileMapping],
+    claude_code_skill_mappings: &[SourceFileMapping],
+    gemini_skill_mappings: &[SourceFileMapping],
+    codex_skill_mappings: &[SourceFileMapping],
+    findings: &mut Vec<DoctorFinding>,
+) {
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::Claude,
+        config_dir.join("skills").join("claude"),
+        claude_skill_mappings,
+    );
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::ClaudeCode,
+        config_dir.join("skills").join("claude-code"),
+        claude_code_skill_mappings,
+    );
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::Gemini,
+        config_dir.join("skills").join("gemini"),
+        gemini_skill_mappings,
+    );
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::Codex,
+        config_dir.join("skills").join("codex"),
+        codex_skill_mappings,
+    );
+}
+
+fn push_deprecated_override_finding(
+    findings: &mut Vec<DoctorFinding>,
+    agent_filter: Option<Agent>,
+    agent: Agent,
+    path: PathBuf,
+    mappings: &[SourceFileMapping],
+) {
+    if !matches_filter(agent_filter, agent) || mappings.is_empty() {
+        return;
+    }
+
+    findings.push(DoctorFinding {
+        status: DoctorStatus::Legacy,
+        summary: format!(
+            "{} full override skill directories are still in use.",
+            doctor_agent_label(agent)
+        ),
+        path: Some(path),
+        detail: Some(format!(
+            "{} file(s) are being sourced from skills/{}/... instead of canonical overlays.",
+            mappings.len(),
+            doctor_agent_subdir(agent)
+        )),
+        recommendation:
+            "Migrate these overrides into shared skill.yaml target overlays and keep shared resources in one canonical skill tree."
+                .to_string(),
+    });
+}
+
+fn inspect_shared_legacy_skill_metadata_leakage(
+    config_dir: &Path,
+    agent_filter: Option<Agent>,
+    findings: &mut Vec<DoctorFinding>,
+) {
+    if agent_filter.is_some_and(|agent| agent != Agent::Codex) {
+        return;
+    }
+
+    let skills_root = config_dir.join("skills");
+    if !skills_root.exists() {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(&skills_root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let entry_name = entry.file_name();
+        let Some(entry_name) = entry_name.to_str() else {
+            continue;
+        };
+
+        if path.is_dir() {
+            if skills::is_agent_skill_subdir(entry_name) || path.join("skill.yaml").exists() {
+                continue;
+            }
+
+            let skill_file = path.join("SKILL.md");
+            if shared_legacy_skill_contains_claude_only_metadata(&skill_file) {
+                findings.push(DoctorFinding {
+                    status: DoctorStatus::Legacy,
+                    summary:
+                        "Shared legacy skill contains Claude-specific metadata that Codex rendering will drop."
+                            .to_string(),
+                    path: Some(skill_file),
+                    detail: Some(format!(
+                        "Skill `{}` still uses Claude-specific frontmatter keys in a shared SKILL.md.",
+                        entry_name
+                    )),
+                    recommendation:
+                        "Migrate this skill to canonical skill.yaml or move Claude-only metadata into a Claude-specific target overlay."
+                            .to_string(),
+                });
+            }
+            continue;
+        }
+
+        if path.is_file()
+            && path.extension().and_then(|value| value.to_str()) == Some("md")
+            && shared_legacy_skill_contains_claude_only_metadata(&path)
+        {
+            findings.push(DoctorFinding {
+                status: DoctorStatus::Legacy,
+                summary:
+                    "Shared legacy skill contains Claude-specific metadata that Codex rendering will drop."
+                        .to_string(),
+                path: Some(path),
+                detail: Some(format!(
+                    "Legacy skill `{}` still uses Claude-specific frontmatter keys in a shared Markdown file.",
+                    entry_name.trim_end_matches(".md")
+                )),
+                recommendation:
+                    "Migrate this skill to canonical skill.yaml or move Claude-only metadata into a Claude-specific target overlay."
+                        .to_string(),
+            });
+        }
+    }
+}
+
+fn shared_legacy_skill_contains_claude_only_metadata(path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Some(captures) = YAML_FRONTMATTER_RE.captures(&content) else {
+        return false;
+    };
+    let Some(frontmatter_text) = captures.get(1).map(|capture| capture.as_str()) else {
+        return false;
+    };
+    let Ok(frontmatter) = serde_yaml::from_str::<YamlMapping>(frontmatter_text) else {
+        return false;
+    };
+
+    CLAUDE_ONLY_SKILL_KEYS
+        .iter()
+        .any(|key| frontmatter.contains_key(YamlValue::String((*key).to_string())))
+}
+
+fn doctor_agent_label(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Claude => "Claude",
+        Agent::ClaudeCode => "Claude Code",
+        Agent::Codex => "Codex",
+        Agent::Gemini => "Gemini",
+    }
+}
+
+fn doctor_agent_subdir(agent: Agent) -> &'static str {
+    match agent {
+        Agent::Claude => "claude",
+        Agent::ClaudeCode => "claude-code",
+        Agent::Codex => "codex",
+        Agent::Gemini => "gemini",
     }
 }
 
