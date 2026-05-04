@@ -517,6 +517,7 @@ fn collect_config_validation_warnings(
 
     warnings.extend(validate_mcp_server_sources(config_dir)?);
     warnings.extend(validate_agent_sources(config_dir, effective_agent)?);
+    warnings.extend(skills::validate_claudius_skill_sources(config_dir, effective_agent)?.warnings);
 
     Ok(warnings)
 }

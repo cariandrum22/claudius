@@ -415,6 +415,40 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_skills_validate_warns_on_unsupported_canonical_entries() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\n",
+                "Review the repository and summarize the findings.\n",
+            )
+            .unwrap();
+        fixture.with_skill_file("setup-review", "notes.txt", "ignored").unwrap();
+        fixture
+            .with_skill_file("setup-review", "targets/codex.yaml", "invocation: manual\n")
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "validate"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "Canonical skill `setup-review` contains unsupported top-level entry `notes.txt`",
+            ))
+            .stdout(predicate::str::contains(
+                "Canonical skill `setup-review` contains unsupported targets entry `targets/codex.yaml`",
+            ));
+    }
+
+    #[test]
+    #[serial]
     fn test_skills_only_mode_project_local() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
