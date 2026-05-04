@@ -26,7 +26,7 @@ Prefer Claude Code, Codex, or Gemini when you need actively managed surfaces.
         - gemini.settings.json: Gemini settings (optional)
         - gemini.system_defaults.json: Gemini CLI system defaults (optional)
         - settings.json: Legacy Claude settings (backward compatible)
-        - skills/: Shared and agent-specific skills (preferred: skill.yaml + instructions.md; legacy SKILL.md still supported)
+        - skills/: Shared skills plus deprecated agent override compatibility paths (preferred: skill.yaml + instructions.md; legacy SKILL.md still supported)
         - commands/gemini/: Gemini custom commands (*.toml)
         - agents/gemini/: Gemini custom agents (*.md)
         - agents/claude-code/: Claude Code subagents (*.md)
@@ -103,7 +103,7 @@ pub enum ConfigCommands {
       • gemini.settings.json - Gemini settings template
       • gemini.system_defaults.json - Gemini CLI system defaults template
       • settings.json - Legacy Claude settings (backward compatible)
-      • skills/ - Directory for shared and agent-specific skills
+      • skills/ - Directory for shared skills and deprecated agent override compatibility paths
       • commands/gemini/ - Gemini custom commands (*.toml)
       • agents/gemini/ - Gemini custom agents (*.md)
       • agents/claude-code/ - Claude Code subagents (*.md)
@@ -152,6 +152,10 @@ This command:
        - agents/gemini/ -> .gemini/agents
        - agents/claude-code/ -> .claude/agents
        - Codex skills stay explicit via `claudius skills sync --agent codex`
+
+Deprecated full override directories under `skills/<agent>/<skill>/` still sync for
+compatibility, but Claudius warns during sync and recommends canonical target overlays
+in `skill.yaml` instead.
 
 Note: `--agent claude` is retained for legacy Claude Desktop JSON workflows.
 For actively managed CLI surfaces, prefer `claude-code`, `codex`, or `gemini`.
@@ -228,7 +232,10 @@ Choose the Codex target behavior in $XDG_CONFIG_HOME/claudius/config.toml:
   skill-target = \"auto\"   # auto | agents | both | codex
 
 `auto` publishes to the official .agents/skills path.
-Use `both` only if you still need compatibility copies in .codex/skills.")]
+Use `both` only if you still need compatibility copies in .codex/skills.
+
+Deprecated full override directories under `skills/<agent>/<skill>/` still work during sync,
+but Claudius emits warnings and recommends canonical target overlays in `skill.yaml`.")]
     Sync(SkillsSyncArgs),
 
     /// Validate canonical and legacy skills without deploying them

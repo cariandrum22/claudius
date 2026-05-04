@@ -201,6 +201,10 @@ Creates default:
 ### `claudius config sync`
 Synchronize configurations to target files.
 
+Deprecated full override skill directories under `skills/<agent>/<skill>/` still sync for
+Claude Code and Gemini compatibility, but Claudius emits migration warnings during sync.
+Codex surfaces the same warning via `claudius skills sync --agent codex`.
+
 **Project-local mode (default):**
 - Claude Desktop (`--agent claude`): MCP servers → `./.mcp.json`
 - Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, skills → `./.claude/skills/`
@@ -247,6 +251,13 @@ claudius config sync --global --agent gemini --gemini-system-defaults
 # Sync Codex skills to the official .agents/skills target
 claudius skills sync --agent codex
 ```
+
+### `claudius skills sync`
+Synchronize skills into the selected agent's skills directory.
+
+Deprecated full override directories under `skills/<agent>/<skill>/` still deploy for
+compatibility, but Claudius warns on every sync and recommends canonical target overlays
+in `skill.yaml`.
 
 ### `claudius context append`
 Append rules or templates to CLAUDE.md.
