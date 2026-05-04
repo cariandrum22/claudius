@@ -71,7 +71,8 @@ mod tests {
         assert!(config_dir.join("gemini.system_defaults.json").exists());
         assert!(config_dir.join("settings.json").exists());
         assert!(config_dir.join("skills").exists());
-        assert!(config_dir.join("skills/example/SKILL.md").exists());
+        assert!(config_dir.join("skills/example/skill.yaml").exists());
+        assert!(config_dir.join("skills/example/instructions.md").exists());
         assert!(config_dir.join("commands/gemini").exists());
         assert!(config_dir.join("agents/gemini").exists());
         assert!(config_dir.join("agents/claude-code").exists());

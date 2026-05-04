@@ -135,7 +135,7 @@ claudius --list-commands
    - (Optional) Edit `~/.config/claudius/codex.managed_config.toml` for Codex admin-managed defaults
    - Edit `~/.config/claudius/gemini.settings.json` to configure Gemini settings
    - (Optional) Edit `~/.config/claudius/gemini.system_defaults.json` for Gemini system defaults
-   - Add skills to `~/.config/claudius/skills/` (one directory per skill with `SKILL.md`)
+   - Add skills to `~/.config/claudius/skills/` (preferred: one directory per skill with `skill.yaml` + `instructions.md`; legacy `SKILL.md` passthrough is still supported)
    - (Optional) Add Gemini commands to `~/.config/claudius/commands/gemini/*.toml`
    - (Optional) Add Gemini agents to `~/.config/claudius/agents/gemini/*.md`
    - (Optional) Add Claude Code subagents to `~/.config/claudius/agents/claude-code/*.md`
@@ -216,7 +216,8 @@ This creates:
 - `commands/gemini/` for Gemini custom commands
 - `agents/gemini/` for Gemini custom agents
 - `agents/claude-code/` for Claude Code subagents
-- `skills/example/SKILL.md` - Example skill
+- `skills/example/skill.yaml` - Example canonical skill metadata
+- `skills/example/instructions.md` - Example canonical skill instructions
 - `rules/example.md` - Example context file rule template
 
 ### `claudius config sync`
@@ -463,10 +464,18 @@ Features:
 ├── settings.json      # Legacy alias for claude.settings.json (backward compatible)
 ├── skills/            # Skills (shared + agent-specific)
 │   ├── <skill>/       # Shared skill
-│   │   └── SKILL.md   # Skill definition
+│   │   ├── skill.yaml # Canonical metadata (preferred)
+│   │   ├── instructions.md # Canonical instructions (preferred)
+│   │   ├── scripts/   # Optional shared resources
+│   │   ├── references/
+│   │   ├── assets/
+│   │   ├── targets/   # Optional target-specific body snippets
+│   │   │   ├── <agent>.prepend.md
+│   │   │   └── <agent>.append.md
+│   │   └── SKILL.md   # Legacy passthrough format (supported)
 │   └── <agent>/       # Optional agent override (claude, claude-code, gemini, codex)
 │       └── <skill>/   # Agent-specific skill
-│           └── SKILL.md
+│           └── SKILL.md # Deprecated full override compatibility path
 ├── commands/
 │   └── gemini/       # Gemini custom commands
 │       └── *.toml
@@ -622,17 +631,38 @@ service-account-token-path = "~/.config/op/service-accounts/headless-linux-cli.t
 Create skills in `~/.config/claudius/skills/`:
 
 ```bash
-# Create a skill
+# Create a canonical skill
 mkdir -p ~/.config/claudius/skills/my-skill
-cat <<'EOF' > ~/.config/claudius/skills/my-skill/SKILL.md
+cat <<'EOF' > ~/.config/claudius/skills/my-skill/skill.yaml
+version: 1
+name: my-skill
+description: Describe when to use this skill.
+targets:
+  claude-code:
+    invocation: manual
+  codex:
+    invocation: manual
+EOF
+cat <<'EOF' > ~/.config/claudius/skills/my-skill/instructions.md
 # My Skill
 
-Skill definition goes here.
+Skill instructions go here.
 EOF
 
 # Skills are synced automatically
 claudius config sync
 ```
+
+Preferred canonical skills use `skill.yaml` for portable metadata and
+`instructions.md` for the shared Markdown body. Optional `scripts/`,
+`references/`, and `assets/` directories are copied as-is. If you need
+agent-specific body differences, add `targets/<agent>.prepend.md` and/or
+`targets/<agent>.append.md`.
+
+Legacy passthrough skills with top-level `SKILL.md` remain supported. Full
+agent override directories under `skills/<agent>/<skill>/SKILL.md` also remain
+supported for compatibility, but they are deprecated in favor of canonical
+target overlays.
 
 Skills are deployed to `~/.claude/skills/` (Claude / Claude Code) or `~/.gemini/skills/`
 (Gemini), preserving the directory structure. Codex skills default to the official
@@ -651,8 +681,11 @@ By default, skill and auxiliary file sync is non-destructive. Use `--prune` to r
 stale files that Claudius previously deployed. Pruning only touches files tracked in
 Claudius-managed target trees and leaves unrelated files alone.
 
-To override a shared skill for a specific agent, place it under
-`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
+To override a shared skill for a specific agent, you can still place it under
+`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude,
+claude-code, gemini, codex), but this full-directory override path is
+deprecated. Prefer target-specific overlays in `skill.yaml` and optional
+`targets/<agent>.prepend.md` / `targets/<agent>.append.md` files.
 
 When present, `claudius config sync` also deploys:
 - `~/.config/claudius/commands/gemini/*.toml` → `.gemini/commands/` or `~/.gemini/commands/`
@@ -670,11 +703,12 @@ Claude Code still supports `.claude/commands/*.md`, but Claudius does not sync t
 surface yet. Skills keep a single cross-agent source of truth inside Claudius.
 
 ```bash
-# Example: migrate a legacy command to a skill
+# Example: quick compatibility migration from a legacy command to a passthrough skill
 mkdir -p ~/.config/claudius/skills/my-command
 mv ~/.config/claudius/commands/my-command.md ~/.config/claudius/skills/my-command/SKILL.md
 
-# Then sync
+# Then sync. For long-term maintenance, split the skill into skill.yaml +
+# instructions.md afterward.
 claudius skills sync
 ```
 

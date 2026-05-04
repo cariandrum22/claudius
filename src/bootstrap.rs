@@ -30,10 +30,21 @@ const DEFAULT_SETTINGS: &str = r#"{
 }
 "#;
 
-/// Example skill template
-const EXAMPLE_SKILL: &str = r"# Example Skill
+/// Example canonical skill definition template
+const EXAMPLE_SKILL_DEFINITION: &str = r#"version: 1
+name: example
+description: Example skill scaffold created by `claudius config init`.
+targets:
+  claude-code:
+    invocation: manual
+  codex:
+    invocation: manual
+"#;
 
-This is an example Claude Code skill.
+/// Example canonical skill instructions template
+const EXAMPLE_SKILL_INSTRUCTIONS: &str = r#"# Example Skill
+
+This is an example canonical skill.
 
 ## Usage
 
@@ -41,8 +52,8 @@ Describe how and when to use this skill.
 
 ## Implementation
 
-Replace this content with your actual skill definition.
-";
+Replace this content with your actual skill instructions.
+"#;
 
 /// Example rule template
 const EXAMPLE_RULE: &str = r"# Example Rule
@@ -368,8 +379,21 @@ fn init_skills_directory(config_dir: &Path, force: bool) -> Result<()> {
     let example_skill_dir = skills_dir.join("example");
     create_directory(&example_skill_dir, force)?;
 
-    let example_skill_path = example_skill_dir.join("SKILL.md");
-    create_file_if_needed(&example_skill_path, EXAMPLE_SKILL, force, "example skill")
+    let example_skill_definition_path = example_skill_dir.join("skill.yaml");
+    create_file_if_needed(
+        &example_skill_definition_path,
+        EXAMPLE_SKILL_DEFINITION,
+        force,
+        "example skill definition",
+    )?;
+
+    let example_skill_instructions_path = example_skill_dir.join("instructions.md");
+    create_file_if_needed(
+        &example_skill_instructions_path,
+        EXAMPLE_SKILL_INSTRUCTIONS,
+        force,
+        "example skill instructions",
+    )
 }
 
 /// Initialize rules directory with example
@@ -538,7 +562,8 @@ mod tests {
                 "settings.json",
                 "config.toml",
                 "skills",
-                "skills/example/SKILL.md",
+                "skills/example/skill.yaml",
+                "skills/example/instructions.md",
                 "commands/gemini",
                 "agents/gemini",
                 "agents/claude-code",
@@ -641,7 +666,8 @@ mod tests {
         assert!(!rules_dir.join("custom.md").exists());
 
         // Verify example files exist
-        assert!(skills_dir.join("example/SKILL.md").exists());
+        assert!(skills_dir.join("example/skill.yaml").exists());
+        assert!(skills_dir.join("example/instructions.md").exists());
         assert!(rules_dir.join("example.md").exists());
     }
 

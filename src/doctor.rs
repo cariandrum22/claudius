@@ -435,7 +435,9 @@ fn inspect_skill_sources(
                 "{} legacy command file(s) still rely on commands/*.md fallback.",
                 legacy_command_mappings.len()
             )),
-            recommendation: "Move each commands/*.md file into skills/<name>/SKILL.md.".to_string(),
+            recommendation:
+                "Move each commands/*.md file into a skill directory, preferably skills/<name>/skill.yaml + instructions.md (or skills/<name>/SKILL.md for passthrough compatibility)."
+                    .to_string(),
         });
     }
 }

@@ -26,7 +26,7 @@ Prefer Claude Code, Codex, or Gemini when you need actively managed surfaces.
         - gemini.settings.json: Gemini settings (optional)
         - gemini.system_defaults.json: Gemini CLI system defaults (optional)
         - settings.json: Legacy Claude settings (backward compatible)
-        - skills/: Shared and agent-specific skills (directories with SKILL.md)
+        - skills/: Shared and agent-specific skills (preferred: skill.yaml + instructions.md; legacy SKILL.md still supported)
         - commands/gemini/: Gemini custom commands (*.toml)
         - agents/gemini/: Gemini custom agents (*.md)
         - agents/claude-code/: Claude Code subagents (*.md)
