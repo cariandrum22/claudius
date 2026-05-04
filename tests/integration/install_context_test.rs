@@ -36,7 +36,7 @@ mod tests {
         installed_rule.assert(predicate::path::exists());
         installed_rule.assert(predicate::str::contains("# Test Rule"));
 
-        // Verify reference directive was added to CLAUDE.md
+        // Verify the managed rule reference section was added to CLAUDE.md
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
         claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
@@ -58,7 +58,7 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule\nThis is a test rule.").unwrap();
 
-        // Pre-create CLAUDE.md with the directive
+        // Pre-create CLAUDE.md with the managed section
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md
             .write_str(
@@ -83,7 +83,7 @@ mod tests {
             .arg("test-rule")
             .assert()
             .success()
-            .stdout(predicate::str::contains("Updated reference directive"));
+            .stdout(predicate::str::contains("Updated managed rule reference section"));
 
         // Verify directive appears only once
         let content = fs::read_to_string(claude_md.path()).unwrap();
@@ -246,7 +246,7 @@ mod tests {
         let installed_rule = temp_dir.child(".custom/rules/test-rule.md");
         installed_rule.assert(predicate::path::exists());
 
-        // Verify reference directive uses custom path
+        // Verify the managed rule reference section uses the custom path
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
         claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
@@ -306,7 +306,7 @@ mod tests {
             .child("advanced/testing-advanced.md")
             .assert(predicate::path::exists());
 
-        // Verify reference directive was added to CLAUDE.md
+        // Verify the managed rule reference section was added to CLAUDE.md
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
         claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));
@@ -371,7 +371,7 @@ mod tests {
         custom_rules.child("rule1.md").assert(predicate::path::exists());
         custom_rules.child("rule2.md").assert(predicate::path::exists());
 
-        // Verify reference directive uses custom path
+        // Verify the managed rule reference section uses the custom path
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md.assert(predicate::path::exists());
         claude_md.assert(predicate::str::contains("<!-- CLAUDIUS_RULES_START -->"));

@@ -374,6 +374,25 @@ claudius skills sync --prune
 claudius skills sync --agent codex
 ```
 
+### `claudius skills validate`
+
+Validate canonical and legacy skills without deploying them.
+
+This command loads shared, legacy, and agent-specific skill sources, validates
+canonical `skill.yaml` definitions, renders the selected agent view, and warns
+about deprecated override directories or metadata that will be dropped.
+
+```bash
+# Validate every supported render target
+claudius skills validate
+
+# Validate only the Codex view
+claudius skills validate --agent codex
+
+# Treat warnings as errors
+claudius skills validate --strict
+```
+
 ### `claudius skills migrate`
 
 Convert deprecated full override directories under `skills/<agent>/<skill>/` into canonical
@@ -396,6 +415,19 @@ claudius skills migrate --agent claude-code
 claudius skills migrate --dry-run
 ```
 
+### `claudius skills render`
+
+Render skills for an agent into an output directory without touching native
+agent locations.
+
+```bash
+# Inspect rendered Claude Code skills
+claudius skills render --agent claude-code --output /tmp/claude-skills
+
+# Render Codex skills and prune stale generated files in the output directory
+claudius skills render --agent codex --output /tmp/codex-skills --prune
+```
+
 
 ### `claudius context append`
 
@@ -411,6 +443,9 @@ claudius context append testing --path /path/to/project
 # Use custom template file
 claudius context append --template-path ./my-template.md
 
+# Append to the global context file in $HOME
+claudius context append security --global
+
 # Use specific agent
 claudius context append security --agent codex
 claudius context append testing --agent gemini
@@ -420,7 +455,10 @@ claudius context append testing --agent gemini
 
 Install context rules to project-local .agents/rules directory.
 
-This command copies rules from your global rules directory to a project-local directory and adds a reference directive to the current agent's context file (CLAUDE.md, GEMINI.md, or AGENTS.md). The directive lists each installed rule explicitly with its file path.
+This command copies rules from your global rules directory to a project-local
+directory and adds a managed reference section to the current agent's context
+file (CLAUDE.md, GEMINI.md, or AGENTS.md). The section lists each installed
+rule explicitly with its file path.
 
 **Key features:**
 - Keeps context files compact while including many rules
@@ -443,6 +481,31 @@ claudius context install security --install-dir ./.claude/rules
 
 # Use specific agent
 claudius context install security --agent gemini
+```
+
+The managed section looks like:
+
+```markdown
+# External Rule References
+
+The following rules from `.agents/rules` are installed:
+
+- `.agents/rules/security.md`: security
+- `.agents/rules/testing.md`: testing
+
+Read these files to understand the project conventions and guidelines.
+```
+
+### `claudius context list`
+
+List available rules and templates in the rules directory.
+
+```bash
+# Simple list
+claudius context list
+
+# Show nested directories as a tree
+claudius context list --tree
 ```
 
 ### `claudius secrets run`
@@ -679,7 +742,7 @@ cat <<'EOF' > ~/.config/claudius/skills/my-skill/instructions.md
 Skill instructions go here.
 EOF
 
-# Skills are synced automatically
+# Sync project-local managed surfaces
 claudius config sync
 ```
 
@@ -722,6 +785,12 @@ When present, `claudius config sync` also deploys:
 - `~/.config/claudius/commands/gemini/*.toml` → `.gemini/commands/` or `~/.gemini/commands/`
 - `~/.config/claudius/agents/gemini/*.md` → `.gemini/agents/` or `~/.gemini/agents/`
 - `~/.config/claudius/agents/claude-code/*.md` → `.claude/agents/` or `~/.claude/agents/`
+
+Skill deployment during `claudius config sync` is intentionally narrower:
+- Claude / Claude Code / Gemini sync skills when the selected scope supports
+  agent-native skill directories
+- Codex skills remain explicit via `claudius skills sync --agent codex`
+- Claude Code managed and local scopes skip automatic skill sync
 
 Gemini extensions are not managed by Claudius. Install and update them through the Gemini CLI
 extension workflow, then keep extension-specific settings in `gemini.settings.json` if needed.
@@ -767,7 +836,7 @@ Claudius offers two ways to manage project context:
    - Best for: Small number of rules, simple projects
    - Result: All content in one file
 
-2. **context install**: Copies rules to `.agents/rules/` with reference directive
+2. **context install**: Copies rules to `.agents/rules/` with a managed reference section
    - Best for: Many rules, complex projects, team collaboration
    - Result: Compact context file + organized rule structure
 
@@ -992,20 +1061,14 @@ For development documentation including:
 
 Please see [CLAUDE.md](./CLAUDE.md).
 
-## Version History
+## Release Tracking
 
-See:
+For release history and user-facing change summaries, use:
 - [GitHub Releases](https://github.com/cariandrum22/claudius/releases)
 - [CHANGELOG.md](./CHANGELOG.md)
 
-Key features introduced in v0.1.0:
-- Multi-agent support (Claude, Codex, Gemini)
-- Secret management with 1Password integration
-- DAG-based variable expansion for nested environment variables
-- Project-local and global configuration modes
-- Context file templates (CLAUDE.md, GEMINI.md, and AGENTS.md)
-- Secure command execution with automatic secret resolution
-- Comprehensive test coverage and Nix flake support
+Avoid treating this README as a second version ledger. The changelog is the
+source of truth for version-by-version release notes.
 
 ## Project Background
 
