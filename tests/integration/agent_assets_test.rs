@@ -145,7 +145,7 @@ mod tests {
             .assert()
             .success()
             .stderr(predicate::str::contains(
-                "Deprecated full agent override directory detected for skill `gemini-skill` under skills/gemini/gemini-skill; prefer canonical target overlays in skill.yaml.",
+                "Deprecated full agent override directory detected for skill `gemini-skill` under skills/gemini/gemini-skill; prefer canonical target overlays in skill.yaml and migrate it with `claudius skills migrate`.",
             ));
 
         assert!(fixture.project_file_exists(".gemini/skills/gemini-skill/SKILL.md"));

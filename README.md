@@ -226,7 +226,8 @@ Synchronize all agent configurations to target files.
 When present, Claudius also syncs Gemini custom commands, Gemini custom agents, and Claude Code subagents.
 Claude Desktop sync is retained as a legacy / best-effort path for JSON-based workflows. Claudius does not manage Claude Desktop Extensions or Connectors.
 Deprecated full override skill directories under `skills/<agent>/<skill>/` still sync for
-Claude Code and Gemini compatibility, but Claudius emits migration warnings during sync.
+Claude Code and Gemini compatibility, but Claudius emits migration warnings during sync and
+recommends `claudius skills migrate`.
 Codex surfaces the same warning via `claudius skills sync --agent codex`.
 
 **Project-local mode (default):**
@@ -342,7 +343,7 @@ claudius config doctor --global
 Synchronize skills into the selected agent's skills directory.
 Deprecated full override directories under `skills/<agent>/<skill>/` still deploy for
 compatibility, but Claudius warns on every sync and recommends canonical target overlays
-in `skill.yaml`.
+in `skill.yaml`. Use `claudius skills migrate` to convert supported overrides automatically.
 
 ```bash
 # Sync skills to project-local .claude/skills/ (default: Claude)
@@ -371,6 +372,28 @@ claudius skills sync --prune
 #
 # `auto` publishes to .agents/skills. Use `both` only for compatibility.
 claudius skills sync --agent codex
+```
+
+### `claudius skills migrate`
+
+Convert deprecated full override directories under `skills/<agent>/<skill>/` into canonical
+shared skill targets.
+
+Claudius updates `skills/<skill>/skill.yaml`, writes `targets/<agent>.md` when the old body
+differs from the shared instructions, and then removes the deprecated override directory.
+The command is intentionally conservative: shared skills must already be canonical, extra
+override resources are rejected, and conflicting canonical target body files must be resolved
+manually first.
+
+```bash
+# Migrate every deprecated override tree
+claudius skills migrate
+
+# Migrate only Claude Code overrides
+claudius skills migrate --agent claude-code
+
+# Preview the migration without changing files
+claudius skills migrate --dry-run
 ```
 
 
@@ -475,7 +498,8 @@ Features:
 │   │   ├── scripts/   # Optional shared resources
 │   │   ├── references/
 │   │   ├── assets/
-│   │   ├── targets/   # Optional target-specific body snippets
+│   │   ├── targets/   # Optional target-specific body overrides / fragments
+│   │   │   ├── <agent>.md
 │   │   │   ├── <agent>.prepend.md
 │   │   │   └── <agent>.append.md
 │   │   └── SKILL.md   # Legacy passthrough format (supported)
@@ -662,8 +686,8 @@ claudius config sync
 Preferred canonical skills use `skill.yaml` for portable metadata and
 `instructions.md` for the shared Markdown body. Optional `scripts/`,
 `references/`, and `assets/` directories are copied as-is. If you need
-agent-specific body differences, add `targets/<agent>.prepend.md` and/or
-`targets/<agent>.append.md`.
+agent-specific body differences, add `targets/<agent>.md` for a full override or
+`targets/<agent>.prepend.md` / `targets/<agent>.append.md` for smaller fragments.
 
 Legacy passthrough skills with top-level `SKILL.md` remain supported. Full
 agent override directories under `skills/<agent>/<skill>/SKILL.md` also remain
@@ -691,7 +715,8 @@ To override a shared skill for a specific agent, you can still place it under
 `~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude,
 claude-code, gemini, codex), but this full-directory override path is
 deprecated. Prefer target-specific overlays in `skill.yaml` and optional
-`targets/<agent>.prepend.md` / `targets/<agent>.append.md` files.
+`targets/<agent>.md` or fragment files. Use `claudius skills migrate` to convert
+supported deprecated overrides automatically.
 
 When present, `claudius config sync` also deploys:
 - `~/.config/claudius/commands/gemini/*.toml` → `.gemini/commands/` or `~/.gemini/commands/`

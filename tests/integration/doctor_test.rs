@@ -232,6 +232,6 @@ mod tests {
                 "Shared legacy skill contains Claude-specific metadata that Codex rendering will drop.",
             ))
             .stdout(predicate::str::contains("shared-review"))
-            .stdout(predicate::str::contains("Migrate these overrides into shared skill.yaml target overlays"));
+            .stdout(predicate::str::contains("Run `claudius skills migrate` for these overrides"));
     }
 }

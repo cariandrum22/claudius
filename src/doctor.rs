@@ -506,7 +506,7 @@ fn push_deprecated_override_finding(
             doctor_agent_subdir(agent)
         )),
         recommendation:
-            "Migrate these overrides into shared skill.yaml target overlays and keep shared resources in one canonical skill tree."
+            "Run `claudius skills migrate` for these overrides, then keep shared resources and per-agent metadata in one canonical skill tree."
                 .to_string(),
     });
 }
