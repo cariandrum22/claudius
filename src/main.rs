@@ -126,6 +126,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
         cli::Commands::Skills(subcommand) => match subcommand {
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
             cli::SkillsCommands::Validate(args) => run_validate_skills(args),
+            cli::SkillsCommands::Migrate(args) => run_migrate_skills(args),
             cli::SkillsCommands::Render(args) => run_render_skills(args, app_config),
         },
         cli::Commands::Context(subcommand) => match subcommand {
@@ -274,6 +275,48 @@ fn run_validate_skills(args: cli::SkillsValidateArgs) -> Result<()> {
             "Skills validation produced {} warning(s) under --strict",
             report.warnings.len()
         );
+    }
+
+    Ok(())
+}
+
+fn run_migrate_skills(args: cli::SkillsMigrateArgs) -> Result<()> {
+    let config_dir = Config::get_config_dir().context("Failed to determine Claudius config dir")?;
+    let report = skills::migrate_deprecated_agent_overrides(&config_dir, args.agent, args.dry_run)?;
+
+    if report.migrated_overrides.is_empty() {
+        println!(
+            "No deprecated full override skill directories found under {}",
+            config_dir.display()
+        );
+        return Ok(());
+    }
+
+    if args.dry_run {
+        println!(
+            "Dry-run: would migrate {} deprecated full override skill director(ies).",
+            report.migrated_overrides.len()
+        );
+    } else {
+        println!(
+            "Migrated {} deprecated full override skill director(ies).",
+            report.migrated_overrides.len()
+        );
+    }
+
+    println!("Overrides:");
+    for override_path in &report.migrated_overrides {
+        println!("  - {override_path}");
+    }
+
+    println!("Updated files:");
+    for path in &report.updated_files {
+        println!("  - {}", path.display());
+    }
+
+    println!("Removed directories:");
+    for path in &report.removed_directories {
+        println!("  - {}", path.display());
     }
 
     Ok(())

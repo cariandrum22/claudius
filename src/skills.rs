@@ -3,7 +3,7 @@ use crate::{
     asset_sync::{self, ManagedTreeSyncReport, SourceFileMapping, SyncBehavior},
 };
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -24,6 +24,18 @@ const CLAUDE_ONLY_FRONTMATTER_KEYS: &[&str] = &[
     "agent",
     "context",
 ];
+const LEGACY_CORE_FRONTMATTER_KEYS: &[&str] = &["name", "description"];
+const CLAUDE_FAMILY_MIGRATION_FRONTMATTER_KEYS: &[&str] = &[
+    "disable-model-invocation",
+    "user-invocable",
+    "allowed-tools",
+    "arguments",
+    "argument-hint",
+    "agent",
+    "context",
+];
+const CODEX_MIGRATION_FRONTMATTER_KEYS: &[&str] =
+    &["disable-model-invocation", "interface", "dependencies"];
 
 static YAML_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?s)\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\z")
@@ -51,6 +63,14 @@ pub struct SkillValidationReport {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillMigrationReport {
+    pub migrated_overrides: Vec<String>,
+    pub updated_files: Vec<PathBuf>,
+    pub removed_directories: Vec<PathBuf>,
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SkillSourceOrigin {
     LegacyCommand,
@@ -73,7 +93,7 @@ struct SkillCandidate {
     origin: SkillSourceOrigin,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SkillTargetName {
     Claude,
@@ -82,47 +102,50 @@ enum SkillTargetName {
     Gemini,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SkillInvocationMode {
     Auto,
     Manual,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct CanonicalSkillDefinition {
     version: u8,
     name: String,
     description: String,
-    #[serde(default = "default_instructions_file")]
+    #[serde(
+        default = "default_instructions_file",
+        skip_serializing_if = "is_default_instructions_file"
+    )]
     instructions_file: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     targets: BTreeMap<SkillTargetName, SkillTargetOverlay>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct SkillTargetOverlay {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     invocation: Option<SkillInvocationMode>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     disable_model_invocation: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     user_invocable: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     allowed_tools: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     arguments: Option<YamlValue>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     argument_hint: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<YamlValue>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     agent: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     interface: Option<YamlValue>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<YamlValue>,
 }
 
@@ -145,6 +168,19 @@ struct RenderedSkillBundle {
     name: String,
     generated_files: Vec<RenderedTextFile>,
     resource_mappings: Vec<SourceFileMapping>,
+}
+
+#[derive(Debug, Clone)]
+struct DeprecatedOverrideCandidate {
+    agent: Agent,
+    candidate: SkillCandidate,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedSkillMigration {
+    migrated_overrides: Vec<String>,
+    updated_files: Vec<(PathBuf, String)>,
+    removed_directories: Vec<PathBuf>,
 }
 
 impl SkillSyncReport {
@@ -216,6 +252,10 @@ fn default_instructions_file() -> String {
     DEFAULT_CANONICAL_INSTRUCTIONS_FILE.to_string()
 }
 
+fn is_default_instructions_file(value: &str) -> bool {
+    value == DEFAULT_CANONICAL_INSTRUCTIONS_FILE
+}
+
 /// Validate Claudius skills by loading and rendering them for the selected
 /// agent(s) without writing deployment targets.
 ///
@@ -236,6 +276,695 @@ pub fn validate_claudius_skill_sources(
     }
 
     Ok(SkillValidationReport { warnings: warnings.into_iter().collect() })
+}
+
+/// Migrate deprecated `skills/<agent>/<skill>/SKILL.md` override directories
+/// into canonical shared `skill.yaml` target overlays plus optional
+/// `targets/<agent>.md` body overrides.
+///
+/// # Errors
+///
+/// Returns an error if a deprecated override cannot be represented safely in
+/// the canonical format or if the shared skill is not already canonical.
+pub fn migrate_deprecated_agent_overrides(
+    config_dir: &Path,
+    agent_filter: Option<Agent>,
+    dry_run: bool,
+) -> Result<SkillMigrationReport> {
+    let skills_root = config_dir.join("skills");
+    let candidates = discover_deprecated_override_candidates(&skills_root, agent_filter)?;
+
+    if candidates.is_empty() {
+        return Ok(SkillMigrationReport {
+            migrated_overrides: Vec::new(),
+            updated_files: Vec::new(),
+            removed_directories: Vec::new(),
+            dry_run,
+        });
+    }
+
+    let plans = plan_deprecated_override_migrations(&skills_root, &candidates)?;
+
+    if !dry_run {
+        apply_planned_skill_migrations(&plans)?;
+        prune_empty_agent_override_dirs(&skills_root)?;
+    }
+
+    Ok(SkillMigrationReport {
+        migrated_overrides: plans.iter().flat_map(|plan| plan.migrated_overrides.clone()).collect(),
+        updated_files: plans
+            .iter()
+            .flat_map(|plan| plan.updated_files.iter().map(|(path, _)| path.clone()))
+            .collect(),
+        removed_directories: plans
+            .iter()
+            .flat_map(|plan| plan.removed_directories.clone())
+            .collect(),
+        dry_run,
+    })
+}
+
+fn discover_deprecated_override_candidates(
+    skills_root: &Path,
+    agent_filter: Option<Agent>,
+) -> Result<Vec<DeprecatedOverrideCandidate>> {
+    let mut candidates = validation_agents(agent_filter)
+        .into_iter()
+        .map(|agent| {
+            let agent_root = skills_root.join(agent_skill_subdir(agent));
+            let skill_candidates = collect_skill_candidates_in_directory(
+                &agent_root,
+                SkillSourceOrigin::AgentOverride,
+                false,
+            )?;
+
+            Ok(skill_candidates
+                .into_iter()
+                .map(|candidate| DeprecatedOverrideCandidate { agent, candidate })
+                .collect::<Vec<_>>())
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|left, right| {
+        left.candidate
+            .name
+            .cmp(&right.candidate.name)
+            .then_with(|| agent_skill_subdir(left.agent).cmp(agent_skill_subdir(right.agent)))
+    });
+    Ok(candidates)
+}
+
+fn plan_deprecated_override_migrations(
+    skills_root: &Path,
+    candidates: &[DeprecatedOverrideCandidate],
+) -> Result<Vec<PlannedSkillMigration>> {
+    let mut grouped = BTreeMap::<String, Vec<DeprecatedOverrideCandidate>>::new();
+    for candidate in candidates {
+        grouped
+            .entry(candidate.candidate.name.clone())
+            .or_default()
+            .push(candidate.clone());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(skill_name, grouped_candidates)| {
+            plan_skill_migration(skills_root, &skill_name, &grouped_candidates)
+        })
+        .collect()
+}
+
+fn plan_skill_migration(
+    skills_root: &Path,
+    skill_name: &str,
+    candidates: &[DeprecatedOverrideCandidate],
+) -> Result<PlannedSkillMigration> {
+    let shared_candidate = canonical_shared_skill_candidate(skills_root, skill_name)?;
+    let shared_root = shared_candidate.path.clone();
+    let mut definition = load_canonical_skill_definition(&shared_candidate)?;
+    let base_instructions_path = shared_root.join(&definition.instructions_file);
+    let base_instructions = fs::read_to_string(&base_instructions_path)
+        .with_context(|| format!("Failed to read {}", base_instructions_path.display()))?;
+
+    let mut migrated_overrides = Vec::new();
+    let mut updated_files = Vec::new();
+    let mut removed_directories = Vec::new();
+
+    for candidate in candidates {
+        if candidate.candidate.kind != SkillCandidateKind::LegacyDirectory {
+            anyhow::bail!(
+                "skills/{}/{} uses {:?}; automatic migration currently supports only full override directories containing {}",
+                agent_skill_subdir(candidate.agent),
+                candidate.candidate.name,
+                candidate.candidate.kind,
+                SKILL_FILE_NAME,
+            );
+        }
+
+        let planned_body_override = plan_single_override_body_migration(
+            &shared_root,
+            &definition,
+            &base_instructions,
+            candidate,
+        )?;
+        merge_single_override_metadata(&mut definition, candidate)?;
+
+        if let Some(body_override) = planned_body_override {
+            updated_files.push(body_override);
+        }
+
+        migrated_overrides.push(format!(
+            "skills/{}/{}",
+            agent_skill_subdir(candidate.agent),
+            candidate.candidate.name
+        ));
+        removed_directories.push(candidate.candidate.path.clone());
+    }
+
+    updated_files.insert(
+        0,
+        (shared_root.join(CANONICAL_SKILL_FILE_NAME), serialize_yaml_struct(&definition)?),
+    );
+
+    Ok(PlannedSkillMigration { migrated_overrides, updated_files, removed_directories })
+}
+
+fn canonical_shared_skill_candidate(
+    skills_root: &Path,
+    skill_name: &str,
+) -> Result<SkillCandidate> {
+    let path = skills_root.join(skill_name);
+    let canonical_path = path.join(CANONICAL_SKILL_FILE_NAME);
+    let legacy_path = path.join(SKILL_FILE_NAME);
+
+    match (canonical_path.exists(), legacy_path.exists()) {
+        (true, false) => Ok(SkillCandidate {
+            name: skill_name.to_string(),
+            path,
+            kind: SkillCandidateKind::CanonicalDirectory,
+            origin: SkillSourceOrigin::Shared,
+        }),
+        (false, true) => anyhow::bail!(
+            "Shared skill `{skill_name}` is still legacy (`skills/{skill_name}/{SKILL_FILE_NAME}`); migrate it to canonical skill.yaml before removing deprecated full overrides."
+        ),
+        (false, false) => anyhow::bail!(
+            "Shared canonical skill `{skill_name}` does not exist under skills/{skill_name}; create it before migrating deprecated full overrides."
+        ),
+        (true, true) => anyhow::bail!(
+            "Shared skill `{skill_name}` contains both {} and {}; resolve that mixed format before migration.",
+            CANONICAL_SKILL_FILE_NAME,
+            SKILL_FILE_NAME,
+        ),
+    }
+}
+
+fn plan_single_override_body_migration(
+    shared_root: &Path,
+    definition: &CanonicalSkillDefinition,
+    _base_instructions: &str,
+    candidate: &DeprecatedOverrideCandidate,
+) -> Result<Option<(PathBuf, String)>> {
+    let override_files = asset_sync::collect_directory_tree_mappings(&candidate.candidate.path)?;
+    let extra_files = override_files
+        .into_iter()
+        .map(|mapping| mapping.relative_path)
+        .filter(|relative_path| relative_path != SKILL_FILE_NAME)
+        .collect::<Vec<_>>();
+    if !extra_files.is_empty() {
+        anyhow::bail!(
+            "skills/{}/{} contains additional files ({}) that automatic migration cannot place canonically; migrate those resources manually first.",
+            agent_skill_subdir(candidate.agent),
+            candidate.candidate.name,
+            extra_files.join(", "),
+        );
+    }
+
+    let skill_path = candidate.candidate.path.join(SKILL_FILE_NAME);
+    let document = parse_legacy_skill_document(&skill_path)?;
+    if let Some(parse_warning) = document.parse_warning {
+        anyhow::bail!(
+            "skills/{}/{} cannot be migrated automatically: {}",
+            agent_skill_subdir(candidate.agent),
+            candidate.candidate.name,
+            parse_warning,
+        );
+    }
+
+    let target_name = canonical_target_for_agent(candidate.agent);
+    let override_body = normalize_skill_body_text(&document.body);
+    let rendered_target_body = normalize_skill_body_text(&load_canonical_instructions(
+        shared_root,
+        definition,
+        target_name,
+    )?);
+    if override_body == rendered_target_body {
+        return Ok(None);
+    }
+
+    let conflicting_body_artifacts = existing_target_body_artifacts(shared_root, target_name);
+    if !conflicting_body_artifacts.is_empty() {
+        anyhow::bail!(
+            "skills/{}/{} already has canonical target body artifacts ({}) and the rendered instructions differ from the deprecated override; merge the body manually before retrying migration.",
+            agent_skill_subdir(candidate.agent),
+            candidate.candidate.name,
+            conflicting_body_artifacts
+                .iter()
+                .map(|path| path.strip_prefix(shared_root).unwrap_or(path).display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    Ok(Some((
+        shared_root
+            .join("targets")
+            .join(format!("{}.md", target_name_label(target_name))),
+        format_markdown_body_override(&override_body),
+    )))
+}
+
+fn merge_single_override_metadata(
+    definition: &mut CanonicalSkillDefinition,
+    candidate: &DeprecatedOverrideCandidate,
+) -> Result<()> {
+    let skill_path = candidate.candidate.path.join(SKILL_FILE_NAME);
+    let document = parse_legacy_skill_document(&skill_path)?;
+    if let Some(parse_warning) = document.parse_warning {
+        anyhow::bail!(
+            "skills/{}/{} cannot be migrated automatically: {}",
+            agent_skill_subdir(candidate.agent),
+            candidate.candidate.name,
+            parse_warning,
+        );
+    }
+
+    let Some(frontmatter) = document.frontmatter.as_ref() else {
+        return Ok(());
+    };
+
+    validate_legacy_override_core_metadata(frontmatter, definition, candidate)?;
+    let migrated_overlay = extract_target_overlay_from_legacy(
+        frontmatter,
+        candidate.agent,
+        &candidate.candidate.name,
+    )?;
+
+    if skill_target_overlay_is_empty(&migrated_overlay) {
+        return Ok(());
+    }
+
+    let target_name = canonical_target_for_agent(candidate.agent);
+    let target_overlay = definition.targets.entry(target_name).or_default();
+    merge_target_overlay(
+        target_overlay,
+        migrated_overlay,
+        &format!("skills/{}/{}", agent_skill_subdir(candidate.agent), candidate.candidate.name),
+    )?;
+
+    if skill_target_overlay_is_empty(target_overlay) {
+        definition.targets.remove(&target_name);
+    }
+
+    Ok(())
+}
+
+fn validate_legacy_override_core_metadata(
+    frontmatter: &YamlMapping,
+    definition: &CanonicalSkillDefinition,
+    candidate: &DeprecatedOverrideCandidate,
+) -> Result<()> {
+    let override_name =
+        optional_string_frontmatter_value(frontmatter, "name").with_context(|| {
+            format!(
+                "skills/{}/{}/{} has invalid `name`",
+                agent_skill_subdir(candidate.agent),
+                candidate.candidate.name,
+                SKILL_FILE_NAME
+            )
+        })?;
+    if let Some(name) = override_name {
+        if name != definition.name {
+            anyhow::bail!(
+                "skills/{}/{} declares name `{}` but the shared canonical skill is `{}`; migrate the core skill metadata first.",
+                agent_skill_subdir(candidate.agent),
+                candidate.candidate.name,
+                name,
+                definition.name,
+            );
+        }
+    }
+
+    let override_description = optional_string_frontmatter_value(frontmatter, "description")
+        .with_context(|| {
+            format!(
+                "skills/{}/{}/{} has invalid `description`",
+                agent_skill_subdir(candidate.agent),
+                candidate.candidate.name,
+                SKILL_FILE_NAME
+            )
+        })?;
+    if let Some(description) = override_description {
+        if description != definition.description {
+            anyhow::bail!(
+                "skills/{}/{} declares description `{}` but the shared canonical skill uses `{}`; move shared metadata into skill.yaml before migration.",
+                agent_skill_subdir(candidate.agent),
+                candidate.candidate.name,
+                description,
+                definition.description,
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn extract_target_overlay_from_legacy(
+    frontmatter: &YamlMapping,
+    agent: Agent,
+    skill_name: &str,
+) -> Result<SkillTargetOverlay> {
+    match agent {
+        Agent::Claude | Agent::ClaudeCode | Agent::Gemini => {
+            validate_supported_frontmatter_keys(
+                frontmatter,
+                skill_name,
+                agent,
+                CLAUDE_FAMILY_MIGRATION_FRONTMATTER_KEYS,
+            )?;
+
+            Ok(SkillTargetOverlay {
+                invocation: None,
+                disable_model_invocation: optional_bool_frontmatter_value(
+                    frontmatter,
+                    "disable-model-invocation",
+                )
+                .with_context(|| {
+                    format!(
+                        "skills/{}/{skill_name}/{} has invalid `disable-model-invocation`",
+                        agent_skill_subdir(agent),
+                        SKILL_FILE_NAME,
+                    )
+                })?,
+                user_invocable: optional_bool_frontmatter_value(frontmatter, "user-invocable")
+                    .with_context(|| {
+                        format!(
+                            "skills/{}/{skill_name}/{} has invalid `user-invocable`",
+                            agent_skill_subdir(agent),
+                            SKILL_FILE_NAME,
+                        )
+                    })?,
+                allowed_tools: optional_string_list_frontmatter_value(frontmatter, "allowed-tools")
+                    .with_context(|| {
+                        format!(
+                            "skills/{}/{skill_name}/{} has invalid `allowed-tools`",
+                            agent_skill_subdir(agent),
+                            SKILL_FILE_NAME,
+                        )
+                    })?,
+                arguments: optional_yaml_frontmatter_value(frontmatter, "arguments"),
+                argument_hint: optional_string_frontmatter_value(frontmatter, "argument-hint")
+                    .with_context(|| {
+                        format!(
+                            "skills/{}/{skill_name}/{} has invalid `argument-hint`",
+                            agent_skill_subdir(agent),
+                            SKILL_FILE_NAME,
+                        )
+                    })?,
+                context: optional_yaml_frontmatter_value(frontmatter, "context"),
+                agent: optional_string_frontmatter_value(frontmatter, "agent").with_context(
+                    || {
+                        format!(
+                            "skills/{}/{skill_name}/{} has invalid `agent`",
+                            agent_skill_subdir(agent),
+                            SKILL_FILE_NAME,
+                        )
+                    },
+                )?,
+                interface: None,
+                dependencies: None,
+            })
+        },
+        Agent::Codex => {
+            validate_supported_frontmatter_keys(
+                frontmatter,
+                skill_name,
+                agent,
+                CODEX_MIGRATION_FRONTMATTER_KEYS,
+            )?;
+
+            let invocation =
+                match optional_bool_frontmatter_value(frontmatter, "disable-model-invocation")
+                    .with_context(|| {
+                        format!(
+                            "skills/{}/{skill_name}/{} has invalid `disable-model-invocation`",
+                            agent_skill_subdir(agent),
+                            SKILL_FILE_NAME,
+                        )
+                    })? {
+                    Some(true) => Some(SkillInvocationMode::Manual),
+                    _ => None,
+                };
+
+            Ok(SkillTargetOverlay {
+                invocation,
+                disable_model_invocation: None,
+                user_invocable: None,
+                allowed_tools: None,
+                arguments: None,
+                argument_hint: None,
+                context: None,
+                agent: None,
+                interface: optional_yaml_frontmatter_value(frontmatter, "interface"),
+                dependencies: optional_yaml_frontmatter_value(frontmatter, "dependencies"),
+            })
+        },
+    }
+}
+
+fn validate_supported_frontmatter_keys(
+    frontmatter: &YamlMapping,
+    skill_name: &str,
+    agent: Agent,
+    supported_keys: &[&str],
+) -> Result<()> {
+    let allowed_keys = LEGACY_CORE_FRONTMATTER_KEYS
+        .iter()
+        .chain(supported_keys.iter())
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    let unsupported_keys = frontmatter
+        .keys()
+        .filter_map(YamlValue::as_str)
+        .filter(|key| !allowed_keys.contains(key))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    if unsupported_keys.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "skills/{}/{skill_name}/{} uses frontmatter keys ({}) that cannot be migrated automatically for {}; move them into shared canonical metadata or migrate this override manually.",
+        agent_skill_subdir(agent),
+        SKILL_FILE_NAME,
+        unsupported_keys.join(", "),
+        agent_label(agent),
+    )
+}
+
+fn optional_bool_frontmatter_value(frontmatter: &YamlMapping, key: &str) -> Result<Option<bool>> {
+    frontmatter
+        .get(yaml_key(key))
+        .map(|value| {
+            value
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("expected `{key}` to be a boolean"))
+        })
+        .transpose()
+}
+
+fn optional_string_frontmatter_value(
+    frontmatter: &YamlMapping,
+    key: &str,
+) -> Result<Option<String>> {
+    frontmatter
+        .get(yaml_key(key))
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| anyhow::anyhow!("expected `{key}` to be a string"))
+        })
+        .transpose()
+}
+
+fn optional_string_list_frontmatter_value(
+    frontmatter: &YamlMapping,
+    key: &str,
+) -> Result<Option<Vec<String>>> {
+    frontmatter
+        .get(yaml_key(key))
+        .map(|value| {
+            serde_yaml::from_value::<Vec<String>>(value.clone()).map_err(|error| {
+                anyhow::anyhow!("expected `{key}` to be a list of strings: {error}")
+            })
+        })
+        .transpose()
+}
+
+fn optional_yaml_frontmatter_value(frontmatter: &YamlMapping, key: &str) -> Option<YamlValue> {
+    frontmatter.get(yaml_key(key)).cloned()
+}
+
+fn merge_target_overlay(
+    existing: &mut SkillTargetOverlay,
+    incoming: SkillTargetOverlay,
+    context: &str,
+) -> Result<()> {
+    merge_optional_overlay_field(
+        &mut existing.invocation,
+        incoming.invocation,
+        "invocation",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.disable_model_invocation,
+        incoming.disable_model_invocation,
+        "disable-model-invocation",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.user_invocable,
+        incoming.user_invocable,
+        "user-invocable",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.allowed_tools,
+        incoming.allowed_tools,
+        "allowed-tools",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.arguments,
+        incoming.arguments,
+        "arguments",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.argument_hint,
+        incoming.argument_hint,
+        "argument-hint",
+        context,
+    )?;
+    merge_optional_overlay_field(&mut existing.context, incoming.context, "context", context)?;
+    merge_optional_overlay_field(&mut existing.agent, incoming.agent, "agent", context)?;
+    merge_optional_overlay_field(
+        &mut existing.interface,
+        incoming.interface,
+        "interface",
+        context,
+    )?;
+    merge_optional_overlay_field(
+        &mut existing.dependencies,
+        incoming.dependencies,
+        "dependencies",
+        context,
+    )?;
+    Ok(())
+}
+
+fn merge_optional_overlay_field<T>(
+    existing: &mut Option<T>,
+    incoming: Option<T>,
+    field_name: &str,
+    context: &str,
+) -> Result<()>
+where
+    T: PartialEq,
+{
+    let Some(incoming_value) = incoming else {
+        return Ok(());
+    };
+
+    match existing {
+        Some(existing_value) if *existing_value != incoming_value => anyhow::bail!(
+            "{context} conflicts with the existing canonical `{field_name}` target overlay value; merge that field manually."
+        ),
+        Some(_) => Ok(()),
+        None => {
+            *existing = Some(incoming_value);
+            Ok(())
+        },
+    }
+}
+
+fn skill_target_overlay_is_empty(overlay: &SkillTargetOverlay) -> bool {
+    overlay.invocation.is_none()
+        && overlay.disable_model_invocation.is_none()
+        && overlay.user_invocable.is_none()
+        && overlay.allowed_tools.is_none()
+        && overlay.arguments.is_none()
+        && overlay.argument_hint.is_none()
+        && overlay.context.is_none()
+        && overlay.agent.is_none()
+        && overlay.interface.is_none()
+        && overlay.dependencies.is_none()
+}
+
+fn existing_target_body_artifacts(skill_root: &Path, target_name: SkillTargetName) -> Vec<PathBuf> {
+    let targets_dir = skill_root.join("targets");
+    [
+        targets_dir.join(format!("{}.md", target_name_label(target_name))),
+        targets_dir.join(format!("{}.prepend.md", target_name_label(target_name))),
+        targets_dir.join(format!("{}.append.md", target_name_label(target_name))),
+    ]
+    .into_iter()
+    .filter(|path| path.exists())
+    .collect()
+}
+
+fn normalize_skill_body_text(text: &str) -> String {
+    let normalized = text.replace("\r\n", "\n");
+    let without_frontmatter_spacing = normalized.strip_prefix('\n').unwrap_or(&normalized);
+    without_frontmatter_spacing.trim_end().to_string()
+}
+
+fn format_markdown_body_override(body: &str) -> String {
+    if body.is_empty() {
+        String::new()
+    } else {
+        format!("{body}\n")
+    }
+}
+
+fn serialize_yaml_struct<T: Serialize>(value: &T) -> Result<String> {
+    let serialized = serde_yaml::to_string(value).context("Failed to serialize YAML")?;
+    Ok(serialized.strip_prefix("---\n").unwrap_or(&serialized).to_string())
+}
+
+fn apply_planned_skill_migrations(plans: &[PlannedSkillMigration]) -> Result<()> {
+    for plan in plans {
+        for (path, content) in &plan.updated_files {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create {}", parent.display()))?;
+            }
+            fs::write(path, content)
+                .with_context(|| format!("Failed to write {}", path.display()))?;
+        }
+    }
+
+    for plan in plans {
+        for path in &plan.removed_directories {
+            fs::remove_dir_all(path)
+                .with_context(|| format!("Failed to remove {}", path.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_empty_agent_override_dirs(skills_root: &Path) -> Result<()> {
+    for agent in validation_agents(None) {
+        let agent_dir = skills_root.join(agent_skill_subdir(agent));
+        if !agent_dir.exists() {
+            continue;
+        }
+
+        let mut entries = fs::read_dir(&agent_dir)
+            .with_context(|| format!("Failed to read {}", agent_dir.display()))?;
+        if entries.next().is_none() {
+            fs::remove_dir(&agent_dir)
+                .with_context(|| format!("Failed to remove {}", agent_dir.display()))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn validation_agents(agent_filter: Option<Agent>) -> Vec<Agent> {
@@ -632,7 +1361,7 @@ fn collect_canonical_target_entry_warnings(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
 
-    Ok(entries
+    let mut warnings = entries
         .into_iter()
         .filter_map(|entry| {
             let entry_name = entry.file_name().to_str()?.to_string();
@@ -645,7 +1374,33 @@ fn collect_canonical_target_entry_warnings(
                 format_canonical_target_entries(&allowed_entries),
             ))
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    warnings.extend(
+        [
+            SkillTargetName::Claude,
+            SkillTargetName::ClaudeCode,
+            SkillTargetName::Codex,
+            SkillTargetName::Gemini,
+        ]
+        .into_iter()
+        .filter_map(|target| {
+            let label = target_name_label(target);
+            let full_override = targets_dir.join(format!("{label}.md"));
+            let prepend = targets_dir.join(format!("{label}.prepend.md"));
+            let append = targets_dir.join(format!("{label}.append.md"));
+
+            if !full_override.exists() || (!prepend.exists() && !append.exists()) {
+                return None;
+            }
+
+            Some(format!(
+                "Canonical skill `{skill_name}` defines `targets/{label}.md` together with prepend/append fragments; the full override takes precedence and the fragments will be ignored."
+            ))
+        }),
+    );
+
+    Ok(warnings)
 }
 
 fn allowed_canonical_top_level_entries(definition: &CanonicalSkillDefinition) -> BTreeSet<String> {
@@ -668,7 +1423,7 @@ fn allowed_canonical_target_entries() -> BTreeSet<String> {
     .into_iter()
     .flat_map(|target| {
         let label = target_name_label(target);
-        [format!("{label}.prepend.md"), format!("{label}.append.md")]
+        [format!("{label}.md"), format!("{label}.prepend.md"), format!("{label}.append.md")]
     })
     .collect()
 }
@@ -706,6 +1461,14 @@ fn load_canonical_instructions(
     definition: &CanonicalSkillDefinition,
     target_name: SkillTargetName,
 ) -> Result<String> {
+    let direct_override_path = skill_root
+        .join("targets")
+        .join(format!("{}.md", target_name_label(target_name)));
+    if direct_override_path.exists() {
+        return fs::read_to_string(&direct_override_path)
+            .with_context(|| format!("Failed to read {}", direct_override_path.display()));
+    }
+
     let instructions_path = skill_root.join(&definition.instructions_file);
     let mut body = fs::read_to_string(&instructions_path)
         .with_context(|| format!("Failed to read {}", instructions_path.display()))?;
@@ -1250,7 +2013,7 @@ pub fn collect_claudius_skill_source_set(
     for candidate in &candidates {
         if candidate.origin == SkillSourceOrigin::AgentOverride {
             warnings.insert(format!(
-                "Deprecated full agent override directory detected for skill `{}` under skills/{}/{}; prefer canonical target overlays in skill.yaml.",
+                "Deprecated full agent override directory detected for skill `{}` under skills/{}/{}; prefer canonical target overlays in skill.yaml and migrate it with `claudius skills migrate`.",
                 candidate.name,
                 agent_skill_subdir(render_agent),
                 candidate.name,

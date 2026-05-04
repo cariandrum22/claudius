@@ -409,7 +409,7 @@ mod tests {
                 "Legacy shared skill `shared-review` contains Claude-specific metadata that will be dropped when rendering for Codex.",
             ))
             .stdout(predicate::str::contains(
-                "Deprecated full agent override directory detected for skill `codex-only` under skills/codex/codex-only; prefer canonical target overlays in skill.yaml.",
+                "Deprecated full agent override directory detected for skill `codex-only` under skills/codex/codex-only; prefer canonical target overlays in skill.yaml and migrate it with `claudius skills migrate`.",
             ));
     }
 
@@ -436,7 +436,7 @@ mod tests {
             .assert()
             .success()
             .stdout(predicate::str::contains(
-                "Deprecated full agent override directory detected for skill `codex-only` under skills/codex/codex-only; prefer canonical target overlays in skill.yaml.",
+                "Deprecated full agent override directory detected for skill `codex-only` under skills/codex/codex-only; prefer canonical target overlays in skill.yaml and migrate it with `claudius skills migrate`.",
             ));
 
         assert!(fixture.project_file_exists(".agents/skills/codex-only/SKILL.md"));
@@ -474,6 +474,181 @@ mod tests {
             .stdout(predicate::str::contains(
                 "Canonical skill `setup-review` contains unsupported targets entry `targets/codex.yaml`",
             ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_sync_renders_target_body_override() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\n",
+                "Shared review instructions.\n",
+            )
+            .unwrap();
+        fixture
+            .with_skill_file(
+                "setup-review",
+                "targets/claude-code.md",
+                "Claude Code specific review instructions.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "claude-code"])
+            .assert()
+            .success();
+
+        let skill_content =
+            fixture.read_project_file(".claude/skills/setup-review/SKILL.md").unwrap();
+        assert!(skill_content.contains("Claude Code specific review instructions."));
+        assert!(!skill_content.contains("Shared review instructions."));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_migrate_converts_deprecated_override_to_canonical_overlay() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\n",
+                "Shared review instructions.\n",
+            )
+            .unwrap();
+        fixture
+            .with_agent_skill(
+                "claude-code",
+                "setup-review",
+                "---\nname: setup-review\ndescription: Review the repository.\ndisable-model-invocation: true\nargument-hint: '[scope]'\n---\n\nClaude Code specific review instructions.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut migrate = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        migrate
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "migrate", "--agent", "claude-code"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Migrated 1 deprecated full override skill director"))
+            .stdout(predicate::str::contains("skills/claude-code/setup-review"));
+
+        let skill_yaml = fs::read_to_string(
+            fixture.config.join("skills").join("setup-review").join("skill.yaml"),
+        )
+        .unwrap();
+        assert!(skill_yaml.contains("claude-code:"));
+        assert!(skill_yaml.contains("disable-model-invocation: true"));
+        assert!(skill_yaml.contains("argument-hint: '[scope]'"));
+
+        let target_body = fs::read_to_string(
+            fixture
+                .config
+                .join("skills")
+                .join("setup-review")
+                .join("targets")
+                .join("claude-code.md"),
+        )
+        .unwrap();
+        assert_eq!(target_body, "Claude Code specific review instructions.\n");
+        assert!(!fixture.config.join("skills").join("claude-code").join("setup-review").exists());
+
+        let mut sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        sync.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "claude-code"])
+            .assert()
+            .success();
+
+        let rendered = fixture.read_project_file(".claude/skills/setup-review/SKILL.md").unwrap();
+        assert!(rendered.contains("disable-model-invocation: true"));
+        assert!(rendered.contains("argument-hint: '[scope]'"));
+        assert!(rendered.contains("Claude Code specific review instructions."));
+        assert!(!rendered.contains("Shared review instructions."));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_migrate_dry_run_leaves_override_tree_untouched() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\n",
+                "Shared review instructions.\n",
+            )
+            .unwrap();
+        fixture
+            .with_agent_skill(
+                "claude-code",
+                "setup-review",
+                "---\nname: setup-review\ndescription: Review the repository.\ndisable-model-invocation: true\n---\n\nClaude Code specific review instructions.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "migrate", "--agent", "claude-code", "--dry-run"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Dry-run: would migrate 1 deprecated full override"));
+
+        assert!(fixture.config.join("skills").join("claude-code").join("setup-review").exists());
+        assert!(!fixture
+            .config
+            .join("skills")
+            .join("setup-review")
+            .join("targets")
+            .join("claude-code.md")
+            .exists());
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_migrate_rejects_legacy_shared_skill() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_skill(
+                "setup-review",
+                "---\nname: setup-review\ndescription: Review the repository.\n---\n\nShared review instructions.\n",
+            )
+            .unwrap();
+        fixture
+            .with_agent_skill(
+                "claude-code",
+                "setup-review",
+                "---\nname: setup-review\ndescription: Review the repository.\ndisable-model-invocation: true\n---\n\nClaude Code specific review instructions.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "migrate", "--agent", "claude-code"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("Shared skill `setup-review` is still legacy"));
     }
 
     #[test]

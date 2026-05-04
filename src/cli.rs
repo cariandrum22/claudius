@@ -253,6 +253,26 @@ Examples:
   claudius skills validate --strict")]
     Validate(SkillsValidateArgs),
 
+    /// Migrate deprecated full override directories into canonical target overlays
+    #[command(
+        long_about = "Migrate deprecated full override directories into canonical shared skills.
+
+This command converts `skills/<agent>/<skill>/SKILL.md` into:
+  • target-specific metadata stored under `targets.<agent>` in `skill.yaml`
+  • optional `targets/<agent>.md` body overrides when the deprecated override body differs
+
+Automatic migration is intentionally conservative:
+  • the shared skill must already be canonical (`skills/<skill>/skill.yaml`)
+  • additional override resources besides `SKILL.md` are rejected
+  • conflicting existing canonical target body fragments must be resolved manually first
+
+Examples:
+  claudius skills migrate
+  claudius skills migrate --agent claude-code
+  claudius skills migrate --dry-run"
+    )]
+    Migrate(SkillsMigrateArgs),
+
     /// Render skills for an agent into a directory for inspection or tests
     #[command(
         long_about = "Render skills for an agent into a directory without touching native agent locations.
@@ -534,6 +554,17 @@ pub struct SkillsRenderArgs {
     /// Remove stale rendered files that Claudius previously generated in the output directory
     #[arg(long)]
     pub prune: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct SkillsMigrateArgs {
+    /// Migrate overrides for a single agent instead of all deprecated override trees
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Preview migration writes and removals without changing files
+    #[arg(short, long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
