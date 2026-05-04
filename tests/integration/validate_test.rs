@@ -56,6 +56,59 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_validate_includes_skill_renderer_warnings() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_skill(
+                "shared-review",
+                "---\nname: shared-review\ndescription: Review changes.\ndisable-model-invocation: true\n---\n\nReview changes.\n",
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "Legacy shared skill `shared-review` contains Claude-specific metadata that will be dropped when rendering for Codex.",
+            ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_strict_fails_on_skill_renderer_warnings() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_skill(
+                "shared-review",
+                "---\nname: shared-review\ndescription: Review changes.\ndisable-model-invocation: true\n---\n\nReview changes.\n",
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex", "--strict"])
+            .assert()
+            .failure()
+            .stdout(predicate::str::contains(
+                "Legacy shared skill `shared-review` contains Claude-specific metadata that will be dropped when rendering for Codex.",
+            ))
+            .stderr(predicate::str::contains("Validation failed due to warnings (--strict)"));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_validate_codex_managed_config_is_supported() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();

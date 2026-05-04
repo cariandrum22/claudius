@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 use tempfile::TempDir;
 
@@ -432,6 +432,7 @@ fn render_canonical_skill_bundle(
     warnings: &mut BTreeSet<String>,
 ) -> Result<RenderedSkillBundle> {
     let definition = load_canonical_skill_definition(candidate)?;
+    warnings.extend(collect_canonical_layout_warnings(&candidate.path, &definition)?);
     let target_name = canonical_target_for_agent(render_agent);
     let target_overlay = definition.targets.get(&target_name).cloned().unwrap_or_default();
     let instructions = load_canonical_instructions(&candidate.path, &definition, target_name)?;
@@ -524,7 +525,180 @@ fn load_canonical_skill_definition(candidate: &SkillCandidate) -> Result<Canonic
         );
     }
 
+    validate_canonical_instructions_file(&candidate.path, &definition)?;
+    validate_canonical_reserved_directories(&candidate.path, &definition.name)?;
+
     Ok(definition)
+}
+
+fn validate_canonical_instructions_file(
+    skill_root: &Path,
+    definition: &CanonicalSkillDefinition,
+) -> Result<()> {
+    let definition_path = skill_root.join(CANONICAL_SKILL_FILE_NAME);
+    let instructions_file = Path::new(&definition.instructions_file);
+    let mut components = instructions_file.components();
+
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => {},
+        _ => anyhow::bail!(
+            "Canonical skill {} must define instructions_file as a single file name within the skill directory",
+            definition_path.display(),
+        ),
+    }
+
+    let instructions_path = skill_root.join(&definition.instructions_file);
+    if !instructions_path.is_file() {
+        anyhow::bail!(
+            "Canonical skill {} declares instructions_file `{}` but {} is not a regular file",
+            definition_path.display(),
+            definition.instructions_file,
+            instructions_path.display(),
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_canonical_reserved_directories(skill_root: &Path, skill_name: &str) -> Result<()> {
+    for dir_name in SKILL_RESOURCE_DIRS.iter().copied().chain(std::iter::once("targets")) {
+        let path = skill_root.join(dir_name);
+        if path.exists() && !path.is_dir() {
+            anyhow::bail!(
+                "Canonical skill `{skill_name}` expects `{dir_name}` to be a directory when present: {}",
+                path.display(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_canonical_layout_warnings(
+    skill_root: &Path,
+    definition: &CanonicalSkillDefinition,
+) -> Result<Vec<String>> {
+    let allowed_entries = allowed_canonical_top_level_entries(definition);
+    let mut warnings = Vec::new();
+    let mut entries = fs::read_dir(skill_root)
+        .with_context(|| {
+            format!("Failed to read canonical skill directory: {}", skill_root.display())
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    for entry in entries {
+        let entry_name = entry
+            .file_name()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid canonical skill entry name"))?
+            .to_string();
+
+        if entry_name.starts_with('.') {
+            continue;
+        }
+
+        if allowed_entries.contains(&entry_name) {
+            if entry_name == "targets" {
+                warnings.extend(collect_canonical_target_entry_warnings(
+                    &skill_root.join("targets"),
+                    &definition.name,
+                )?);
+            }
+            continue;
+        }
+
+        warnings.push(format!(
+            "Canonical skill `{}` contains unsupported top-level entry `{entry_name}`; only {} are rendered, so this entry will be ignored.",
+            definition.name,
+            format_canonical_top_level_entries(&allowed_entries),
+        ));
+    }
+
+    Ok(warnings)
+}
+
+fn collect_canonical_target_entry_warnings(
+    targets_dir: &Path,
+    skill_name: &str,
+) -> Result<Vec<String>> {
+    if !targets_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let allowed_entries = allowed_canonical_target_entries();
+    let mut entries = fs::read_dir(targets_dir)
+        .with_context(|| format!("Failed to read targets directory: {}", targets_dir.display()))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    Ok(entries
+        .into_iter()
+        .filter_map(|entry| {
+            let entry_name = entry.file_name().to_str()?.to_string();
+            if entry_name.starts_with('.') || allowed_entries.contains(&entry_name) {
+                return None;
+            }
+
+            Some(format!(
+                "Canonical skill `{skill_name}` contains unsupported targets entry `targets/{entry_name}`; keep per-agent metadata in skill.yaml and limit Markdown fragments to {}.",
+                format_canonical_target_entries(&allowed_entries),
+            ))
+        })
+        .collect())
+}
+
+fn allowed_canonical_top_level_entries(definition: &CanonicalSkillDefinition) -> BTreeSet<String> {
+    let mut entries = BTreeSet::from([
+        CANONICAL_SKILL_FILE_NAME.to_string(),
+        definition.instructions_file.clone(),
+        "targets".to_string(),
+    ]);
+    entries.extend(SKILL_RESOURCE_DIRS.iter().map(|dir_name| (*dir_name).to_string()));
+    entries
+}
+
+fn allowed_canonical_target_entries() -> BTreeSet<String> {
+    [
+        SkillTargetName::Claude,
+        SkillTargetName::ClaudeCode,
+        SkillTargetName::Codex,
+        SkillTargetName::Gemini,
+    ]
+    .into_iter()
+    .flat_map(|target| {
+        let label = target_name_label(target);
+        [format!("{label}.prepend.md"), format!("{label}.append.md")]
+    })
+    .collect()
+}
+
+fn format_canonical_top_level_entries(entries: &BTreeSet<String>) -> String {
+    entries
+        .iter()
+        .map(|entry| {
+            if entry == CANONICAL_SKILL_FILE_NAME || is_markdown_file_name(entry) {
+                format!("`{entry}`")
+            } else {
+                format!("`{entry}/`")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_canonical_target_entries(entries: &BTreeSet<String>) -> String {
+    entries
+        .iter()
+        .map(|entry| format!("`targets/{entry}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn is_markdown_file_name(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
 fn load_canonical_instructions(
