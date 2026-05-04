@@ -58,7 +58,7 @@ mod tests {
         let test_rule = rules_dir.child("test-rule.md");
         test_rule.write_str("# Test Rule\nThis is a test rule.").unwrap();
 
-        // Pre-create CLAUDE.md with the managed section
+        // Pre-create CLAUDE.md with the managed rule reference section
         let claude_md = temp_dir.child("CLAUDE.md");
         claude_md
             .write_str(

@@ -323,15 +323,15 @@ Examples:
     )]
     Append(AppendContextArgs),
 
-    /// Install rules into project-local directories with managed reference sections
+    /// Install rules into project-local directories with managed rule reference sections
     #[command(
         name = "install",
         long_about = "Install context rules to project-local .agents/rules directory.
 
 	This command:
 	  • Copies specified rules from your rules directory to ./.agents/rules/ (default)
-	  • Adds or updates a managed reference section in the current agent context file
-	  • The managed section is idempotent - it won't be added twice
+	  • Adds or updates a managed rule reference section in the current agent context file
+	  • The managed rule reference section is idempotent - it won't be added twice
 
 This approach keeps context files compact while allowing you to include many rules.
 

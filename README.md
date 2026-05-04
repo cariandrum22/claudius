@@ -456,13 +456,14 @@ claudius context append testing --agent gemini
 Install context rules to project-local .agents/rules directory.
 
 This command copies rules from your global rules directory to a project-local
-directory and adds a managed reference section to the current agent's context
-file (CLAUDE.md, GEMINI.md, or AGENTS.md). The section lists each installed
-rule explicitly with its file path.
+directory and adds a managed rule reference section to the current agent's
+context file (CLAUDE.md, GEMINI.md, or AGENTS.md). The section lists each
+installed rule explicitly with its file path.
 
 **Key features:**
 - Keeps context files compact while including many rules
-- Reference directive is idempotent (updates existing section without duplication)
+- Managed rule reference section is idempotent (updates existing section without
+  duplication)
 - Lists specific file paths for each rule
 - Supports subdirectories and preserves directory structure
 
@@ -483,9 +484,10 @@ claudius context install security --install-dir ./.claude/rules
 claudius context install security --agent gemini
 ```
 
-The managed section looks like:
+The managed rule reference section looks like:
 
 ```markdown
+<!-- CLAUDIUS_RULES_START -->
 # External Rule References
 
 The following rules from `.agents/rules` are installed:
@@ -494,6 +496,7 @@ The following rules from `.agents/rules` are installed:
 - `.agents/rules/testing.md`: testing
 
 Read these files to understand the project conventions and guidelines.
+<!-- CLAUDIUS_RULES_END -->
 ```
 
 ### `claudius context list`
@@ -836,7 +839,7 @@ Claudius offers two ways to manage project context:
    - Best for: Small number of rules, simple projects
    - Result: All content in one file
 
-2. **context install**: Copies rules to `.agents/rules/` with a managed reference section
+2. **context install**: Copies rules to `.agents/rules/` with a managed rule reference section
    - Best for: Many rules, complex projects, team collaboration
    - Result: Compact context file + organized rule structure
 

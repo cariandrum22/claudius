@@ -336,12 +336,12 @@ claudius context append testing --agent gemini
 
 ### `claudius context install`
 Install context rules to project-local `.agents/rules` with an automatic managed
-reference section in the agent context file.
+rule reference section in the agent context file.
 
 This command:
 - Copies specified rules from your rules directory to ./.agents/rules/ (default)
-- Adds or updates a managed reference section in the context file
-- The managed section is idempotent - it won't be added twice
+- Adds or updates a managed rule reference section in the context file
+- The managed rule reference section is idempotent - it won't be added twice
 - Supports subdirectories and preserves directory structure
 
 ```bash
@@ -361,8 +361,9 @@ claudius context install security --install-dir ./.claude/rules
 claudius context install security --agent gemini
 ```
 
-The managed section added to the context file looks like:
+The managed rule reference section added to the context file looks like:
 ```markdown
+<!-- CLAUDIUS_RULES_START -->
 # External Rule References
 
 The following rules from `.agents/rules` are installed:
@@ -371,6 +372,7 @@ The following rules from `.agents/rules` are installed:
 - `.agents/rules/testing.md`: testing
 
 Read these files to understand the project conventions and guidelines.
+<!-- CLAUDIUS_RULES_END -->
 ```
 
 ### `claudius context list`
