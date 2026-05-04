@@ -94,10 +94,18 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 │   └── claude-code/           # Claude Code subagents (*.md)
 ├── skills/                    # Skills (shared + agent-specific)
 │   ├── <skill>/               # Shared skill
-│   │   └── SKILL.md           # Skill definition
+│   │   ├── skill.yaml         # Canonical metadata (preferred)
+│   │   ├── instructions.md    # Canonical instructions (preferred)
+│   │   ├── scripts/           # Optional shared resources
+│   │   ├── references/
+│   │   ├── assets/
+│   │   ├── targets/           # Optional target-specific body snippets
+│   │   │   ├── <agent>.prepend.md
+│   │   │   └── <agent>.append.md
+│   │   └── SKILL.md           # Legacy passthrough format (supported)
 │   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex)
 │       └── <skill>/           # Agent-specific skill
-│           └── SKILL.md
+│           └── SKILL.md       # Deprecated full override compatibility path
 └── rules/                     # CLAUDE.md templates
     └── *.md                   # Rule files (markdown)
 ```
@@ -186,7 +194,8 @@ Creates default:
 - `commands/gemini/` for Gemini custom commands
 - `agents/gemini/` for Gemini custom agents
 - `agents/claude-code/` for Claude Code subagents
-- `skills/example/SKILL.md` - Example skill
+- `skills/example/skill.yaml` - Example canonical skill metadata
+- `skills/example/instructions.md` - Example canonical skill instructions
 - `rules/example.md` - Example CLAUDE.md rule
 
 ### `claudius config sync`
@@ -420,8 +429,15 @@ export CLAUDIUS_SECRET_PATH='/${CLAUDIUS_SECRET_BASE}api'  # Results in: /prodap
 }
 ```
 
-### Skills (skills/<skill>/SKILL.md)
-Skill definitions stored in individual directories.
+### Skills
+Preferred canonical skill definitions use `skills/<skill>/skill.yaml` plus
+`skills/<skill>/instructions.md`. Optional `scripts/`, `references/`, and
+`assets/` directories are copied as shared resources, and optional
+`targets/<agent>.prepend.md` / `targets/<agent>.append.md` files can adjust the
+body per agent.
+
+Legacy passthrough skill definitions stored as `skills/<skill>/SKILL.md` are
+still supported.
 Deployed to `~/.claude/skills/` (Claude) or `~/.gemini/skills/` (Gemini), preserving the
 directory structure. Codex skills default to `~/.agents/skills/`, with optional
 compatibility copies to `~/.codex/skills/`.
@@ -429,19 +445,22 @@ Claude Code still honors legacy `~/.claude/commands` slash commands, but skills 
 recommended. Claudius does not currently sync `.claude/commands`, so skills remain the
 cross-agent managed path.
 
-To override a shared skill for a specific agent, place it under
-`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude, claude-code, gemini, codex).
+To override a shared skill for a specific agent, you can still place it under
+`~/.config/claudius/skills/<agent>/<skill>/SKILL.md` (agents: claude,
+claude-code, gemini, codex), but this full-directory override path is
+deprecated. Prefer canonical target overlays.
 
 ### Migration: commands → skills
 
 If you previously stored slash commands in `commands/*.md`, move them into skills:
 
 ```bash
-# Example: migrate a legacy command to a skill
+# Example: quick compatibility migration from a legacy command to a passthrough skill
 mkdir -p ~/.config/claudius/skills/my-command
 mv ~/.config/claudius/commands/my-command.md ~/.config/claudius/skills/my-command/SKILL.md
 
-# Then sync
+# Then sync. For long-term maintenance, split the skill into skill.yaml +
+# instructions.md afterward.
 claudius skills sync
 ```
 
@@ -486,9 +505,9 @@ Template files for CLAUDE.md content. Can contain:
    - Environment variable support
 
 4. **Skills Module** - Skill management
-   - Skill directory processing
-   - Skill deployment to Claude directory
-   - Preserves SKILL.md file names
+   - Canonical skill loading and rendering
+   - Legacy skill passthrough compatibility
+   - Skill deployment to agent-native directories
 
 5. **Template Module** - CLAUDE.md management
    - Rule application from templates
