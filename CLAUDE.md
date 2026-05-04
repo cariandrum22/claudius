@@ -261,6 +261,24 @@ Deprecated full override directories under `skills/<agent>/<skill>/` still deplo
 compatibility, but Claudius warns on every sync and recommends canonical target overlays
 in `skill.yaml`. Use `claudius skills migrate` to convert supported overrides automatically.
 
+### `claudius skills validate`
+Validate canonical and legacy skills without deploying them.
+
+This command loads shared, legacy, and agent-specific skill sources, validates
+canonical `skill.yaml` definitions, renders the selected agent view, and warns
+about deprecated override directories or metadata that will be dropped.
+
+```bash
+# Validate every supported render target
+claudius skills validate
+
+# Validate only the Codex view
+claudius skills validate --agent codex
+
+# Treat warnings as errors
+claudius skills validate --strict
+```
+
 ### `claudius skills migrate`
 Convert deprecated full override directories under `skills/<agent>/<skill>/` into canonical
 shared skill targets.
@@ -282,27 +300,48 @@ claudius skills migrate --agent claude-code
 claudius skills migrate --dry-run
 ```
 
+### `claudius skills render`
+Render skills for an agent into an output directory without touching native
+agent locations.
+
+```bash
+# Inspect rendered Claude Code skills
+claudius skills render --agent claude-code --output /tmp/claude-skills
+
+# Render Codex skills and prune stale generated files in the output directory
+claudius skills render --agent codex --output /tmp/codex-skills --prune
+```
+
 ### `claudius context append`
-Append rules or templates to CLAUDE.md.
+Append instructions or rules to the agent's context file (CLAUDE.md for
+Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex).
 
 ```bash
 # Use predefined rule
 claudius context append security
 
 # Specify target directory
-claudius context append testing /path/to/project
+claudius context append testing --path /path/to/project
 
 # Use custom template
-claudius context append dummy . --template-path ./my-template.md
+claudius context append --template-path ./my-template.md
+
+# Append to the global context file in $HOME
+claudius context append security --global
+
+# Use specific agent
+claudius context append security --agent codex
+claudius context append testing --agent gemini
 ```
 
 ### `claudius context install`
-Install context rules to project-local .agents/rules directory with automatic reference directive.
+Install context rules to project-local `.agents/rules` with an automatic managed
+reference section in the agent context file.
 
 This command:
 - Copies specified rules from your rules directory to ./.agents/rules/ (default)
-- Adds a reference directive to CLAUDE.md/AGENTS.md to include all rules
-- The directive is idempotent - it won't be added if already present
+- Adds or updates a managed reference section in the context file
+- The managed section is idempotent - it won't be added twice
 - Supports subdirectories and preserves directory structure
 
 ```bash
@@ -322,11 +361,27 @@ claudius context install security --install-dir ./.claude/rules
 claudius context install security --agent gemini
 ```
 
-The reference directive added to CLAUDE.md/AGENTS.md looks like:
+The managed section added to the context file looks like:
 ```markdown
 # External Rule References
-The following rules are included from the .agents/rules directory:
-{include:.agents/rules/**/*.md}
+
+The following rules from `.agents/rules` are installed:
+
+- `.agents/rules/security.md`: security
+- `.agents/rules/testing.md`: testing
+
+Read these files to understand the project conventions and guidelines.
+```
+
+### `claudius context list`
+List available rules and templates in the rules directory.
+
+```bash
+# Simple list
+claudius context list
+
+# Show nested directories as a tree
+claudius context list --tree
 ```
 
 ### `claudius secrets run`
@@ -681,7 +736,7 @@ cargo build --profile=profiling --features=profiling
 3. **Build and Run**
    ```bash
    cargo build
-   cargo run -- sync --dry-run
+   cargo run -- config sync --dry-run
    ```
 
 4. **Code Quality**
@@ -745,35 +800,12 @@ claudius/
 4. **Versionable**: All configs in version-control-friendly formats
 5. **Linux and macOS**: Designed for Unix-like operating systems
 
-## Current Status & Roadmap
+## Release Tracking
 
-### Current Features (v0.1.0)
-- **Configuration Management**: MCP servers, settings, skills
-- **Multi-Project Support**: Project-local and global configurations
-- **Template System**: CLAUDE.md rules and custom templates
-- **Backup & Safety**: Dry-run mode, optional backups
-- **CLI Interface**: Intuitive subcommand structure with rich help
-- **Secret Management**: Integration with 1Password with inline op:// reference support
-- **Secure Execution**: Run commands with automatic secret resolution
-- **Variable Expansion**: DAG-based nested environment variable resolution
-- **Inline Secret References**: Support for {{op://...}} syntax within URLs and strings
-
-### Roadmap
-
-#### Near-term (v0.2.0)
-- Configuration validation
-- HashiCorp Vault integration
-- More comprehensive error recovery
-
-#### Mid-term (v0.3.0)
-- Configuration profiles
-- Rollback functionality
-- Import/export features
-
-#### Long-term
-- Web UI for configuration management
-- Plugin system for extensibility
-- Cloud synchronization support
+Release history and user-facing feature deltas live in [CHANGELOG.md](./CHANGELOG.md)
+and GitHub Releases. Keep this file focused on architecture, contributor
+workflow, and implementation detail rather than duplicating version-specific
+release notes here.
 
 ## Important Considerations
 
@@ -824,12 +856,6 @@ When contributing to Claudius:
 - Backups are optional but recommended
 - Project-local configurations take precedence over global ones
 - All configuration files are human-readable and editable
-
-## Version History
-
-| Version | Release Date | Description |
-|---------|-------------|-------------|
-| v0.1.0 | 2025-06-29 | Initial development release with comprehensive Claude configuration management |
 
 ## Code Style and Linting
 
@@ -1094,7 +1120,7 @@ just --list
 
 ```bash
 # Run with arguments
-just run sync --dry-run
+just run config sync --dry-run
 
 # Coverage with options
 just coverage-detailed --format html --min-coverage 90
@@ -1333,7 +1359,3 @@ nix flake update
   - [Unverified] or [Inference], plus a disclaimer that behavior is not guaranteed
 • If you break this rule, say:
   > Correction: I made an unverified claim. That was incorrect.
-
-# External Rule References
-The following rules are included from the .agents/rules directory:
-{include:.agents/rules/**/*.md}

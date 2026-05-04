@@ -1595,7 +1595,7 @@ fn add_reference_directive(
 
         fs::write(&context_file_path, new_content)
             .with_context(|| format!("Failed to update {}", context_file_path.display()))?;
-        println!("Updated reference directive in {context_filename}");
+        println!("Updated managed rule reference section in {context_filename}");
         return Ok(());
     }
 
@@ -1606,7 +1606,7 @@ fn add_reference_directive(
         .with_context(|| format!("Failed to open {}", context_file_path.display()))?;
 
     file.write_all(reference_directive.as_bytes())?;
-    println!("Added reference directive to {context_filename}");
+    println!("Added managed rule reference section to {context_filename}");
     Ok(())
 }
 
@@ -1746,7 +1746,7 @@ fn run_install_context(
     // Copy specified rules
     let copied_rules = copy_rules(&rules_to_copy, &source_rules_dir, &rules_dir)?;
 
-    // Add reference directive to context file with the list of copied rules
+    // Add the managed rule reference section to the context file.
     add_reference_directive(&target_dir, &rules_dir, &context_filename, &copied_rules)?;
 
     println!("Successfully installed {} rule(s) to {}", copied_rules.len(), rules_dir.display());

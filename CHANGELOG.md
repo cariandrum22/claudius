@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Context install documentation, CLI help, and status messages now consistently describe managed rule reference sections instead of legacy include-style directives
+
 ## [0.2.1] - 2026-05-04
 
 ### Fixed
