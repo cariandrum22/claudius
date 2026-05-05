@@ -37,8 +37,10 @@ description: Example skill scaffold created by `claudius config init`.
 targets:
   claude-code:
     invocation: manual
-  codex:
-    invocation: manual
+# Add a codex target only when you need Codex-specific metadata such as
+# interface / dependencies, or an explicit hidden helper skill:
+#   codex:
+#     allow-implicit-invocation: false
 "#;
 
 /// Example canonical skill instructions template

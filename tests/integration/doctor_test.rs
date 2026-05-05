@@ -207,7 +207,7 @@ mod tests {
         fixture
             .with_canonical_skill(
                 "setup-commitlint",
-                "version: 1\nname: setup-commitlint\ndescription: Set up commitlint.\ntargets:\n  codex:\n    invocation: manual\n    interface:\n      display_name: Commitlint Setup\n",
+                "version: 1\nname: setup-commitlint\ndescription: Set up commitlint.\ntargets:\n  codex:\n    interface:\n      display_name: Commitlint Setup\n",
                 "Set up commitlint in the current repository.\n",
             )
             .unwrap();
