@@ -222,7 +222,7 @@ fn collect_findings(
         &source_state.claude_code_agents,
         &mut findings,
     );
-    inspect_target_surfaces(options, deployment_base_dir, source_state, &mut findings)?;
+    inspect_target_surfaces(options, config_dir, deployment_base_dir, source_state, &mut findings)?;
 
     Ok(findings)
 }
@@ -671,16 +671,17 @@ fn inspect_auxiliary_sources(
 
 fn inspect_target_surfaces(
     options: DoctorOptions,
+    config_dir: &Path,
     deployment_base_dir: &Path,
     source_state: &SourceSurfaceState,
     findings: &mut Vec<DoctorFinding>,
 ) -> Result<()> {
     inspect_best_effort_targets(options, findings)?;
     inspect_unmanaged_targets(options.agent_filter, deployment_base_dir, findings);
-    inspect_claude_skill_targets(options, source_state, findings)?;
-    inspect_gemini_targets(options, deployment_base_dir, source_state, findings)?;
+    inspect_claude_skill_targets(options, config_dir, findings)?;
+    inspect_gemini_targets(options, config_dir, deployment_base_dir, source_state, findings)?;
     inspect_claude_code_targets(options, deployment_base_dir, source_state, findings)?;
-    inspect_codex_targets(options, source_state, findings)?;
+    inspect_codex_targets(options, config_dir, findings)?;
 
     Ok(())
 }
@@ -756,7 +757,7 @@ fn inspect_unmanaged_targets(
 
 fn inspect_claude_skill_targets(
     options: DoctorOptions,
-    source_state: &SourceSurfaceState,
+    config_dir: &Path,
     findings: &mut Vec<DoctorFinding>,
 ) -> Result<()> {
     if !(matches_filter(options.agent_filter, Agent::Claude)
@@ -765,12 +766,16 @@ fn inspect_claude_skill_targets(
         return Ok(());
     }
 
-    let source_mappings = combine_mappings(&[
-        &source_state.shared_skills,
-        &source_state.claude_skills,
-        &source_state.claude_code_skills,
-        &source_state.legacy_commands,
-    ]);
+    let source_mappings = match options.agent_filter {
+        Some(Agent::Claude) => collect_rendered_skill_mappings(config_dir, Agent::Claude)?,
+        Some(Agent::ClaudeCode) => collect_rendered_skill_mappings(config_dir, Agent::ClaudeCode)?,
+        _ => {
+            let claude_mappings = collect_rendered_skill_mappings(config_dir, Agent::Claude)?;
+            let claude_code_mappings =
+                collect_rendered_skill_mappings(config_dir, Agent::ClaudeCode)?;
+            combine_mappings(&[&claude_mappings, &claude_code_mappings])
+        },
+    };
     let target_dir =
         Config::new_with_agent(options.global, Some(Agent::ClaudeCode))?.skills_target_dir;
     push_stale_finding(
@@ -785,6 +790,7 @@ fn inspect_claude_skill_targets(
 
 fn inspect_gemini_targets(
     options: DoctorOptions,
+    config_dir: &Path,
     deployment_base_dir: &Path,
     source_state: &SourceSurfaceState,
     findings: &mut Vec<DoctorFinding>,
@@ -793,11 +799,7 @@ fn inspect_gemini_targets(
         return Ok(());
     }
 
-    let gemini_skill_source_mappings = combine_mappings(&[
-        &source_state.shared_skills,
-        &source_state.gemini_skills,
-        &source_state.legacy_commands,
-    ]);
+    let gemini_skill_source_mappings = collect_rendered_skill_mappings(config_dir, Agent::Gemini)?;
     let gemini_config = Config::new_with_agent(options.global, Some(Agent::Gemini))?;
     push_stale_finding(
         findings,
@@ -854,18 +856,14 @@ fn inspect_claude_code_targets(
 
 fn inspect_codex_targets(
     options: DoctorOptions,
-    source_state: &SourceSurfaceState,
+    config_dir: &Path,
     findings: &mut Vec<DoctorFinding>,
 ) -> Result<()> {
     if !matches_filter(options.agent_filter, Agent::Codex) {
         return Ok(());
     }
 
-    let codex_skill_source_mappings = combine_mappings(&[
-        &source_state.shared_skills,
-        &source_state.codex_skills,
-        &source_state.legacy_commands,
-    ]);
+    let codex_skill_source_mappings = collect_rendered_skill_mappings(config_dir, Agent::Codex)?;
     let codex_config = Config::new_with_agent(options.global, Some(Agent::Codex))?;
     push_stale_finding(
         findings,
@@ -884,7 +882,7 @@ fn inspect_codex_targets(
             skill_prune_command(options.global, Some(Agent::Codex)),
         );
 
-        if had_managed_files || !source_state.codex_skills.is_empty() {
+        if had_managed_files || !codex_skill_source_mappings.is_empty() {
             findings.push(DoctorFinding {
                 status: DoctorStatus::BestEffort,
                 summary: "Codex legacy compatibility skills target is enabled.".to_string(),
@@ -921,6 +919,13 @@ fn push_agent_skill_finding(
                 .to_string(),
         });
     }
+}
+
+fn collect_rendered_skill_mappings(
+    config_dir: &Path,
+    agent: Agent,
+) -> Result<Vec<SourceFileMapping>> {
+    Ok(skills::collect_claudius_skill_source_set(config_dir, Some(agent))?.mappings)
 }
 
 fn push_stale_finding(
