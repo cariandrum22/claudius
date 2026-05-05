@@ -736,8 +736,6 @@ description: Describe when to use this skill.
 targets:
   claude-code:
     invocation: manual
-  codex:
-    invocation: manual
 EOF
 cat <<'EOF' > ~/.config/claudius/skills/my-skill/instructions.md
 # My Skill
@@ -754,6 +752,19 @@ Preferred canonical skills use `skill.yaml` for portable metadata and
 `references/`, and `assets/` directories are copied as-is. If you need
 agent-specific body differences, add `targets/<agent>.md` for a full override or
 `targets/<agent>.prepend.md` / `targets/<agent>.append.md` for smaller fragments.
+
+Codex `agents/openai.yaml` output is optional. Add a `codex` target only when
+you need documented Codex-specific metadata such as `interface`,
+`dependencies`, or an explicit hidden helper skill:
+
+```yaml
+targets:
+  codex:
+    allow-implicit-invocation: false
+```
+
+If `allow-implicit-invocation` is omitted, Claudius leaves Codex implicit skill
+discovery at its default behavior.
 
 Legacy passthrough skills with top-level `SKILL.md` remain supported. Full
 agent override directories under `skills/<agent>/<skill>/SKILL.md` also remain

@@ -130,6 +130,8 @@ struct SkillTargetOverlay {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     invocation: Option<SkillInvocationMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    allow_implicit_invocation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     disable_model_invocation: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     user_invocable: Option<bool>,
@@ -637,6 +639,7 @@ fn extract_target_overlay_from_legacy(
 
             Ok(SkillTargetOverlay {
                 invocation: None,
+                allow_implicit_invocation: None,
                 disable_model_invocation: optional_bool_frontmatter_value(
                     frontmatter,
                     "disable-model-invocation",
@@ -695,7 +698,7 @@ fn extract_target_overlay_from_legacy(
                 CODEX_MIGRATION_FRONTMATTER_KEYS,
             )?;
 
-            let invocation =
+            let allow_implicit_invocation =
                 match optional_bool_frontmatter_value(frontmatter, "disable-model-invocation")
                     .with_context(|| {
                         format!(
@@ -704,12 +707,13 @@ fn extract_target_overlay_from_legacy(
                             SKILL_FILE_NAME,
                         )
                     })? {
-                    Some(true) => Some(SkillInvocationMode::Manual),
+                    Some(true) => Some(false),
                     _ => None,
                 };
 
             Ok(SkillTargetOverlay {
-                invocation,
+                invocation: None,
+                allow_implicit_invocation,
                 disable_model_invocation: None,
                 user_invocable: None,
                 allowed_tools: None,
@@ -812,6 +816,12 @@ fn merge_target_overlay(
         context,
     )?;
     merge_optional_overlay_field(
+        &mut existing.allow_implicit_invocation,
+        incoming.allow_implicit_invocation,
+        "allow-implicit-invocation",
+        context,
+    )?;
+    merge_optional_overlay_field(
         &mut existing.disable_model_invocation,
         incoming.disable_model_invocation,
         "disable-model-invocation",
@@ -885,6 +895,7 @@ where
 
 fn skill_target_overlay_is_empty(overlay: &SkillTargetOverlay) -> bool {
     overlay.invocation.is_none()
+        && overlay.allow_implicit_invocation.is_none()
         && overlay.disable_model_invocation.is_none()
         && overlay.user_invocable.is_none()
         && overlay.allowed_tools.is_none()
@@ -1168,6 +1179,12 @@ fn render_canonical_skill_bundle(
 
     match target_name {
         SkillTargetName::Codex => {
+            if target_overlay.invocation.is_some() {
+                warnings.insert(format!(
+                    "Codex target overlay for skill `{}` uses `invocation`, but Codex keeps implicit skill discovery enabled unless `allow-implicit-invocation` is set explicitly; `invocation` is ignored for Codex.",
+                    definition.name
+                ));
+            }
             if target_overlay.disable_model_invocation.is_some()
                 || target_overlay.user_invocable.is_some()
                 || target_overlay.allowed_tools.is_some()
@@ -1183,7 +1200,10 @@ fn render_canonical_skill_bundle(
             }
         },
         SkillTargetName::Claude | SkillTargetName::ClaudeCode | SkillTargetName::Gemini => {
-            if target_overlay.interface.is_some() || target_overlay.dependencies.is_some() {
+            if target_overlay.allow_implicit_invocation.is_some()
+                || target_overlay.interface.is_some()
+                || target_overlay.dependencies.is_some()
+            {
                 warnings.insert(format!(
                     "{} target overlay for skill `{}` contains Codex-only fields that will be ignored during rendering.",
                     target_name_label(target_name),
@@ -1736,11 +1756,11 @@ fn render_codex_openai_yaml(target_overlay: &SkillTargetOverlay) -> Result<Optio
         document.insert(yaml_key("dependencies"), dependencies.clone());
     }
 
-    if let Some(invocation) = target_overlay.invocation {
+    if let Some(allow_implicit_invocation) = target_overlay.allow_implicit_invocation {
         let mut policy = YamlMapping::new();
         policy.insert(
             yaml_key("allow_implicit_invocation"),
-            YamlValue::Bool(matches!(invocation, SkillInvocationMode::Auto)),
+            YamlValue::Bool(allow_implicit_invocation),
         );
         document.insert(yaml_key("policy"), YamlValue::Mapping(policy));
     }
@@ -1752,21 +1772,8 @@ fn render_codex_openai_yaml(target_overlay: &SkillTargetOverlay) -> Result<Optio
     Ok(Some(serialize_yaml_document(&YamlValue::Mapping(document))?))
 }
 
-fn render_codex_openai_yaml_from_legacy(frontmatter: &YamlMapping) -> Result<Option<String>> {
-    let disable_model_invocation = frontmatter
-        .get(YamlValue::String("disable-model-invocation".to_string()))
-        .and_then(YamlValue::as_bool);
-
-    if disable_model_invocation != Some(true) {
-        return Ok(None);
-    }
-
-    let mut policy = YamlMapping::new();
-    policy.insert(yaml_key("allow_implicit_invocation"), YamlValue::Bool(false));
-
-    let mut document = YamlMapping::new();
-    document.insert(yaml_key("policy"), YamlValue::Mapping(policy));
-    Ok(Some(serialize_yaml_document(&YamlValue::Mapping(document))?))
+fn render_codex_openai_yaml_from_legacy(_frontmatter: &YamlMapping) -> Result<Option<String>> {
+    Ok(None)
 }
 
 fn render_markdown_with_frontmatter(frontmatter: &YamlMapping, body: &str) -> Result<String> {
@@ -2340,7 +2347,7 @@ mod tests {
         fs::create_dir_all(skill_dir.join("scripts")).expect("Failed to create skill scripts dir");
         fs::write(
             skill_dir.join(CANONICAL_SKILL_FILE_NAME),
-            "version: 1\nname: setup-commitlint\ndescription: Set up commitlint.\ntargets:\n  codex:\n    invocation: manual\n    interface:\n      display_name: Commitlint Setup\n",
+            "version: 1\nname: setup-commitlint\ndescription: Set up commitlint.\ntargets:\n  codex:\n    interface:\n      display_name: Commitlint Setup\n",
         )
         .expect("Failed to write skill.yaml");
         fs::write(
@@ -2382,6 +2389,34 @@ mod tests {
         let openai_content = fs::read_to_string(&openai_mapping.source_path)
             .expect("Rendered openai.yaml should read");
         assert!(openai_content.contains("display_name: Commitlint Setup"));
+        assert!(!openai_content.contains("allow_implicit_invocation"));
+    }
+
+    #[test]
+    fn test_collect_claudius_skill_source_set_renders_explicit_codex_policy() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let config_dir = temp_dir.path().join("claudius");
+        let skill_dir = config_dir.join("skills").join("hidden-review");
+
+        fs::create_dir_all(&skill_dir).expect("Failed to create skill dir");
+        fs::write(
+            skill_dir.join(CANONICAL_SKILL_FILE_NAME),
+            "version: 1\nname: hidden-review\ndescription: Review code privately.\ntargets:\n  codex:\n    allow-implicit-invocation: false\n",
+        )
+        .expect("Failed to write skill.yaml");
+        fs::write(skill_dir.join(DEFAULT_CANONICAL_INSTRUCTIONS_FILE), "Review code privately.\n")
+            .expect("Failed to write instructions");
+
+        let source_set = collect_claudius_skill_source_set(&config_dir, Some(Agent::Codex))
+            .expect("canonical codex source set should render");
+        let openai_mapping = source_set
+            .mappings
+            .iter()
+            .find(|mapping| mapping.relative_path == "hidden-review/agents/openai.yaml")
+            .expect("openai.yaml mapping should exist");
+        let openai_content = fs::read_to_string(&openai_mapping.source_path)
+            .expect("Rendered openai.yaml should read");
+
         assert!(openai_content.contains("allow_implicit_invocation: false"));
     }
 

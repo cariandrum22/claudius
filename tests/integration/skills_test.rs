@@ -281,10 +281,7 @@ mod tests {
         assert!(!skill_content.contains("disable-model-invocation"));
         assert!(!skill_content.contains("argument-hint"));
         assert!(!skill_content.contains("allowed-tools"));
-
-        let openai_yaml =
-            fixture.read_project_file(".agents/skills/review/agents/openai.yaml").unwrap();
-        assert!(openai_yaml.contains("allow_implicit_invocation: false"));
+        assert!(!fixture.project_file_exists(".agents/skills/review/agents/openai.yaml"));
     }
 
     #[test]
@@ -297,7 +294,7 @@ mod tests {
         fixture
             .with_canonical_skill(
                 "setup-commitlint",
-                "version: 1\nname: setup-commitlint\ndescription: Set up commitlint for the current repository.\ntargets:\n  codex:\n    invocation: manual\n    interface:\n      display_name: Commitlint Setup\n    dependencies:\n      tools:\n        - type: mcp\n          value: openaiDeveloperDocs\n",
+                "version: 1\nname: setup-commitlint\ndescription: Set up commitlint for the current repository.\ntargets:\n  codex:\n    interface:\n      display_name: Commitlint Setup\n    dependencies:\n      tools:\n        - type: mcp\n          value: openaiDeveloperDocs\n",
                 "Set up commitlint and wire it into git hooks.\n",
             )
             .unwrap();
@@ -339,9 +336,46 @@ mod tests {
         )
         .unwrap();
         assert!(openai_yaml.contains("display_name: Commitlint Setup"));
-        assert!(openai_yaml.contains("allow_implicit_invocation: false"));
+        assert!(!openai_yaml.contains("allow_implicit_invocation"));
         assert!(openai_yaml.contains("openaiDeveloperDocs"));
         assert!(output_dir.join("setup-commitlint").join("scripts").join("setup.sh").exists());
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_render_canonical_codex_explicitly_disables_implicit_invocation() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "hidden-review",
+                "version: 1\nname: hidden-review\ndescription: Review code only when explicitly invoked.\ntargets:\n  codex:\n    allow-implicit-invocation: false\n",
+                "Review code only when explicitly invoked.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let output_dir = fixture.temp.path().join("rendered-hidden-skills");
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args([
+                "skills",
+                "render",
+                "--agent",
+                "codex",
+                "--output",
+                output_dir.to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+
+        let openai_yaml =
+            fs::read_to_string(output_dir.join("hidden-review").join("agents").join("openai.yaml"))
+                .unwrap();
+        assert!(openai_yaml.contains("allow_implicit_invocation: false"));
     }
 
     #[test]
@@ -478,6 +512,33 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_skills_validate_warns_when_codex_overlay_uses_legacy_invocation_field() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\ntargets:\n  codex:\n    invocation: manual\n",
+                "Review the repository and summarize the findings.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "validate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "uses `invocation`, but Codex keeps implicit skill discovery enabled unless `allow-implicit-invocation` is set explicitly",
+            ));
+    }
+
+    #[test]
+    #[serial]
     fn test_skills_sync_renders_target_body_override() {
         let _env_guard = EnvGuard::new();
         let fixture = TestFixture::new().unwrap();
@@ -577,6 +638,75 @@ mod tests {
         assert!(rendered.contains("argument-hint: '[scope]'"));
         assert!(rendered.contains("Claude Code specific review instructions."));
         assert!(!rendered.contains("Shared review instructions."));
+    }
+
+    #[test]
+    #[serial]
+    fn test_skills_migrate_codex_override_preserves_explicit_hidden_policy() {
+        let _env_guard = EnvGuard::new();
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_canonical_skill(
+                "setup-review",
+                "version: 1\nname: setup-review\ndescription: Review the repository.\n",
+                "Shared review instructions.\n",
+            )
+            .unwrap();
+        fixture
+            .with_agent_skill(
+                "codex",
+                "setup-review",
+                "---\nname: setup-review\ndescription: Review the repository.\ndisable-model-invocation: true\n---\n\nCodex specific review instructions.\n",
+            )
+            .unwrap();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+
+        let mut migrate = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        migrate
+            .current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "migrate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Migrated 1 deprecated full override skill director"))
+            .stdout(predicate::str::contains("skills/codex/setup-review"));
+
+        let skill_yaml = fs::read_to_string(
+            fixture.config.join("skills").join("setup-review").join("skill.yaml"),
+        )
+        .unwrap();
+        assert!(skill_yaml.contains("codex:"));
+        assert!(skill_yaml.contains("allow-implicit-invocation: false"));
+
+        let target_body = fs::read_to_string(
+            fixture
+                .config
+                .join("skills")
+                .join("setup-review")
+                .join("targets")
+                .join("codex.md"),
+        )
+        .unwrap();
+        assert_eq!(target_body, "Codex specific review instructions.\n");
+        assert!(!fixture.config.join("skills").join("codex").join("setup-review").exists());
+
+        let mut sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        sync.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .args(["skills", "sync", "--agent", "codex"])
+            .assert()
+            .success();
+
+        let rendered = fixture.read_project_file(".agents/skills/setup-review/SKILL.md").unwrap();
+        assert!(rendered.contains("Codex specific review instructions."));
+        assert!(!rendered.contains("Shared review instructions."));
+
+        let openai_yaml = fixture
+            .read_project_file(".agents/skills/setup-review/agents/openai.yaml")
+            .unwrap();
+        assert!(openai_yaml.contains("allow_implicit_invocation: false"));
     }
 
     #[test]
