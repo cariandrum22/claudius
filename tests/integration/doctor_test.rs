@@ -199,6 +199,72 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_doctor_does_not_report_stale_for_synced_canonical_codex_skills() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_canonical_skill(
+                "setup-commitlint",
+                "version: 1\nname: setup-commitlint\ndescription: Set up commitlint.\ntargets:\n  codex:\n    invocation: manual\n    interface:\n      display_name: Commitlint Setup\n",
+                "Set up commitlint in the current repository.\n",
+            )
+            .unwrap();
+
+        let mut sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        sync.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["skills", "sync", "--global", "--agent", "codex"])
+            .assert()
+            .success();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "doctor", "--global", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("STALE").not());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_doctor_does_not_report_stale_for_synced_canonical_claude_code_skills() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_canonical_skill(
+                "setup-git-hooks",
+                "version: 1\nname: setup-git-hooks\ndescription: Install repository git hooks.\ntargets:\n  claude-code:\n    invocation: manual\n    argument-hint: \"[hook-name]\"\n    allowed-tools:\n      - Bash(git config core.hooksPath .githooks)\n",
+                "Install and verify project-local git hooks.\n",
+            )
+            .unwrap();
+
+        let mut sync = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        sync.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["skills", "sync", "--global", "--agent", "claude-code"])
+            .assert()
+            .success();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "doctor", "--global", "--agent", "claude-code"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("STALE").not());
+    }
+
+    #[test]
+    #[serial]
     fn test_config_doctor_reports_skill_renderer_migration_warnings() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
