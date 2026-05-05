@@ -188,6 +188,8 @@ fn copy_mapping(target_dir: &Path, mapping: &SourceFileMapping) -> Result<()> {
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
+    make_owner_writable_if_needed(&destination)?;
+
     fs::copy(&mapping.source_path, &destination).with_context(|| {
         format!(
             "Failed to copy file from {} to {}",
@@ -196,6 +198,45 @@ fn copy_mapping(target_dir: &Path, mapping: &SourceFileMapping) -> Result<()> {
         )
     })?;
 
+    make_owner_writable_if_needed(&destination)?;
+
+    Ok(())
+}
+
+fn make_owner_writable_if_needed(path: &Path) -> Result<()> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("Failed to inspect {}", path.display()));
+        },
+    };
+
+    let mut permissions = metadata.permissions();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = permissions.mode();
+        if mode & 0o200 != 0 {
+            return Ok(());
+        }
+
+        permissions.set_mode(mode | 0o200);
+    }
+
+    #[cfg(not(unix))]
+    {
+        if !permissions.readonly() {
+            return Ok(());
+        }
+
+        permissions.set_readonly(false);
+    }
+
+    fs::set_permissions(path, permissions)
+        .with_context(|| format!("Failed to update permissions for {}", path.display()))?;
     Ok(())
 }
 
@@ -286,6 +327,12 @@ fn normalize_relative_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    fn set_read_only(path: &Path, read_only: bool) {
+        let mut permissions = fs::metadata(path).expect("metadata should load").permissions();
+        permissions.set_readonly(read_only);
+        fs::set_permissions(path, permissions).expect("permissions should update");
+    }
 
     #[test]
     fn sync_managed_tree_records_manifest_without_pruning() {
@@ -381,5 +428,37 @@ mod tests {
 
         assert_eq!(inspection.managed_files, vec!["keep.txt".to_string(), "old.txt".to_string()]);
         assert_eq!(inspection.stale_files, vec!["old.txt".to_string()]);
+    }
+
+    #[test]
+    fn sync_managed_tree_can_overwrite_read_only_targets() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let source_dir = temp_dir.path().join("source");
+        let target_dir = temp_dir.path().join("target");
+        let source_file = source_dir.join("skill.txt");
+
+        fs::create_dir_all(&source_dir).expect("create source");
+        fs::write(&source_file, "first").expect("write initial source");
+        set_read_only(&source_file, true);
+
+        let mappings = collect_directory_tree_mappings(&source_dir).expect("collect mappings");
+        sync_managed_tree(&target_dir, &mappings, SyncBehavior { dry_run: false, prune: false })
+            .expect("initial sync should succeed");
+
+        let target_file = target_dir.join("skill.txt");
+        assert_eq!(fs::read_to_string(&target_file).expect("read target"), "first");
+        assert!(!fs::metadata(&target_file).expect("target metadata").permissions().readonly());
+
+        set_read_only(&source_file, false);
+        fs::write(&source_file, "second").expect("update source");
+        set_read_only(&source_file, true);
+        set_read_only(&target_file, true);
+
+        let mappings = collect_directory_tree_mappings(&source_dir).expect("collect mappings");
+        sync_managed_tree(&target_dir, &mappings, SyncBehavior { dry_run: false, prune: false })
+            .expect("second sync should succeed");
+
+        assert_eq!(fs::read_to_string(&target_file).expect("read updated target"), "second");
+        assert!(!fs::metadata(&target_file).expect("target metadata").permissions().readonly());
     }
 }
