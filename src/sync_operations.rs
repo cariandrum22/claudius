@@ -5,6 +5,7 @@ use crate::app_config::{Agent, AppConfig, ClaudeCodeScope};
 use crate::asset_sync::{self, SyncBehavior};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
 use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Settings};
+use crate::gemini_settings::sanitize_claude_config_for_gemini;
 use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
 use crate::skills;
@@ -578,6 +579,13 @@ fn print_global_dry_run(
         return Ok(());
     }
 
+    if agent_context.is_gemini {
+        let (gemini_config, _) = sanitize_claude_config_for_gemini(claude_config);
+        println!("\n--- Result (dry run): {} ---", target_config_path.display());
+        println!("{}", serde_json::to_string_pretty(&gemini_config)?);
+        return Ok(());
+    }
+
     println!("\n--- Result (dry run): {} ---", target_config_path.display());
     println!("{}", serde_json::to_string_pretty(&claude_config)?);
     Ok(())
@@ -600,8 +608,9 @@ fn print_project_local_dry_run(
 }
 
 fn print_gemini_dry_run(claude_config: &ClaudeConfig) -> Result<()> {
+    let (gemini_config, _) = sanitize_claude_config_for_gemini(claude_config);
     println!("\n--- Gemini settings (.gemini/settings.json) ---");
-    println!("{}", serde_json::to_string_pretty(&claude_config)?);
+    println!("{}", serde_json::to_string_pretty(&gemini_config)?);
     Ok(())
 }
 
@@ -1053,6 +1062,11 @@ fn write_global_configurations(
         if include_codex_managed_config {
             write_codex_managed_config()?;
         }
+    } else if agent_context.is_gemini {
+        let (gemini_config, _) = sanitize_claude_config_for_gemini(claude_config);
+        info!("Writing updated configuration");
+        writer::write_claude_config(target_config_path, &gemini_config)
+            .context("Failed to write Gemini configuration")?;
     } else {
         info!("Writing updated configuration");
         writer::write_claude_config(target_config_path, claude_config)
@@ -1249,8 +1263,9 @@ fn write_gemini_project_local(
     target_config_path: &Path,
     claude_config: &ClaudeConfig,
 ) -> Result<()> {
+    let (gemini_config, _) = sanitize_claude_config_for_gemini(claude_config);
     info!("Writing Gemini settings to {}", target_config_path.display());
-    writer::write_claude_config(target_config_path, claude_config)
+    writer::write_claude_config(target_config_path, &gemini_config)
         .context("Failed to write .gemini/settings.json")?;
     Ok(())
 }

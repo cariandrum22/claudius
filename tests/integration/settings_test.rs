@@ -21,7 +21,10 @@ mod tests {
             "test-server": {
                 "command": "test",
                 "args": [],
-                "env": {}
+                "env": {},
+                "autoApprove": true,
+                "disabled": true,
+                "unsupported": "value"
             }
         }
     }"#,
@@ -68,6 +71,28 @@ mod tests {
                 .and_then(|t| t.get("command")),
             Some(&serde_json::Value::String("test".to_string()))
         );
+        assert_eq!(
+            settings_json
+                .get("mcpServers")
+                .and_then(|s| s.get("test-server"))
+                .and_then(|t| t.get("trust")),
+            Some(&serde_json::Value::Bool(true))
+        );
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("test-server"))
+            .and_then(|t| t.get("autoApprove"))
+            .is_none());
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("test-server"))
+            .and_then(|t| t.get("disabled"))
+            .is_none());
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("test-server"))
+            .and_then(|t| t.get("unsupported"))
+            .is_none());
 
         assert_eq!(
             settings_json.get("context").and_then(|c| c.get("fileName")),
@@ -171,6 +196,76 @@ mod tests {
 
         // Verify legacy ~/.claude.json was NOT created
         assert!(!fixture.home_file_exists(".claude.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_sync_gemini_global_sanitizes_shared_mcp_servers() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_mcp_servers(
+                r#"{
+        "mcpServers": {
+            "aws-docs": {
+                "command": "uvx",
+                "args": ["awslabs.aws-documentation-mcp-server@latest"],
+                "autoApprove": true,
+                "disabled": true,
+                "unsupported": "value"
+            }
+        }
+    }"#,
+            )
+            .unwrap();
+
+        fixture
+            .with_gemini_settings(
+                r#"{
+        "ui": {
+            "theme": "GitHub"
+        }
+    }"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "sync"])
+            .arg("--global")
+            .arg("--agent")
+            .arg("gemini")
+            .assert()
+            .success();
+
+        let settings_content = fixture.read_home_file(".gemini/settings.json").unwrap();
+        let settings_json: serde_json::Value = serde_json::from_str(&settings_content).unwrap();
+
+        assert_eq!(
+            settings_json
+                .get("mcpServers")
+                .and_then(|s| s.get("aws-docs"))
+                .and_then(|t| t.get("trust")),
+            Some(&serde_json::Value::Bool(true))
+        );
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("aws-docs"))
+            .and_then(|t| t.get("autoApprove"))
+            .is_none());
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("aws-docs"))
+            .and_then(|t| t.get("disabled"))
+            .is_none());
+        assert!(settings_json
+            .get("mcpServers")
+            .and_then(|s| s.get("aws-docs"))
+            .and_then(|t| t.get("unsupported"))
+            .is_none());
     }
 
     #[test]
