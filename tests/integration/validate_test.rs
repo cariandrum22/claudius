@@ -255,6 +255,79 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_validate_gemini_warns_on_shared_unsupported_mcp_fields() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_mcp_servers(
+                r#"{
+        "mcpServers": {
+            "aws-docs": {
+                "command": "uvx",
+                "args": ["awslabs.aws-documentation-mcp-server@latest"],
+                "autoApprove": true,
+                "disabled": true,
+                "unsupported": "value"
+            }
+        }
+    }"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "gemini"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "mcpServers.aws-docs.autoApprove is not supported by Gemini settings.json; Gemini sync will translate it to `trust`",
+            ))
+            .stdout(predicate::str::contains(
+                "mcpServers.aws-docs.disabled is not supported by Gemini settings.json",
+            ))
+            .stdout(predicate::str::contains(
+                "mcpServers.aws-docs.unsupported is not supported by Gemini settings.json and will be dropped during Gemini sync",
+            ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_gemini_strict_fails_on_shared_unsupported_mcp_fields() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture
+            .with_mcp_servers(
+                r#"{
+        "mcpServers": {
+            "aws-docs": {
+                "command": "uvx",
+                "args": ["awslabs.aws-documentation-mcp-server@latest"],
+                "autoApprove": true
+            }
+        }
+    }"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "gemini", "--strict"])
+            .assert()
+            .failure()
+            .stdout(predicate::str::contains(
+                "mcpServers.aws-docs.autoApprove is not supported by Gemini settings.json; Gemini sync will translate it to `trust`",
+            ))
+            .stderr(predicate::str::contains("Validation failed due to warnings (--strict)"));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_validate_warns_on_deprecated_codex_fields() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();

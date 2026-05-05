@@ -726,6 +726,20 @@ fn select_codex_managed_config_source(
 
 fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
+    let mcp_servers_path = config_dir.join("mcpServers.json");
+
+    if mcp_servers_path.exists() {
+        let mcp_servers =
+            reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
+                format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
+            })?;
+
+        warnings.extend(
+            claudius::gemini_settings::validate_gemini_mcp_server_configs(&mcp_servers.mcp_servers)
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", mcp_servers_path.display())),
+        );
+    }
 
     let gemini_settings_paths =
         [config_dir.join("gemini.settings.json"), config_dir.join("gemini.system_defaults.json")];
