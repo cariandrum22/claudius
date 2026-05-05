@@ -5,6 +5,8 @@ on:
     - cron: '0 0 * * 1'  # Weekly on Monday at midnight UTC
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
@@ -129,6 +131,7 @@ jobs:
         with:
           format: spdx-json
           output-file: sbom.spdx.json
+          upload-release-assets: false
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v7
@@ -178,6 +181,9 @@ jobs:
     if: failure()
     needs: [audit, supply-chain, codeql]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Create issue for security failures
         uses: actions/github-script@v9
