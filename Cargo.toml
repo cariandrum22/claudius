@@ -42,7 +42,7 @@ predicates = "3.1"
 pretty_assertions = "1.4"
 proptest = "1.11"
 rstest = "0.26"
-serial_test = "3.4"
+serial_test = "3.5"
 
 [profile.dev]
 opt-level = 0
