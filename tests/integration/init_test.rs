@@ -84,7 +84,19 @@ mod tests {
         let _: serde_json::Value = serde_json::from_str(&mcp_content).unwrap();
 
         let settings_content = fs::read_to_string(config_dir.join("settings.json")).unwrap();
-        let _: serde_json::Value = serde_json::from_str(&settings_content).unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&settings_content).unwrap();
+        assert_eq!(
+            settings.get("$schema").and_then(serde_json::Value::as_str),
+            Some("https://json.schemastore.org/claude-code-settings.json"),
+        );
+        assert_eq!(
+            settings
+                .get("attribution")
+                .and_then(|attribution| attribution.get("sessionUrl"))
+                .and_then(serde_json::Value::as_bool),
+            Some(false),
+        );
+        assert!(settings.get("includeCoAuthoredBy").is_none());
     }
 
     #[test]

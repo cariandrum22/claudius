@@ -287,18 +287,68 @@ unknown_sandbox_field = true
         let toml_value: TomlValue = toml::from_str(toml_str)?;
         let warnings = validate_codex_settings(&toml_value);
 
-        anyhow::ensure!(warnings.len() == 2, "Expected 2 warnings");
+        anyhow::ensure!(warnings.is_empty(), "Future fields should not produce warnings");
+
+        let settings: CodexSettings = toml::from_str(toml_str)?;
+        let rendered = toml::to_string_pretty(&settings)?;
+        let round_trip: TomlValue = toml::from_str(&rendered)?;
         anyhow::ensure!(
-            warnings.iter().any(|w| w.contains("unknown_top_level")),
-            "Expected unknown_top_level warning"
+            round_trip.get("unknown_top_level").is_some(),
+            "unknown top-level fields must survive a settings round trip"
         );
-        // Model provider fields are no longer validated since they can have arbitrary extra fields
-        // assert!(warnings.iter().any(|w| w.contains("unknown_provider_field")));
         anyhow::ensure!(
-            warnings.iter().any(|w| w.contains("unknown_sandbox_field")),
-            "Expected unknown_sandbox_field warning"
+            round_trip
+                .get("sandbox_workspace_write")
+                .and_then(|sandbox| sandbox.get("unknown_sandbox_field"))
+                .and_then(TomlValue::as_bool)
+                == Some(true),
+            "unknown nested fields must survive a settings round trip"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_codex_shell_environment_filters_round_trip() -> Result<()> {
+        let source = r#"
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.filters]
+"PATH" = "include"
+"*_TOKEN" = "exclude"
+"#;
+
+        let settings: CodexSettings = toml::from_str(source)?;
+        let rendered = toml::to_string_pretty(&settings)?;
+        let reparsed: TomlValue = toml::from_str(&rendered)?;
+
+        anyhow::ensure!(
+            reparsed
+                .get("shell_environment_policy")
+                .and_then(|policy| policy.get("filters"))
+                .and_then(|filters| filters.get("*_TOKEN"))
+                .and_then(TomlValue::as_str)
+                == Some("exclude"),
+            "canonical filters must survive a settings round trip"
+        );
+        anyhow::ensure!(validate_codex_settings(&reparsed).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_validate_codex_settings_warns_on_legacy_shell_filters() -> Result<()> {
+        let value: TomlValue = toml::from_str(
+            r#"
+[shell_environment_policy]
+exclude = ["*_TOKEN"]
+include_only = ["PATH"]
+"#,
+        )?;
+
+        let warnings = validate_codex_settings(&value);
+        anyhow::ensure!(warnings.len() == 2, "Expected one warning per legacy field");
+        anyhow::ensure!(warnings.iter().all(|warning| warning.contains("filters")));
         Ok(())
     }
 

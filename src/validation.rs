@@ -136,69 +136,10 @@ fn infer_json_config_kind(path: &Path) -> Option<JsonConfigKind> {
     }
 }
 
-const KNOWN_PERMISSION_FIELDS: &[&str] = &["allow", "deny", "defaultMode"];
-
-// Known Claude/Codex settings fields
-const KNOWN_CLAUDE_FIELDS: &[&str] = &[
-    "apiKeyHelper",
-    "cleanupPeriodDays",
-    "env",
-    "includeCoAuthoredBy",
-    "permissions",
-    "preferredNotifChannel",
-    "mcpServers",
-    "mcp_servers",
-    "extra",
-    // Codex-specific fields
-    "model",
-    "modelProvider",
-    "model_provider",
-    "approvalPolicy",
-    "approval_policy",
-    "disableResponseStorage",
-    "disable_response_storage",
-    "notify",
-    "modelProviders",
-    "model_providers",
-    "shellEnvironmentPolicy",
-    "shell_environment_policy",
-    "sandbox",
-    "history",
-];
-
-/// Validates Claude/Codex settings and returns warnings for unknown fields
+/// Validates Claude settings and returns compatibility warnings.
 #[must_use]
 pub fn validate_claude_settings(json: &Value) -> Vec<String> {
-    let mut warnings = Vec::new();
-
-    if let Value::Object(map) = json {
-        for (key, value) in map {
-            if !KNOWN_CLAUDE_FIELDS.contains(&key.as_str()) {
-                warnings
-                    .push(format!("Unknown setting '{key}' found in Claude/Codex configuration"));
-            }
-
-            // Validate nested permissions object
-            if key == "permissions" {
-                validate_permissions(value, &mut warnings);
-            }
-        }
-    }
-
-    warnings
-}
-
-/// Validate permissions object fields
-fn validate_permissions(value: &Value, warnings: &mut Vec<String>) {
-    let Value::Object(perm_map) = value else {
-        return;
-    };
-
-    for (perm_key, _) in perm_map {
-        if !KNOWN_PERMISSION_FIELDS.contains(&perm_key.as_str()) {
-            warnings.push(format!("Unknown field '{perm_key}' in permissions"));
-        }
-    }
+    crate::claude_settings::validate_claude_settings(json)
 }
 
 /// Pre-validate settings before sync to catch JSON errors early
@@ -484,7 +425,8 @@ mod tests {
             "apiKeyHelper": "/bin/helper",
             "cleanupPeriodDays": 30,
             "env": {"KEY": "value"},
-            "includeCoAuthoredBy": true,
+            "$schema": "https://json.schemastore.org/claude-code-settings.json",
+            "attribution": {"commit": "", "pr": "", "sessionUrl": false},
             "permissions": {
                 "allow": ["Read"],
                 "deny": ["Write"],
@@ -507,9 +449,7 @@ mod tests {
         });
 
         let warnings = validate_claude_settings(&json);
-        assert_eq!(warnings.len(), 2);
-        assert!(warnings.first().is_some_and(|w| w.contains("unknownField")));
-        assert!(warnings.get(1).is_some_and(|w| w.contains("anotherUnknown")));
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -522,8 +462,7 @@ mod tests {
         });
 
         let warnings = validate_claude_settings(&json);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings.first().is_some_and(|w| w.contains("unknownPerm")));
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -615,7 +554,7 @@ mod tests {
         fs::create_dir_all(&claude_home).expect("Failed to create test directory");
         let file_path = claude_home.join("unrelated.json");
 
-        fs::write(&file_path, json!({ "unrelated": true }).to_string())
+        fs::write(&file_path, json!({ "includeCoAuthoredBy": false }).to_string())
             .expect("Failed to write file");
 
         let (_, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
@@ -627,7 +566,7 @@ mod tests {
         assert!(claude_result
             .warnings
             .first()
-            .is_some_and(|warning| warning.contains("unrelated")));
+            .is_some_and(|warning| warning.contains("attribution")));
     }
 
     #[test]
@@ -658,7 +597,7 @@ mod tests {
         let file_path = temp_dir.path().join("claude.json");
 
         let content = json!({
-            "unknownField": "value"
+            "includeCoAuthoredBy": false
         });
 
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
@@ -695,7 +634,8 @@ mod tests {
         assert_eq!(settings.api_key_helper, Some("/bin/helper".to_string()));
         assert_eq!(settings.cleanup_period_days, Some(30));
         assert_eq!(settings.include_co_authored_by, Some(true));
-        assert!(result.warnings.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings.first().is_some_and(|warning| warning.contains("attribution")));
     }
 
     #[test]

@@ -668,7 +668,7 @@ fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
 
     let codex_requirements_path = config_dir.join("codex.requirements.toml");
     if codex_requirements_path.exists() {
-        validate_toml_parse_file(&codex_requirements_path)?;
+        warnings.extend(validate_codex_requirements_file(&codex_requirements_path)?);
     }
 
     if let Some((managed_config_path, is_legacy)) = select_codex_managed_config_source(config_dir) {
@@ -685,12 +685,16 @@ fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
-fn validate_toml_parse_file(path: &std::path::Path) -> Result<()> {
+fn validate_codex_requirements_file(path: &std::path::Path) -> Result<Vec<String>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    let _: toml::Value =
+    let value: toml::Value =
         toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
-    Ok(())
+
+    Ok(claudius::codex_settings::validate_codex_requirements(&value)
+        .into_iter()
+        .map(|warning| format!("{}: {warning}", path.display()))
+        .collect())
 }
 
 fn validate_codex_settings_like_file(path: &std::path::Path) -> Result<Vec<String>> {

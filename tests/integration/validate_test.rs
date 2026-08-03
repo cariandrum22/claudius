@@ -376,6 +376,31 @@ web_search = true
 
     #[test]
     #[serial]
+    fn test_config_validate_warns_on_deprecated_codex_requirement() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(
+            fixture.config.join("codex.requirements.toml"),
+            r#"allowed_approval_policies = ["untrusted", "on-failure", "on-request"]"#,
+        )
+        .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "allowed_approval_policies contains deprecated \"on-failure\"",
+            ));
+    }
+
+    #[test]
+    #[serial]
     fn test_config_validate_warns_when_onepassword_subtable_is_ignored() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();
