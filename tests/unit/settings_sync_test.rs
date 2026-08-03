@@ -21,7 +21,8 @@ mod tests {
             "env": {
                 "CUSTOM_VAR": "value"
             },
-            "includeCoAuthoredBy": true,
+            "$schema": "https://json.schemastore.org/claude-code-settings.json",
+            "attribution": {"commit": "", "pr": "", "sessionUrl": false},
             "permissions": {
                 "allow": ["Read", "Write"],
                 "deny": ["Delete"],
@@ -61,10 +62,8 @@ mod tests {
         let (json_value, validation_result) =
             validate_json_file_as(&settings_file, JsonConfigKind::Claude).unwrap();
 
-        // Should have warnings about unknown fields
-        assert_eq!(validation_result.warnings.len(), 2);
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownField")));
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownPermission")));
+        // Future fields must be preserved without speculative warnings.
+        assert!(validation_result.warnings.is_empty());
 
         // But the JSON should still be parsed
         assert!(json_value.get("unknownField").is_some());

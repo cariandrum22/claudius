@@ -17,10 +17,15 @@ const DEFAULT_MCP_SERVERS: &str = r#"{
 
 /// Default settings.json template
 const DEFAULT_SETTINGS: &str = r#"{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "apiKeyHelper": null,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "cleanupPeriodDays": 30,
   "env": {},
-  "includeCoAuthoredBy": true,
   "permissions": {
     "allow": [],
     "deny": [],
