@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Raised the minimum supported Rust version and reproducible Nix toolchain to Rust 1.97.1
+- Updated all Cargo dependencies, including `serial_test` 4.0
+- CPU profiling now writes pprof-compatible protobuf reports instead of SVG flamegraphs, removing a vulnerable transitive XML parser while preserving portable profile analysis
+
 ## [0.2.4] - 2026-05-06
 
 ### Fixed

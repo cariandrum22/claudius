@@ -456,13 +456,12 @@ fn canonical_shared_skill_candidate(
             "Shared canonical skill `{skill_name}` does not exist under skills/{skill_name}; create it before migrating deprecated full overrides."
         ),
         (true, true) => anyhow::bail!(
-            "Shared skill `{skill_name}` contains both {} and {}; resolve that mixed format before migration.",
-            CANONICAL_SKILL_FILE_NAME,
-            SKILL_FILE_NAME,
+            "Shared skill `{skill_name}` contains both {CANONICAL_SKILL_FILE_NAME} and {SKILL_FILE_NAME}; resolve that mixed format before migration."
         ),
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn plan_single_override_body_migration(
     shared_root: &Path,
     definition: &CanonicalSkillDefinition,
@@ -623,6 +622,7 @@ fn validate_legacy_override_core_metadata(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn extract_target_overlay_from_legacy(
     frontmatter: &YamlMapping,
     agent: Agent,
@@ -804,6 +804,7 @@ fn optional_yaml_frontmatter_value(frontmatter: &YamlMapping, key: &str) -> Opti
     frontmatter.get(yaml_key(key)).cloned()
 }
 
+#[allow(clippy::too_many_lines)]
 fn merge_target_overlay(
     existing: &mut SkillTargetOverlay,
     incoming: SkillTargetOverlay,
@@ -1040,6 +1041,7 @@ fn discover_skill_candidates(
     Ok((merged.into_values().collect(), includes_legacy_commands))
 }
 
+#[allow(clippy::too_many_lines)]
 fn collect_skill_candidates_in_directory(
     root: &Path,
     origin: SkillSourceOrigin,
@@ -1166,6 +1168,7 @@ fn render_candidate_to_mappings(
     materialize_rendered_bundle(&bundle, render_workspace)
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_canonical_skill_bundle(
     candidate: &SkillCandidate,
     render_agent: Agent,
@@ -1535,6 +1538,7 @@ fn render_codex_generated_files(
     Ok(files)
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_legacy_skill_bundle(
     candidate: &SkillCandidate,
     render_agent: Agent,
@@ -1590,7 +1594,7 @@ fn render_legacy_skill_bundle(
                 content: render_codex_skill_markdown(&name, &description, &document.body)?,
             });
 
-            if let Some(openai_yaml) = render_codex_openai_yaml_from_legacy(frontmatter)? {
+            if let Some(openai_yaml) = render_codex_openai_yaml_from_legacy(frontmatter) {
                 if candidate.kind == SkillCandidateKind::LegacyDirectory {
                     resource_mappings = collect_legacy_directory_resource_mappings(
                         &candidate.path,
@@ -1609,13 +1613,13 @@ fn render_legacy_skill_bundle(
         } else {
             generated_files.push(RenderedTextFile {
                 relative_path: SKILL_FILE_NAME.to_string(),
-                content: document.raw_content.clone(),
+                content: document.raw_content,
             });
         }
     } else {
         generated_files.push(RenderedTextFile {
             relative_path: SKILL_FILE_NAME.to_string(),
-            content: document.raw_content.clone(),
+            content: document.raw_content,
         });
     }
 
@@ -1772,8 +1776,8 @@ fn render_codex_openai_yaml(target_overlay: &SkillTargetOverlay) -> Result<Optio
     Ok(Some(serialize_yaml_document(&YamlValue::Mapping(document))?))
 }
 
-fn render_codex_openai_yaml_from_legacy(_frontmatter: &YamlMapping) -> Result<Option<String>> {
-    Ok(None)
+fn render_codex_openai_yaml_from_legacy(_frontmatter: &YamlMapping) -> Option<String> {
+    None
 }
 
 fn render_markdown_with_frontmatter(frontmatter: &YamlMapping, body: &str) -> Result<String> {
@@ -1797,8 +1801,8 @@ fn yaml_key(name: &str) -> YamlValue {
 }
 
 fn insert_optional_yaml_value(mapping: &mut YamlMapping, key: &str, value: Option<YamlValue>) {
-    if let Some(value) = value {
-        mapping.insert(yaml_key(key), value);
+    if let Some(yaml_value) = value {
+        mapping.insert(yaml_key(key), yaml_value);
     }
 }
 

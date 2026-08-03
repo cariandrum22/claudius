@@ -1488,13 +1488,13 @@ fn strip_mcp_transport_keys(
     overlay_table: &toml::map::Map<String, TomlValue>,
 ) {
     if overlay_table.contains_key("url") {
-        MCP_TOML_STDIO_ONLY_FIELDS.iter().for_each(|key| {
+        for key in MCP_TOML_STDIO_ONLY_FIELDS {
             target_table.remove(*key);
-        });
+        }
     } else if overlay_table.contains_key("command") {
-        MCP_TOML_REMOTE_ONLY_FIELDS.iter().for_each(|key| {
+        for key in MCP_TOML_REMOTE_ONLY_FIELDS {
             target_table.remove(*key);
-        });
+        }
     }
 }
 

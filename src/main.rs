@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 #[cfg(feature = "profiling")]
-use claudius::profiling::profile_flamegraph;
+use claudius::profiling::profile_report;
 use claudius::{
     agent_paths,
     app_config::AppConfig,
@@ -127,7 +127,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
             cli::SkillsCommands::Validate(args) => run_validate_skills(args),
             cli::SkillsCommands::Migrate(args) => run_migrate_skills(args),
-            cli::SkillsCommands::Render(args) => run_render_skills(args, app_config),
+            cli::SkillsCommands::Render(args) => run_render_skills(&args, app_config),
         },
         cli::Commands::Context(subcommand) => match subcommand {
             cli::ContextCommands::Append(args) => run_append_context(
@@ -322,7 +322,7 @@ fn run_migrate_skills(args: cli::SkillsMigrateArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_render_skills(args: cli::SkillsRenderArgs, app_config: Option<&AppConfig>) -> Result<()> {
+fn run_render_skills(args: &cli::SkillsRenderArgs, app_config: Option<&AppConfig>) -> Result<()> {
     let effective_agent = determine_agent(args.agent, app_config);
     let config_dir = Config::get_config_dir().context("Failed to determine Claudius config dir")?;
     let source_set = skills::collect_claudius_skill_source_set(&config_dir, effective_agent)?;
@@ -1467,7 +1467,7 @@ fn run_command(command: &[String], app_config: Option<&AppConfig>) -> Result<()>
 
     #[cfg(feature = "profiling")]
     let status = if profiling_enabled {
-        profile_flamegraph("run-command", || run_command_inner(command))??
+        profile_report("run-command", || run_command_inner(command))??
     } else {
         run_command_inner(command)?
     };

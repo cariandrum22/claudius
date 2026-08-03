@@ -29,7 +29,7 @@ claudius --list-commands
 ```
 
 ### Prerequisites
-- Rust 1.95.0 or higher
+- Rust 1.97.1 or higher
 - Nix 2.19.0 or higher (optional, for development)
 
 ### Basic Usage
@@ -705,13 +705,13 @@ When `CLAUDIUS_PROFILE=1` is set, Claudius provides detailed timing information:
 
 ### Advanced Profiling
 
-For CPU profiling with flamegraphs (requires `profiling` feature):
+For CPU profiling with pprof-compatible protobuf reports (requires the `profiling` feature):
 
 ```bash
 # Build with profiling feature
 cargo build --profile=profiling --features=profiling
 
-# Flamegraphs will be saved as flamegraph-*.svg
+# Profiles will be saved as profile-*.pb and can be inspected with pprof tools
 ```
 
 ## Development Guide
@@ -1293,7 +1293,7 @@ Coverage builds are slower than normal builds. For day-to-day development, run t
 
 ### Rust Version Compatibility
 
-This project targets **Rust 1.95.0+** (see `clippy.toml` `msrv`). The Nix devShell uses the latest
+This project targets **Rust 1.97.1+** (see `clippy.toml` `msrv`). The Nix devShell uses the latest
 stable Rust pinned by `flake.lock`.
 
 ### How to Update Dependencies

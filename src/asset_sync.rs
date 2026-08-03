@@ -441,9 +441,14 @@ mod tests {
         fs::write(&source_file, "first").expect("write initial source");
         set_read_only(&source_file, true);
 
-        let mappings = collect_directory_tree_mappings(&source_dir).expect("collect mappings");
-        sync_managed_tree(&target_dir, &mappings, SyncBehavior { dry_run: false, prune: false })
-            .expect("initial sync should succeed");
+        let initial_mappings =
+            collect_directory_tree_mappings(&source_dir).expect("collect mappings");
+        sync_managed_tree(
+            &target_dir,
+            &initial_mappings,
+            SyncBehavior { dry_run: false, prune: false },
+        )
+        .expect("initial sync should succeed");
 
         let target_file = target_dir.join("skill.txt");
         assert_eq!(fs::read_to_string(&target_file).expect("read target"), "first");
@@ -454,9 +459,14 @@ mod tests {
         set_read_only(&source_file, true);
         set_read_only(&target_file, true);
 
-        let mappings = collect_directory_tree_mappings(&source_dir).expect("collect mappings");
-        sync_managed_tree(&target_dir, &mappings, SyncBehavior { dry_run: false, prune: false })
-            .expect("second sync should succeed");
+        let updated_mappings =
+            collect_directory_tree_mappings(&source_dir).expect("collect mappings");
+        sync_managed_tree(
+            &target_dir,
+            &updated_mappings,
+            SyncBehavior { dry_run: false, prune: false },
+        )
+        .expect("second sync should succeed");
 
         assert_eq!(fs::read_to_string(&target_file).expect("read updated target"), "second");
         assert!(!fs::metadata(&target_file).expect("target metadata").permissions().readonly());
