@@ -608,16 +608,22 @@ Configure Claude/Claude Code settings:
 
 ```json
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "apiKeyHelper": "/path/to/key-generator.sh",
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "cleanupPeriodDays": 20,
   "env": {"CUSTOM_VAR": "value"},
-  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": ["Bash(npm run lint)"],
+    "ask": ["Bash(git push:*)"],
     "deny": ["Write(/etc/*)"],
-    "defaultMode": "allow"
+    "defaultMode": "acceptEdits"
   },
-  "preferredNotifChannel": "chat"
+  "preferredNotifChannel": "terminal_bell"
 }
 ```
 
