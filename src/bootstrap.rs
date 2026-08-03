@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS: &str = r#"{
 "#;
 
 /// Example canonical skill definition template
-const EXAMPLE_SKILL_DEFINITION: &str = r#"version: 1
+const EXAMPLE_SKILL_DEFINITION: &str = r"version: 1
 name: example
 description: Example skill scaffold created by `claudius config init`.
 targets:
@@ -41,10 +41,10 @@ targets:
 # interface / dependencies, or an explicit hidden helper skill:
 #   codex:
 #     allow-implicit-invocation: false
-"#;
+";
 
 /// Example canonical skill instructions template
-const EXAMPLE_SKILL_INSTRUCTIONS: &str = r#"# Example Skill
+const EXAMPLE_SKILL_INSTRUCTIONS: &str = r"# Example Skill
 
 This is an example canonical skill.
 
@@ -55,7 +55,7 @@ Describe how and when to use this skill.
 ## Implementation
 
 Replace this content with your actual skill instructions.
-"#;
+";
 
 /// Example rule template
 const EXAMPLE_RULE: &str = r"# Example Rule

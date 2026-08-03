@@ -36,7 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable, "1.95.0"]  # Test both stable and MSRV
+        rust: [stable, "1.97.1"]  # Test both stable and MSRV
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

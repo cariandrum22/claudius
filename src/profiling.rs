@@ -33,23 +33,23 @@ macro_rules! time_block {
     }};
 }
 
-/// Profile a function with flamegraph support
+/// Profile a function and write a pprof-compatible protobuf report.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - Failed to build the profiler
-/// - Failed to create the output file
-/// - Failed to generate the flamegraph report
+/// - Failed to build or encode the profiling report
+/// - Failed to write the output file
 #[cfg(feature = "profiling")]
-pub fn profile_flamegraph<F, R>(label: &str, f: F) -> Result<R, anyhow::Error>
+pub fn profile_report<F, R>(label: &str, f: F) -> Result<R, anyhow::Error>
 where
     F: FnOnce() -> R,
 {
+    use pprof::protos::Message;
     use pprof::ProfilerGuardBuilder;
-    use std::fs::File;
 
-    info!("Starting flamegraph profiling for: {}", label);
+    info!("Starting CPU profiling for: {}", label);
 
     let guard = ProfilerGuardBuilder::default()
         .frequency(1000)
@@ -60,18 +60,20 @@ where
     let result = f();
 
     if let Ok(report) = guard.report().build() {
-        let file_name = format!("flamegraph-{}-{}.svg", label, chrono::Utc::now().timestamp());
-        let file = File::create(&file_name)?;
-        report.flamegraph(file)?;
-        info!("Flamegraph saved to: {}", file_name);
+        let file_name = format!("profile-{}-{}.pb", label, chrono::Utc::now().timestamp());
+        let profile = report.pprof()?;
+        let mut content = Vec::new();
+        profile.write_to_vec(&mut content)?;
+        std::fs::write(&file_name, content)?;
+        info!("CPU profile saved to: {}", file_name);
     }
 
     Ok(result)
 }
 
-/// Profile a function without flamegraph (no-op when profiling feature is disabled)
+/// Profile a function (no-op when the profiling feature is disabled).
 #[cfg(not(feature = "profiling"))]
-pub fn profile_flamegraph<F, R>(_label: &str, f: F) -> R
+pub fn profile_report<F, R>(_label: &str, f: F) -> R
 where
     F: FnOnce() -> R,
 {

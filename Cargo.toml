@@ -2,7 +2,7 @@
 name = "claudius"
 version = "0.2.4"
 edition = "2021"
-rust-version = "1.95"
+rust-version = "1.97.1"
 authors = ["claudius contributors"]
 description = "Comprehensive configuration management tool for Claude Desktop/CLI"
 license = "MIT"
@@ -29,7 +29,7 @@ toml = "1.0"
 rayon = "1.11"
 
 # Optional dependencies for profiling
-pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+pprof = { version = "0.15", features = ["protobuf-codec"], optional = true }
 
 [features]
 default = []
@@ -42,7 +42,7 @@ predicates = "3.1"
 pretty_assertions = "1.4"
 proptest = "1.11"
 rstest = "0.26"
-serial_test = "3.4"
+serial_test = "4.0"
 
 [profile.dev]
 opt-level = 0

@@ -259,7 +259,7 @@ mod tests {
         let parts: Vec<&str> = backup_path.split('.').collect();
         let timestamp = parts.last().expect("Parts should have last element");
         assert_eq!(timestamp.len(), 15); // YYYYMMDD_HHMMSS
-        assert!(timestamp.chars().nth(8).expect("Timestamp should have 9th character") == '_');
+        assert_eq!(timestamp.chars().nth(8).expect("Timestamp should have 9th character"), '_');
     }
 
     #[test]

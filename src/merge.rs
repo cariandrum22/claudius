@@ -199,13 +199,13 @@ fn sync_transport_specific_fields(
         Some(McpTransport::Remote) => {
             existing.url.clone_from(&overlay.url);
             existing.server_type.clone_from(&overlay.server_type);
-            existing.headers = overlay.headers.clone();
+            existing.headers.clone_from(&overlay.headers);
             sync_keys(&mut existing.extra, &overlay.extra, MCP_JSON_REMOTE_ONLY_EXTRA_FIELDS);
         },
         Some(McpTransport::Stdio) => {
             existing.command.clone_from(&overlay.command);
-            existing.args = overlay.args.clone();
-            existing.env = overlay.env.clone();
+            existing.args.clone_from(&overlay.args);
+            existing.env.clone_from(&overlay.env);
             sync_keys(&mut existing.extra, &overlay.extra, MCP_JSON_STDIO_ONLY_EXTRA_FIELDS);
         },
         None => {},
@@ -238,20 +238,22 @@ fn contains_any_key(map: &HashMap<String, Value>, keys: &[&str]) -> bool {
 }
 
 fn remove_keys(map: &mut HashMap<String, Value>, keys: &[&str]) {
-    keys.iter().for_each(|key| {
+    for key in keys {
         map.remove(*key);
-    });
+    }
 }
 
 fn sync_keys(target: &mut HashMap<String, Value>, overlay: &HashMap<String, Value>, keys: &[&str]) {
-    keys.iter().for_each(|key| match overlay.get(*key) {
-        Some(value) => {
-            target.insert((*key).to_string(), value.clone());
-        },
-        None => {
-            target.remove(*key);
-        },
-    });
+    for key in keys {
+        match overlay.get(*key) {
+            Some(value) => {
+                target.insert((*key).to_string(), value.clone());
+            },
+            None => {
+                target.remove(*key);
+            },
+        }
+    }
 }
 
 /// Detect conflicts in settings
@@ -619,7 +621,7 @@ mod tests {
         );
 
         assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].0, "notion");
+        assert_eq!(conflicts.first().expect("one conflict").0, "notion");
     }
 
     #[test]

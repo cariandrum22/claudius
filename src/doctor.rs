@@ -357,7 +357,7 @@ fn inspect_gemini_sources(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn inspect_skill_sources(
     config_dir: &Path,
     agent_filter: Option<Agent>,
@@ -511,6 +511,7 @@ fn push_deprecated_override_finding(
     });
 }
 
+#[allow(clippy::too_many_lines)]
 fn inspect_shared_legacy_skill_metadata_leakage(
     config_dir: &Path,
     agent_filter: Option<Agent>,
@@ -531,8 +532,8 @@ fn inspect_shared_legacy_skill_metadata_leakage(
 
     for entry in entries.flatten() {
         let path = entry.path();
-        let entry_name = entry.file_name();
-        let Some(entry_name) = entry_name.to_str() else {
+        let entry_file_name = entry.file_name();
+        let Some(entry_name) = entry_file_name.to_str() else {
             continue;
         };
 
@@ -550,8 +551,7 @@ fn inspect_shared_legacy_skill_metadata_leakage(
                             .to_string(),
                     path: Some(skill_file),
                     detail: Some(format!(
-                        "Skill `{}` still uses Claude-specific frontmatter keys in a shared SKILL.md.",
-                        entry_name
+                        "Skill `{entry_name}` still uses Claude-specific frontmatter keys in a shared SKILL.md."
                     )),
                     recommendation:
                         "Migrate this skill to canonical skill.yaml or move Claude-only metadata into a Claude-specific target overlay."
