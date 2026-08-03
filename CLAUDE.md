@@ -254,6 +254,32 @@ claudius config sync --global --agent gemini --gemini-system-defaults
 claudius skills sync --agent codex
 ```
 
+### `claudius config migrate`
+Migrate deprecated agent settings in Claudius source files to their documented
+successors. Only transformations with vendor-documented semantics are applied,
+unknown fields are never touched, and re-running on migrated files reports
+nothing to do. A timestamped backup is created before every rewrite; TOML
+comments are preserved.
+
+Current rules: `includeCoAuthoredBy` → `attribution` and `$schema` addition for
+Claude settings; `background_terminal_timeout` → `background_terminal_max_timeout`
+and `experimental_instructions_file` → `model_instructions_file` for Codex
+settings; removal of deprecated `"on-failure"` from `allowed_approval_policies`
+in Codex requirements. Deprecated settings without a documented mechanical
+translation (e.g. `shell_environment_policy.exclude` / `include_only` →
+`filters`) are only reported by `claudius config validate`.
+
+```bash
+# Preview all pending migrations as unified diffs
+claudius config migrate --dry-run
+
+# Migrate all available source files
+claudius config migrate
+
+# Migrate only the Codex source files
+claudius config migrate --agent codex
+```
+
 ### `claudius skills sync`
 Synchronize skills into the selected agent's skills directory.
 

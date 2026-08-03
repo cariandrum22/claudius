@@ -216,6 +216,40 @@ Use --global to inspect global deployment targets under $HOME.
 Use --agent to focus on a single agent surface."
     )]
     Doctor(ConfigDoctorArgs),
+
+    /// Migrate deprecated agent settings to their documented successors
+    #[command(long_about = "Migrate deprecated agent settings in Claudius source files to their
+documented successors.
+
+This command only applies transformations whose semantics are documented
+by the agent vendors, and it never touches unknown fields:
+  • Claude / Claude Code (claude.settings.json or legacy settings.json):
+      - includeCoAuthoredBy → attribution block
+      - add the official $schema reference when missing
+  • Codex (codex.settings.toml, comments preserved):
+      - background_terminal_timeout → background_terminal_max_timeout
+      - experimental_instructions_file → model_instructions_file
+  • Codex (codex.requirements.toml, comments preserved):
+      - remove deprecated \"on-failure\" from allowed_approval_policies
+
+Deprecated settings without a documented mechanical translation (for
+example shell_environment_policy.exclude / include_only → filters) are
+reported by `claudius config validate` but never rewritten.
+
+A timestamped backup is created next to every file before it is
+rewritten. Re-running the command on migrated files reports nothing to
+do.
+
+Examples:
+  # Preview all pending migrations as unified diffs
+  claudius config migrate --dry-run
+
+  # Migrate only the Codex source files
+  claudius config migrate --agent codex
+
+  # Migrate Claude Code settings
+  claudius config migrate --agent claude-code")]
+    Migrate(ConfigMigrateArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -490,6 +524,17 @@ pub struct ConfigValidateArgs {
     /// Treat warnings as errors (exit non-zero)
     #[arg(long)]
     pub strict: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct ConfigMigrateArgs {
+    /// Migrate a specific agent's settings (defaults to all available source files)
+    #[arg(short, long, value_enum)]
+    pub agent: Option<crate::app_config::Agent>,
+
+    /// Show pending migrations as diffs without writing anything
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone, Copy)]
