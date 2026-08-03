@@ -122,6 +122,7 @@ fn dispatch_command(command: cli::Commands, app_config: Option<&AppConfig>) -> R
             cli::ConfigCommands::Sync(args) => run_config_sync(args, app_config),
             cli::ConfigCommands::Validate(args) => run_config_validate(args, app_config),
             cli::ConfigCommands::Doctor(args) => run_config_doctor(args),
+            cli::ConfigCommands::Migrate(args) => run_config_migrate(args, app_config),
         },
         cli::Commands::Skills(subcommand) => match subcommand {
             cli::SkillsCommands::Sync(args) => run_sync_skills(args, app_config),
@@ -547,6 +548,50 @@ fn run_config_validate(
     }
 
     Ok(())
+}
+
+fn run_config_migrate(args: cli::ConfigMigrateArgs, _app_config: Option<&AppConfig>) -> Result<()> {
+    let cli::ConfigMigrateArgs { agent, dry_run } = args;
+
+    let config_dir =
+        Config::get_config_dir().context("Failed to determine Claudius config directory")?;
+    let plan = claudius::config_migrate::plan_migration(&config_dir, agent)?;
+
+    for note in &plan.notes {
+        println!("Note: {note}");
+    }
+
+    if plan.files.is_empty() {
+        println!("No deprecated settings found; nothing to migrate");
+        return Ok(());
+    }
+
+    for file in &plan.files {
+        print_file_migration(file, dry_run);
+    }
+
+    if dry_run {
+        println!("Dry run: no files were modified");
+        return Ok(());
+    }
+
+    let backups = claudius::config_migrate::apply_migration(&plan)?;
+    for backup in &backups {
+        println!("Backup created: {backup}");
+    }
+    println!("Migration complete: {} file(s) updated", plan.files.len());
+    Ok(())
+}
+
+fn print_file_migration(file: &claudius::config_migrate::FileMigration, dry_run: bool) {
+    println!("{}:", file.path.display());
+    for change in &file.changes {
+        println!("  - {change}");
+    }
+    if dry_run {
+        let diff = similar::TextDiff::from_lines(&file.original, &file.migrated);
+        print!("{}", diff.unified_diff().context_radius(2).header("current", "migrated"));
+    }
 }
 
 fn collect_config_validation_warnings(

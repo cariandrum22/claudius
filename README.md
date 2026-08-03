@@ -338,6 +338,42 @@ claudius config doctor --agent gemini
 claudius config doctor --global
 ```
 
+### `claudius config migrate`
+
+Migrate deprecated agent settings in Claudius source files to their documented
+successors. The command is intentionally conservative: it only applies
+transformations whose semantics are documented by the agent vendors, never
+touches unknown fields, and re-running it on migrated files reports nothing to
+do.
+
+Current rules:
+
+- Claude / Claude Code (`claude.settings.json` or legacy `settings.json`):
+  - `includeCoAuthoredBy` → `attribution` block
+  - add the official `$schema` reference when missing
+- Codex (`codex.settings.toml`, comments preserved):
+  - `background_terminal_timeout` → `background_terminal_max_timeout`
+  - `experimental_instructions_file` → `model_instructions_file`
+- Codex (`codex.requirements.toml`, comments preserved):
+  - remove deprecated `"on-failure"` from `allowed_approval_policies`
+
+Deprecated settings without a documented mechanical translation (for example
+`shell_environment_policy.exclude` / `include_only` → `filters`) are reported
+by `claudius config validate` but never rewritten automatically.
+
+A timestamped backup is created next to every file before it is rewritten.
+
+```bash
+# Preview all pending migrations as unified diffs
+claudius config migrate --dry-run
+
+# Migrate all available source files
+claudius config migrate
+
+# Migrate only the Codex source files
+claudius config migrate --agent codex
+```
+
 ### `claudius skills sync`
 
 Synchronize skills into the selected agent's skills directory.

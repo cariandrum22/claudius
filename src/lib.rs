@@ -8,6 +8,7 @@ pub mod claude_settings;
 pub mod cli;
 pub mod codex_settings;
 pub mod config;
+pub mod config_migrate;
 pub mod doctor;
 pub mod gemini_settings;
 pub(crate) mod json_merge;
