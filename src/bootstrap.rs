@@ -170,8 +170,8 @@ const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
 # - "untrusted" | "on-request" | "never"
 # approval_policy = "on-request"
 
-# List of notification channels
-# notify = ["desktop", "sound"]
+# Program invoked for notifications; it receives a JSON payload from Codex
+# notify = ["notify-send", "Codex"]
 
 # Model provider configurations
 # [model_providers.openai]
