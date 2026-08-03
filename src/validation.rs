@@ -20,6 +20,13 @@ pub struct ValidationResult {
     pub warnings: Vec<String>,
 }
 
+/// Identifies the settings schema used for semantic JSON validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JsonConfigKind {
+    Claude,
+    Gemini,
+}
+
 /// Validates Claudius app configuration and returns semantic warnings.
 #[must_use]
 pub fn validate_app_config(config: &AppConfig) -> ValidationResult {
@@ -67,7 +74,9 @@ struct MarkdownAgentFrontmatter {
     _extra: std::collections::BTreeMap<String, serde_yaml::Value>,
 }
 
-/// Validates a JSON file and returns any warnings about unknown fields
+/// Validates a JSON file, inferring its settings schema from the file name only.
+///
+/// Prefer [`validate_json_file_as`] when the caller knows the settings type.
 ///
 /// # Errors
 ///
@@ -75,6 +84,29 @@ struct MarkdownAgentFrontmatter {
 /// - Unable to read the file
 /// - File contains invalid JSON syntax
 pub fn validate_json_file<P: AsRef<Path>>(path: P) -> Result<(Value, ValidationResult)> {
+    let path_ref = path.as_ref();
+    let kind = infer_json_config_kind(path_ref);
+    parse_and_validate_json_file(path_ref, kind)
+}
+
+/// Validates a JSON file against an explicitly selected settings schema.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Unable to read the file
+/// - File contains invalid JSON syntax
+pub fn validate_json_file_as<P: AsRef<Path>>(
+    path: P,
+    kind: JsonConfigKind,
+) -> Result<(Value, ValidationResult)> {
+    parse_and_validate_json_file(path, Some(kind))
+}
+
+fn parse_and_validate_json_file<P: AsRef<Path>>(
+    path: P,
+    kind: Option<JsonConfigKind>,
+) -> Result<(Value, ValidationResult)> {
     let path_ref = path.as_ref();
     let content = fs::read_to_string(path_ref)
         .with_context(|| format!("Failed to read file: {}", path_ref.display()))?;
@@ -84,19 +116,24 @@ pub fn validate_json_file<P: AsRef<Path>>(path: P) -> Result<(Value, ValidationR
         format!("Failed to parse JSON from {}: Invalid JSON syntax", path_ref.display())
     })?;
 
-    // Validate based on file type
-    let warnings = if path_ref.to_string_lossy().contains("gemini") {
-        validate_gemini_settings(&json_value)
-    } else if path_ref.to_string_lossy().contains("claude")
-        || path_ref.to_string_lossy().contains("codex")
-    {
-        validate_claude_settings(&json_value)
-    } else {
-        // For unknown file types, don't validate fields
-        Vec::new()
+    let warnings = match kind {
+        Some(JsonConfigKind::Claude) => validate_claude_settings(&json_value),
+        Some(JsonConfigKind::Gemini) => validate_gemini_settings(&json_value),
+        None => Vec::new(),
     };
 
     Ok((json_value, ValidationResult { warnings }))
+}
+
+fn infer_json_config_kind(path: &Path) -> Option<JsonConfigKind> {
+    let file_name = path.file_name()?.to_string_lossy();
+    if file_name.contains("gemini") {
+        Some(JsonConfigKind::Gemini)
+    } else if file_name.contains("claude") || file_name.contains("codex") {
+        Some(JsonConfigKind::Claude)
+    } else {
+        None
+    }
 }
 
 const KNOWN_PERMISSION_FIELDS: &[&str] = &["allow", "deny", "defaultMode"];
@@ -179,7 +216,7 @@ pub fn pre_validate_settings<P: AsRef<Path>>(path: P) -> Result<ValidationResult
         return Ok(ValidationResult { warnings: Vec::new() });
     }
 
-    let (_, validation_result) = validate_json_file(path_ref)?;
+    let (_, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Claude)?;
     Ok(validation_result)
 }
 
@@ -200,7 +237,7 @@ pub fn validate_and_parse_settings<P: AsRef<Path>>(
         return Ok((None, ValidationResult { warnings: Vec::new() }));
     }
 
-    let (json_value, validation_result) = validate_json_file(path_ref)?;
+    let (json_value, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Claude)?;
 
     // Try to deserialize into Settings
     let settings: Settings = serde_json::from_value(json_value)
@@ -226,7 +263,7 @@ pub fn validate_and_parse_gemini_settings<P: AsRef<Path>>(
         return Ok((None, ValidationResult { warnings: Vec::new() }));
     }
 
-    let (json_value, validation_result) = validate_json_file(path_ref)?;
+    let (json_value, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Gemini)?;
 
     // Try to deserialize into GeminiSettings
     let settings: GeminiSettings = serde_json::from_value(json_value)
@@ -508,7 +545,8 @@ mod tests {
 
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
-        let (value, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
+        let (value, result) = validate_json_file_as(&file_path, JsonConfigKind::Claude)
+            .expect("Failed to validate JSON file");
         assert_eq!(value.get("apiKeyHelper"), Some(&serde_json::json!("/bin/helper")));
         assert!(result.warnings.is_empty());
     }
@@ -524,8 +562,8 @@ mod tests {
 
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
-        let (value, _result) =
-            validate_json_file(&file_path).expect("Failed to validate JSON file");
+        let (value, _result) = validate_json_file_as(&file_path, JsonConfigKind::Gemini)
+            .expect("Failed to validate JSON file");
         assert_eq!(value.get("some_field"), Some(&serde_json::json!("value")));
         // Gemini validation would happen via validate_gemini_settings
     }
@@ -568,6 +606,28 @@ mod tests {
 
         let (_, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
         assert!(result.warnings.is_empty()); // Unknown file types don't validate
+    }
+
+    #[test]
+    fn test_validate_json_file_does_not_infer_schema_from_parent_path() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let claude_home = temp_dir.path().join("home").join("claude");
+        fs::create_dir_all(&claude_home).expect("Failed to create test directory");
+        let file_path = claude_home.join("unrelated.json");
+
+        fs::write(&file_path, json!({ "unrelated": true }).to_string())
+            .expect("Failed to write file");
+
+        let (_, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
+        assert!(result.warnings.is_empty());
+
+        let (_, claude_result) = validate_json_file_as(&file_path, JsonConfigKind::Claude)
+            .expect("Failed to validate Claude JSON file");
+        assert_eq!(claude_result.warnings.len(), 1);
+        assert!(claude_result
+            .warnings
+            .first()
+            .is_some_and(|warning| warning.contains("unrelated")));
     }
 
     #[test]

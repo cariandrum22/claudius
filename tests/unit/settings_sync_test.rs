@@ -1,5 +1,6 @@
 use claudius::validation::{
     validate_and_parse_gemini_settings, validate_and_parse_settings, validate_json_file,
+    validate_json_file_as, JsonConfigKind,
 };
 use serde_json::json;
 use std::fs;
@@ -57,7 +58,8 @@ mod tests {
 
         fs::write(&settings_file, serde_json::to_string_pretty(&settings_json).unwrap()).unwrap();
 
-        let (json_value, validation_result) = validate_json_file(&settings_file).unwrap();
+        let (json_value, validation_result) =
+            validate_json_file_as(&settings_file, JsonConfigKind::Claude).unwrap();
 
         // Should have warnings about unknown fields
         assert_eq!(validation_result.warnings.len(), 2);
@@ -148,7 +150,8 @@ mod tests {
 
         fs::write(&settings_file, serde_json::to_string_pretty(&settings_json).unwrap()).unwrap();
 
-        let (json_value, validation_result) = validate_json_file(&settings_file).unwrap();
+        let (json_value, validation_result) =
+            validate_json_file_as(&settings_file, JsonConfigKind::Gemini).unwrap();
 
         // Should have warnings about unknown fields
         assert_eq!(validation_result.warnings.len(), 3);
