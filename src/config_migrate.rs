@@ -154,7 +154,33 @@ fn plan_codex(config_dir: &Path, plan: &mut MigrationPlan) -> Result<()> {
         config_dir.join("codex.requirements.toml"),
         migrate_codex_requirements_content,
         plan,
-    )
+    )?;
+    plan_codex_managed_config(config_dir, plan)
+}
+
+fn plan_codex_managed_config(config_dir: &Path, plan: &mut MigrationPlan) -> Result<()> {
+    let preferred = config_dir.join("codex.managed_config.toml");
+    let legacy = config_dir.join("managed_config.toml");
+    let source = if preferred.exists() {
+        if legacy.exists() {
+            plan.notes.push(format!(
+                "Legacy {} also exists; only {} is migrated because sync prefers it",
+                legacy.display(),
+                preferred.display()
+            ));
+        }
+        preferred
+    } else if legacy.exists() {
+        plan.notes.push(format!(
+            "Using legacy {}; rename it to codex.managed_config.toml manually",
+            legacy.display()
+        ));
+        legacy
+    } else {
+        return Ok(());
+    };
+
+    plan_toml_file(source, migrate_codex_managed_config_content, plan)
 }
 
 fn plan_toml_file(
@@ -288,12 +314,41 @@ fn ensure_schema_field(
 ///
 /// Returns an error if the content is not valid TOML.
 pub fn migrate_codex_settings_content(content: &str) -> Result<MigrationOutcome> {
+    migrate_codex_settings_like_content(content, false)
+}
+
+/// Migrate Codex managed defaults, preserving comments and layout.
+///
+/// Documented key renames are applied mechanically. A deprecated
+/// `approval_policy = "on-failure"` value is only reported because choosing
+/// between `on-request` and `never` requires an administrator decision.
+///
+/// # Errors
+///
+/// Returns an error if the content is not valid TOML.
+pub fn migrate_codex_managed_config_content(content: &str) -> Result<MigrationOutcome> {
+    migrate_codex_settings_like_content(content, true)
+}
+
+fn migrate_codex_settings_like_content(
+    content: &str,
+    report_approval_policy: bool,
+) -> Result<MigrationOutcome> {
     let mut doc: DocumentMut = content.parse().context("Codex settings file is not valid TOML")?;
     let mut changes = Vec::new();
     let mut notes = Vec::new();
 
     for (old, new) in CODEX_RENAMED_KEYS {
         rename_top_level_key(&mut doc, old, new, &mut changes, &mut notes);
+    }
+
+    if report_approval_policy
+        && doc.get("approval_policy").and_then(Item::as_str) == Some("on-failure")
+    {
+        notes.push(
+            "approval_policy = \"on-failure\" requires a manual choice: use \"on-request\" for interactive approvals or \"never\" for non-interactive operation"
+                .to_string(),
+        );
     }
 
     if changes.is_empty() {
@@ -505,6 +560,33 @@ mod tests {
 
         assert_eq!(first, second);
         assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn managed_config_applies_safe_renames_and_reports_approval_policy() {
+        let content = "# Managed defaults\n\
+                       approval_policy = \"on-failure\"\n\
+                       experimental_instructions_file = \"instructions.md\"\n";
+        let (migrated, changes, notes) =
+            migrate_codex_managed_config_content(content).expect("migration should succeed");
+
+        assert!(migrated.contains("# Managed defaults"));
+        assert!(migrated.contains("approval_policy = \"on-failure\""));
+        assert!(migrated.contains("model_instructions_file = \"instructions.md\""));
+        assert!(!migrated.contains("experimental_instructions_file ="));
+        assert_eq!(changes.len(), 1);
+        assert!(notes.iter().any(|note| note.contains("manual choice")));
+    }
+
+    #[test]
+    fn managed_config_does_not_rewrite_approval_policy() {
+        let content = "approval_policy = \"on-failure\"\n";
+        let (migrated, changes, notes) =
+            migrate_codex_managed_config_content(content).expect("migration should succeed");
+
+        assert_eq!(migrated, content);
+        assert!(changes.is_empty());
+        assert_eq!(notes.len(), 1);
     }
 
     #[test]

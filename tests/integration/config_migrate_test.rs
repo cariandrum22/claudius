@@ -138,6 +138,71 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_config_migrate_codex_managed_config_renames_safe_keys_only() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        fs::write(
+            fixture.config.join("codex.managed_config.toml"),
+            "# Managed defaults\napproval_policy = \"on-failure\"\nbackground_terminal_timeout = 300\n",
+        )
+        .unwrap();
+
+        migrate_cmd(&fixture, &["--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("requires a manual choice"))
+            .stdout(predicate::str::contains("Migration complete: 1 file(s) updated"));
+
+        let managed = fs::read_to_string(fixture.config.join("codex.managed_config.toml")).unwrap();
+        assert!(managed.contains("# Managed defaults"));
+        assert!(managed.contains("approval_policy = \"on-failure\""));
+        assert!(managed.contains("background_terminal_max_timeout = 300"));
+        assert!(!managed.contains("background_terminal_timeout ="));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_migrate_codex_legacy_managed_config_is_not_renamed() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+        let legacy = fixture.config.join("managed_config.toml");
+        fs::write(&legacy, "experimental_instructions_file = \"instructions.md\"\n").unwrap();
+
+        migrate_cmd(&fixture, &["--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("rename it to codex.managed_config.toml manually"));
+
+        assert!(legacy.exists());
+        assert!(!fixture.config.join("codex.managed_config.toml").exists());
+        let managed = fs::read_to_string(legacy).unwrap();
+        assert!(managed.contains("model_instructions_file = \"instructions.md\""));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_migrate_prefers_codex_managed_config_over_legacy_source() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+        let preferred = fixture.config.join("codex.managed_config.toml");
+        let legacy = fixture.config.join("managed_config.toml");
+        fs::write(&preferred, "background_terminal_timeout = 300\n").unwrap();
+        fs::write(&legacy, "background_terminal_timeout = 600\n").unwrap();
+
+        migrate_cmd(&fixture, &["--agent", "codex"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("only"))
+            .stdout(predicate::str::contains("is migrated because sync prefers it"));
+
+        let preferred_content = fs::read_to_string(preferred).unwrap();
+        assert!(preferred_content.contains("background_terminal_max_timeout = 300"));
+        assert_eq!(fs::read_to_string(legacy).unwrap(), "background_terminal_timeout = 600\n");
+    }
+
+    #[test]
+    #[serial]
     fn test_config_migrate_without_agent_migrates_all_sources() {
         let fixture = TestFixture::new().unwrap();
         fixture.setup_env();

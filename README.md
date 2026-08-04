@@ -356,6 +356,14 @@ Current rules:
   - `experimental_instructions_file` → `model_instructions_file`
 - Codex (`codex.requirements.toml`, comments preserved):
   - remove deprecated `"on-failure"` from `allowed_approval_policies`
+- Codex managed defaults (`codex.managed_config.toml` or legacy
+  `managed_config.toml`, comments preserved):
+  - apply the same documented key renames as `codex.settings.toml`
+  - report `approval_policy = "on-failure"` for manual resolution
+
+Legacy `managed_config.toml` content is migrated in place, but the file itself
+is not renamed automatically. Rename it to `codex.managed_config.toml` after
+reviewing the migration.
 
 Deprecated settings without a documented mechanical translation (for example
 `shell_environment_policy.exclude` / `include_only` → `filters`) are reported

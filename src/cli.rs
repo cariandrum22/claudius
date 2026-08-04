@@ -231,6 +231,9 @@ by the agent vendors, and it never touches unknown fields:
       - experimental_instructions_file → model_instructions_file
   • Codex (codex.requirements.toml, comments preserved):
       - remove deprecated \"on-failure\" from allowed_approval_policies
+  • Codex managed defaults (codex.managed_config.toml or legacy managed_config.toml):
+      - apply the same documented key renames as codex.settings.toml
+      - report approval_policy = \"on-failure\" for manual resolution
 
 Deprecated settings without a documented mechanical translation (for
 example shell_environment_policy.exclude / include_only → filters) are
