@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `claudius config migrate` now applies documented Codex key renames to managed defaults while leaving ambiguous approval-policy changes for explicit administrator review
+
 ### Changed
 - Raised the minimum supported Rust version and reproducible Nix toolchain to Rust 1.97.1
 - Updated all Cargo dependencies, including `serial_test` 4.0
