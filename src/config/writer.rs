@@ -1,8 +1,10 @@
 use super::{ClaudeConfig, McpServersConfig, Settings};
 use crate::codex_settings::CodexSettings;
+use anyhow::Context;
 use chrono::Local;
-use std::fs;
-use std::path::Path;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 /// Write Claude configuration to a JSON file
 ///
@@ -39,15 +41,100 @@ pub fn backup_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Option<String>> {
     }
 
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let backup_path = path_ref.with_file_name(format!(
-        "{}.backup.{}",
-        path_ref.file_name().and_then(|n| n.to_str()).unwrap_or("claude.json"),
-        timestamp
-    ));
+    let file_name = path_ref.file_name().and_then(|name| name.to_str()).unwrap_or("claude.json");
+    let source_metadata = fs::metadata(path_ref)?;
 
-    fs::copy(path_ref, &backup_path)?;
+    let mut suffix = 0_u64;
+    loop {
+        let backup_path = backup_path(path_ref, file_name, &timestamp.to_string(), suffix);
+        match OpenOptions::new().write(true).create_new(true).open(&backup_path) {
+            Ok(mut backup) => {
+                let backup_result = (|| -> anyhow::Result<()> {
+                    let mut source = fs::File::open(path_ref)?;
+                    io::copy(&mut source, &mut backup)?;
+                    backup.flush()?;
+                    backup.set_permissions(source_metadata.permissions())?;
+                    backup.sync_all()?;
+                    Ok(())
+                })();
+                if let Err(error) = backup_result {
+                    drop(backup);
+                    let _ = fs::remove_file(&backup_path);
+                    return Err(error);
+                }
+                return Ok(Some(backup_path.to_string_lossy().to_string()));
+            },
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                suffix = suffix.checked_add(1).ok_or_else(|| {
+                    anyhow::anyhow!("Exhausted backup names for {}", path_ref.display())
+                })?;
+            },
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
 
-    Ok(Some(backup_path.to_string_lossy().to_string()))
+fn backup_path(path: &Path, file_name: &str, timestamp: &str, suffix: u64) -> PathBuf {
+    let suffix_text = if suffix > 0 { format!(".{suffix}") } else { String::new() };
+    path.with_file_name(format!("{file_name}.backup.{timestamp}{suffix_text}"))
+}
+
+/// Atomically replace a file while preserving its permissions.
+///
+/// The temporary file is created beside the destination to keep the final
+/// rename on the same filesystem. If `path` is a symlink, its resolved target
+/// is replaced so the symlink itself remains intact.
+///
+/// # Errors
+///
+/// Returns an error if metadata cannot be read, the temporary file cannot be
+/// written or synchronized, permissions cannot be copied, or the atomic
+/// replacement fails.
+pub fn atomic_write_preserving_permissions(path: &Path, content: &[u8]) -> anyhow::Result<()> {
+    let destination = resolve_write_destination(path)?;
+    let metadata = fs::metadata(&destination)
+        .with_context(|| format!("Failed to read metadata for {}", destination.display()))?;
+    let parent = destination.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot atomically replace path without a parent: {}",
+            destination.display()
+        )
+    })?;
+
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("Failed to create temporary file in {}", parent.display()))?;
+    temporary.write_all(content)?;
+    temporary.flush()?;
+    temporary.as_file().set_permissions(metadata.permissions())?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(&destination)
+        .map_err(|error| error.error)
+        .with_context(|| format!("Failed to atomically replace {}", destination.display()))?;
+    sync_parent_directory(parent)?;
+    Ok(())
+}
+
+fn resolve_write_destination(path: &Path) -> anyhow::Result<PathBuf> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("Failed to inspect {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        fs::canonicalize(path)
+            .with_context(|| format!("Failed to resolve symlink {}", path.display()))
+    } else {
+        Ok(path.to_path_buf())
+    }
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> anyhow::Result<()> {
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> anyhow::Result<()> {
+    Ok(())
 }
 
 /// Write MCP servers configuration to a JSON file
@@ -260,6 +347,72 @@ mod tests {
         let timestamp = parts.last().expect("Parts should have last element");
         assert_eq!(timestamp.len(), 15); // YYYYMMDD_HHMMSS
         assert_eq!(timestamp.chars().nth(8).expect("Timestamp should have 9th character"), '_');
+    }
+
+    #[test]
+    fn test_backup_file_never_overwrites_an_existing_backup() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("test.json");
+        fs::write(&file_path, "first version").expect("Failed to write first version");
+        let first = backup_file(&file_path)
+            .expect("First backup should succeed")
+            .expect("First backup should exist");
+
+        fs::write(&file_path, "second version").expect("Failed to write second version");
+        let second = backup_file(&file_path)
+            .expect("Second backup should succeed")
+            .expect("Second backup should exist");
+
+        assert_ne!(first, second);
+        assert_eq!(
+            fs::read_to_string(first).expect("First backup should be readable"),
+            "first version"
+        );
+        assert_eq!(
+            fs::read_to_string(second).expect("Second backup should be readable"),
+            "second version"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_preserves_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let file_path = temp_dir.path().join("settings.json");
+        fs::write(&file_path, "old").expect("Failed to write original file");
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o640))
+            .expect("Failed to set original mode");
+
+        atomic_write_preserving_permissions(&file_path, b"new")
+            .expect("Atomic write should succeed");
+
+        assert_eq!(fs::read_to_string(&file_path).expect("File should be readable"), "new");
+        assert_eq!(
+            fs::metadata(file_path).expect("Metadata should load").permissions().mode() & 0o777,
+            0o640
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_preserves_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let target = temp_dir.path().join("source.json");
+        let link = temp_dir.path().join("settings.json");
+        fs::write(&target, "old").expect("Failed to write symlink target");
+        symlink(&target, &link).expect("Failed to create symlink");
+
+        atomic_write_preserving_permissions(&link, b"new").expect("Atomic write should succeed");
+
+        assert!(fs::symlink_metadata(&link)
+            .expect("Symlink metadata should load")
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(target).expect("Target should be readable"), "new");
     }
 
     #[test]

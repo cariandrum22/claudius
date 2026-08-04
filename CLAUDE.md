@@ -270,8 +270,9 @@ claudius config validate --strict
 Migrate deprecated agent settings in Claudius source files to their documented
 successors. Only transformations with vendor-documented semantics are applied,
 unknown fields are never touched, and re-running on migrated files reports
-nothing to do. A timestamped backup is created before every rewrite; TOML
-comments are preserved.
+nothing to do. A collision-safe timestamped backup is created before every
+atomic rewrite; file permissions, source symlinks, and TOML comments are
+preserved.
 
 Current rules: `includeCoAuthoredBy` → `attribution` and `$schema` addition for
 Claude settings; `background_terminal_timeout` → `background_terminal_max_timeout`
