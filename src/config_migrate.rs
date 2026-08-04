@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Key};
 
 use crate::app_config::Agent;
-use crate::config::writer::backup_file;
+use crate::config::writer::{atomic_write_preserving_permissions, backup_file};
 
 /// Official JSON schema for Claude Code `settings.json`.
 pub const CLAUDE_SETTINGS_SCHEMA_URL: &str =
@@ -81,8 +81,8 @@ pub fn plan_migration(config_dir: &Path, agent: Option<Agent>) -> Result<Migrati
     Ok(plan)
 }
 
-/// Apply a previously computed plan, creating a timestamped backup of every
-/// file before it is rewritten. Returns the created backup paths.
+/// Apply a previously computed plan, creating a collision-safe timestamped
+/// backup before atomically replacing each file. Returns the backup paths.
 ///
 /// # Errors
 ///
@@ -110,7 +110,7 @@ pub fn apply_migration(plan: &MigrationPlan) -> Result<Vec<String>> {
                 .ok_or_else(|| {
                     anyhow::anyhow!("Refusing to migrate missing file: {}", file.path.display())
                 })?;
-            fs::write(&file.path, &file.migrated)
+            atomic_write_preserving_permissions(&file.path, file.migrated.as_bytes())
                 .with_context(|| format!("Failed to write {}", file.path.display()))?;
             Ok(backup)
         })
@@ -645,6 +645,35 @@ mod tests {
         assert_eq!(
             fs::read_to_string(path).expect("file should remain readable"),
             "changed externally"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_migration_preserves_file_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempfile::TempDir::new().expect("temp directory should be created");
+        let path = temp_dir.path().join("settings.json");
+        fs::write(&path, "original").expect("original file should be written");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640))
+            .expect("file mode should be set");
+        let plan = MigrationPlan {
+            files: vec![FileMigration {
+                path: path.clone(),
+                original: "original".to_string(),
+                migrated: "migrated".to_string(),
+                changes: vec!["test migration".to_string()],
+            }],
+            notes: Vec::new(),
+        };
+
+        apply_migration(&plan).expect("migration should succeed");
+
+        assert_eq!(fs::read_to_string(&path).expect("file should be readable"), "migrated");
+        assert_eq!(
+            fs::metadata(path).expect("metadata should load").permissions().mode() & 0o777,
+            0o640
         );
     }
 }

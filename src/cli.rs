@@ -240,9 +240,9 @@ Deprecated settings without a documented mechanical translation (for
 example shell_environment_policy.exclude / include_only → filters) are
 reported by `claudius config validate` but never rewritten.
 
-A timestamped backup is created next to every file before it is
-rewritten. Re-running the command on migrated files reports nothing to
-do.
+A collision-safe timestamped backup is created next to every file before
+it is atomically replaced with its original permissions preserved.
+Re-running the command on migrated files reports nothing to do.
 
 Examples:
   # Preview all pending migrations as unified diffs

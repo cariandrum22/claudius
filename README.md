@@ -373,7 +373,8 @@ Deprecated settings without a documented mechanical translation (for example
 `shell_environment_policy.exclude` / `include_only` → `filters`) are reported
 by `claudius config validate` but never rewritten automatically.
 
-A timestamped backup is created next to every file before it is rewritten.
+A collision-safe timestamped backup is created next to every file before an
+atomic replacement. File permissions and source symlinks are preserved.
 
 ```bash
 # Preview all pending migrations as unified diffs
