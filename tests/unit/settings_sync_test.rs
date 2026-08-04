@@ -36,7 +36,7 @@ mod tests {
         let (settings, validation_result) = validate_and_parse_settings(&settings_file).unwrap();
 
         assert!(settings.is_some());
-        assert!(validation_result.warnings.is_empty());
+        assert!(validation_result.diagnostics.is_empty());
 
         let settings_data = settings.unwrap();
         assert_eq!(settings_data.api_key_helper, Some("/path/to/helper".to_string()));
@@ -63,7 +63,7 @@ mod tests {
             validate_json_file_as(&settings_file, JsonConfigKind::Claude).unwrap();
 
         // Future fields must be preserved without speculative warnings.
-        assert!(validation_result.warnings.is_empty());
+        assert!(validation_result.diagnostics.is_empty());
 
         // But the JSON should still be parsed
         assert!(json_value.get("unknownField").is_some());
@@ -106,7 +106,7 @@ mod tests {
             validate_and_parse_gemini_settings(&settings_file).unwrap();
 
         assert!(settings.is_some());
-        assert!(validation_result.warnings.is_empty());
+        assert!(validation_result.diagnostics.is_empty());
 
         let settings_data = settings.unwrap();
         assert_eq!(
@@ -153,10 +153,13 @@ mod tests {
             validate_json_file_as(&settings_file, JsonConfigKind::Gemini).unwrap();
 
         // Should have warnings about unknown fields
-        assert_eq!(validation_result.warnings.len(), 3);
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownSetting")));
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownMcpField")));
-        assert!(validation_result.warnings.iter().any(|w| w.contains("unknownTelemetryField")));
+        assert_eq!(validation_result.diagnostics.len(), 3);
+        assert!(validation_result.diagnostics.iter().any(|w| w.contains("unknownSetting")));
+        assert!(validation_result.diagnostics.iter().any(|w| w.contains("unknownMcpField")));
+        assert!(validation_result
+            .diagnostics
+            .iter()
+            .any(|w| w.contains("unknownTelemetryField")));
 
         // Unknown fields should still be preserved in the JSON
         assert!(json_value.get("unknownSetting").is_some());
@@ -190,7 +193,7 @@ mod tests {
         assert!(settings_data.extra.contains_key("experimentalFlag"));
 
         // Should have warnings about unknown fields
-        assert_eq!(validation_result.warnings.len(), 2);
+        assert_eq!(validation_result.diagnostics.len(), 2);
     }
 
     #[test]
@@ -201,7 +204,7 @@ mod tests {
         // Should return None without error for nonexistent files
         let (settings, validation_result) = validate_and_parse_settings(&settings_file).unwrap();
         assert!(settings.is_none());
-        assert!(validation_result.warnings.is_empty());
+        assert!(validation_result.diagnostics.is_empty());
     }
 
     #[test]
@@ -214,7 +217,7 @@ mod tests {
         let (settings, validation_result) = validate_and_parse_settings(&settings_file).unwrap();
 
         assert!(settings.is_some());
-        assert!(validation_result.warnings.is_empty());
+        assert!(validation_result.diagnostics.is_empty());
 
         // All fields should be None
         let settings_data = settings.unwrap();

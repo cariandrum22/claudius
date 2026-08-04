@@ -179,11 +179,11 @@ fn read_regular_settings(
     let validation_result =
         pre_validate_settings(settings_path).context("Failed to validate settings file")?;
 
-    // Display warnings
-    if !validation_result.warnings.is_empty() {
-        warn!("Configuration validation warnings:");
-        for warning in &validation_result.warnings {
-            warn!("  - {}", warning);
+    // Display validation diagnostics
+    if !validation_result.diagnostics.is_empty() {
+        warn!("Configuration validation diagnostics:");
+        for diagnostic in &validation_result.diagnostics {
+            warn!("  - {}", diagnostic);
         }
     }
 

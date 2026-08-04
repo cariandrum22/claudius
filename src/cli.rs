@@ -194,7 +194,8 @@ Examples:
       • agents/claude-code/*.md (optional) - Claude Code subagent definitions
 
 Use --agent to validate a specific agent's settings.
-Use --strict to fail on warnings."
+Use --scope with --agent claude-code to check documented scope restrictions.
+Use --strict to fail on warnings and errors; informational diagnostics do not fail."
     )]
     Validate(ConfigValidateArgs),
 
@@ -523,6 +524,10 @@ pub struct ConfigValidateArgs {
     /// Validate a specific agent (defaults to all available source files)
     #[arg(short, long, value_enum)]
     pub agent: Option<crate::app_config::Agent>,
+
+    /// Validate documented Claude Code scope restrictions
+    #[arg(long, value_enum, requires = "agent")]
+    pub scope: Option<crate::app_config::ClaudeCodeScope>,
 
     /// Treat warnings as errors (exit non-zero)
     #[arg(long)]

@@ -15,9 +15,96 @@ static YAML_FRONTMATTER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("frontmatter regex should compile")
 });
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// Severity assigned to a configuration diagnostic.
+pub enum DiagnosticSeverity {
+    /// Advisory information that does not fail strict validation.
+    Info,
+    /// A compatibility or behavior concern requiring attention.
+    Warning,
+    /// A configuration problem that cannot be safely ignored.
+    Error,
+}
+
+impl std::fmt::Display for DiagnosticSeverity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Structured finding emitted while validating configuration.
+pub struct Diagnostic {
+    /// Finding severity.
+    pub severity: DiagnosticSeverity,
+    /// Human-readable explanation and remediation guidance.
+    pub message: String,
+    /// Source file associated with the finding, when available.
+    pub path: Option<std::path::PathBuf>,
+}
+
+impl Diagnostic {
+    #[must_use]
+    /// Create an informational diagnostic.
+    pub fn info(message: impl Into<String>) -> Self {
+        Self { severity: DiagnosticSeverity::Info, message: message.into(), path: None }
+    }
+
+    #[must_use]
+    /// Create a warning diagnostic.
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self { severity: DiagnosticSeverity::Warning, message: message.into(), path: None }
+    }
+
+    #[must_use]
+    /// Create an error diagnostic.
+    pub fn error(message: impl Into<String>) -> Self {
+        Self { severity: DiagnosticSeverity::Error, message: message.into(), path: None }
+    }
+
+    #[must_use]
+    /// Associate this diagnostic with a source path.
+    pub fn with_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    #[must_use]
+    /// Return whether the message contains the supplied text.
+    pub fn contains(&self, pattern: &str) -> bool {
+        self.message.contains(pattern)
+    }
+}
+
+impl std::fmt::Display for Diagnostic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "[{}] ", self.severity)?;
+        if let Some(path) = &self.path {
+            write!(formatter, "{}: ", path.display())?;
+        }
+        formatter.write_str(&self.message)
+    }
+}
+
+#[derive(Debug, Default)]
+/// Diagnostics produced by one validation operation.
 pub struct ValidationResult {
-    pub warnings: Vec<String>,
+    /// Structured findings in discovery order.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ValidationResult {
+    #[must_use]
+    /// Return whether strict validation should fail.
+    pub fn has_actionable_diagnostics(&self) -> bool {
+        self.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity >= DiagnosticSeverity::Warning)
+    }
 }
 
 /// Identifies the settings schema used for semantic JSON validation.
@@ -54,7 +141,7 @@ pub fn validate_app_config(config: &AppConfig) -> ValidationResult {
         }
     }
 
-    ValidationResult { warnings }
+    ValidationResult { diagnostics: warnings.into_iter().map(Diagnostic::warning).collect() }
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,7 +209,10 @@ fn parse_and_validate_json_file<P: AsRef<Path>>(
         None => Vec::new(),
     };
 
-    Ok((json_value, ValidationResult { warnings }))
+    Ok((
+        json_value,
+        ValidationResult { diagnostics: warnings.into_iter().map(Diagnostic::warning).collect() },
+    ))
 }
 
 fn infer_json_config_kind(path: &Path) -> Option<JsonConfigKind> {
@@ -154,7 +244,7 @@ pub fn pre_validate_settings<P: AsRef<Path>>(path: P) -> Result<ValidationResult
 
     if !path_ref.exists() {
         // If file doesn't exist, that's fine - no validation needed
-        return Ok(ValidationResult { warnings: Vec::new() });
+        return Ok(ValidationResult::default());
     }
 
     let (_, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Claude)?;
@@ -175,7 +265,7 @@ pub fn validate_and_parse_settings<P: AsRef<Path>>(
     let path_ref = path.as_ref();
 
     if !path_ref.exists() {
-        return Ok((None, ValidationResult { warnings: Vec::new() }));
+        return Ok((None, ValidationResult::default()));
     }
 
     let (json_value, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Claude)?;
@@ -201,7 +291,7 @@ pub fn validate_and_parse_gemini_settings<P: AsRef<Path>>(
     let path_ref = path.as_ref();
 
     if !path_ref.exists() {
-        return Ok((None, ValidationResult { warnings: Vec::new() }));
+        return Ok((None, ValidationResult::default()));
     }
 
     let (json_value, validation_result) = validate_json_file_as(path_ref, JsonConfigKind::Gemini)?;
@@ -242,7 +332,7 @@ pub fn validate_gemini_command_file<P: AsRef<Path>>(path: P) -> Result<Validatio
         warnings.push("Optional field 'description' should not be empty when present".to_string());
     }
 
-    Ok(ValidationResult { warnings })
+    Ok(ValidationResult { diagnostics: warnings.into_iter().map(Diagnostic::warning).collect() })
 }
 
 /// Validates a Claude Code subagent definition file.
@@ -333,7 +423,7 @@ fn validate_markdown_agent_metadata(
         warnings.push("Agent Markdown body should not be empty".to_string());
     }
 
-    ValidationResult { warnings }
+    ValidationResult { diagnostics: warnings.into_iter().map(Diagnostic::warning).collect() }
 }
 
 /// Prompt user to continue after a warning
@@ -367,6 +457,25 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn diagnostic_display_includes_severity_and_path() {
+        let diagnostic = Diagnostic::warning("setting is deprecated").with_path("settings.json");
+
+        assert_eq!(diagnostic.to_string(), "[warning] settings.json: setting is deprecated");
+    }
+
+    #[test]
+    fn only_warning_and_error_diagnostics_are_actionable() {
+        let info = ValidationResult { diagnostics: vec![Diagnostic::info("migration available")] };
+        let warning =
+            ValidationResult { diagnostics: vec![Diagnostic::warning("setting is ignored")] };
+        let error = ValidationResult { diagnostics: vec![Diagnostic::error("invalid setting")] };
+
+        assert!(!info.has_actionable_diagnostics());
+        assert!(warning.has_actionable_diagnostics());
+        assert!(error.has_actionable_diagnostics());
+    }
+
+    #[test]
     fn test_validate_app_config_warns_when_onepassword_subtable_is_ignored() {
         let config = AppConfig {
             secret_manager: Some(SecretManagerConfig {
@@ -381,9 +490,9 @@ mod tests {
         };
 
         let result = validate_app_config(&config);
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.diagnostics.len(), 1);
         assert!(result
-            .warnings
+            .diagnostics
             .first()
             .is_some_and(|warning| warning.contains("[secret-manager.onepassword]")));
     }
@@ -403,7 +512,7 @@ mod tests {
         };
 
         let result = validate_app_config(&config);
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -415,8 +524,11 @@ mod tests {
         };
 
         let result = validate_app_config(&config);
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings.first().is_some_and(|warning| warning.contains(".codex/skills")));
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result
+            .diagnostics
+            .first()
+            .is_some_and(|warning| warning.contains(".codex/skills")));
     }
 
     #[test]
@@ -487,7 +599,7 @@ mod tests {
         let (value, result) = validate_json_file_as(&file_path, JsonConfigKind::Claude)
             .expect("Failed to validate JSON file");
         assert_eq!(value.get("apiKeyHelper"), Some(&serde_json::json!("/bin/helper")));
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -544,7 +656,7 @@ mod tests {
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
         let (_, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
-        assert!(result.warnings.is_empty()); // Unknown file types don't validate
+        assert!(result.diagnostics.is_empty()); // Unknown file types don't validate
     }
 
     #[test]
@@ -558,13 +670,13 @@ mod tests {
             .expect("Failed to write file");
 
         let (_, result) = validate_json_file(&file_path).expect("Failed to validate JSON file");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
 
         let (_, claude_result) = validate_json_file_as(&file_path, JsonConfigKind::Claude)
             .expect("Failed to validate Claude JSON file");
-        assert_eq!(claude_result.warnings.len(), 1);
+        assert_eq!(claude_result.diagnostics.len(), 1);
         assert!(claude_result
-            .warnings
+            .diagnostics
             .first()
             .is_some_and(|warning| warning.contains("attribution")));
     }
@@ -573,7 +685,7 @@ mod tests {
     fn test_pre_validate_settings_missing_file() {
         let result = pre_validate_settings("/nonexistent/settings.json")
             .expect("Failed to pre-validate settings");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -588,7 +700,7 @@ mod tests {
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
         let result = pre_validate_settings(&file_path).expect("Failed to pre-validate settings");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -603,7 +715,7 @@ mod tests {
         fs::write(&file_path, content.to_string()).expect("Failed to write file");
 
         let result = pre_validate_settings(&file_path).expect("Failed to pre-validate settings");
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.diagnostics.len(), 1);
     }
 
     #[test]
@@ -611,7 +723,7 @@ mod tests {
         let (settings, result) = validate_and_parse_settings("/nonexistent/settings.json")
             .expect("Failed to validate and parse settings");
         assert!(settings.is_none());
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -634,8 +746,11 @@ mod tests {
         assert_eq!(settings.api_key_helper, Some("/bin/helper".to_string()));
         assert_eq!(settings.cleanup_period_days, Some(30));
         assert_eq!(settings.include_co_authored_by, Some(true));
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings.first().is_some_and(|warning| warning.contains("attribution")));
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result
+            .diagnostics
+            .first()
+            .is_some_and(|warning| warning.contains("attribution")));
     }
 
     #[test]
@@ -658,7 +773,7 @@ mod tests {
         let (settings, result) = validate_and_parse_gemini_settings("/nonexistent/gemini.json")
             .expect("Failed to validate and parse gemini settings");
         assert!(settings.is_none());
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -696,7 +811,7 @@ mod tests {
 
         let (settings_opt, result) = validate_and_parse_gemini_settings(&file_path)
             .expect("Failed to validate and parse gemini settings");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
 
         let settings = settings_opt.expect("Settings should be present");
         assert_eq!(
@@ -725,7 +840,7 @@ mod tests {
 
         let result =
             validate_gemini_command_file(&file_path).expect("Gemini command should validate");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -754,7 +869,7 @@ mod tests {
 
         let result = validate_claude_code_subagent_file(&file_path)
             .expect("Claude Code subagent should validate");
-        assert!(result.warnings.is_empty());
+        assert!(result.diagnostics.is_empty());
     }
 
     #[test]
@@ -779,9 +894,9 @@ mod tests {
 
         let result = validate_claude_code_subagent_file(&file_path)
             .expect("Subagent with empty body should still parse");
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.diagnostics.len(), 1);
         assert!(result
-            .warnings
+            .diagnostics
             .first()
             .is_some_and(|warning| warning.contains("Markdown body should not be empty")));
     }

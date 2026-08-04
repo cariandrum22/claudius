@@ -254,6 +254,18 @@ claudius config sync --global --agent gemini --gemini-system-defaults
 claudius skills sync --agent codex
 ```
 
+### `claudius config validate`
+Validate configuration sources without writing files. Diagnostics use
+`info`, `warning`, and `error` severity; `--strict` fails only on warnings and
+errors. Claude Code scope checks cover only restrictions explicitly documented
+by the vendor.
+
+```bash
+claudius config validate
+claudius config validate --agent claude-code --scope project
+claudius config validate --strict
+```
+
 ### `claudius config migrate`
 Migrate deprecated agent settings in Claudius source files to their documented
 successors. Only transformations with vendor-documented semantics are applied,
