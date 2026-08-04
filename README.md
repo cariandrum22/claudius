@@ -299,8 +299,9 @@ claudius config sync --global --agent gemini --gemini-system-defaults
 Validate configuration source files without writing anything.
 
 This command validates MCP servers, agent settings, Gemini custom commands,
-Gemini custom agents, and Claude Code subagent definitions. When Codex skills are
-present, it also surfaces their current compatibility-mode warning.
+Gemini custom agents, and Claude Code subagent definitions. Diagnostics carry
+`info`, `warning`, or `error` severity. `--strict` fails on warnings and errors,
+but informational migration guidance remains non-blocking.
 
 ```bash
 # Validate all available source files
@@ -311,7 +312,10 @@ claudius config validate --agent claude-code
 claudius config validate --agent codex
 claudius config validate --agent gemini
 
-# Fail on warnings
+# Check only vendor-documented Claude Code scope restrictions
+claudius config validate --agent claude-code --scope project
+
+# Fail on warnings and errors (not info)
 claudius config validate --strict
 ```
 

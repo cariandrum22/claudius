@@ -86,7 +86,7 @@ fn load_and_log_config(log_app_config_warnings: bool) -> Result<Option<AppConfig
         }
 
         if log_app_config_warnings {
-            for warning in claudius::validation::validate_app_config(config).warnings {
+            for warning in claudius::validation::validate_app_config(config).diagnostics {
                 warn!("{warning}");
             }
         }
@@ -525,26 +525,34 @@ fn run_config_validate(
     args: cli::ConfigValidateArgs,
     app_config: Option<&AppConfig>,
 ) -> Result<()> {
-    let cli::ConfigValidateArgs { agent, strict } = args;
+    let cli::ConfigValidateArgs { agent, scope, strict } = args;
     let effective_agent =
         agent.or_else(|| app_config.and_then(|cfg| cfg.default.as_ref()).map(|d| d.agent));
 
+    if scope.is_some() && agent != Some(claudius::app_config::Agent::ClaudeCode) {
+        anyhow::bail!("--scope is only supported with --agent claude-code");
+    }
+
     let config_dir =
         Config::get_config_dir().context("Failed to determine Claudius config directory")?;
-    let warnings = collect_config_validation_warnings(&config_dir, effective_agent, app_config)?;
+    let diagnostics = collect_config_diagnostics(&config_dir, effective_agent, scope, app_config)?;
 
-    if warnings.is_empty() {
+    if diagnostics.is_empty() {
         println!("Configuration validation passed");
         return Ok(());
     }
 
-    println!("Configuration validation warnings ({}):", warnings.len());
-    for warning in &warnings {
-        println!("  - {warning}");
+    println!("Configuration diagnostics ({}):", diagnostics.len());
+    for diagnostic in &diagnostics {
+        println!("  - {diagnostic}");
     }
 
-    if strict {
-        anyhow::bail!("Validation failed due to warnings (--strict)");
+    if strict
+        && diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity >= claudius::validation::DiagnosticSeverity::Warning
+        })
+    {
+        anyhow::bail!("Validation failed due to warnings or errors (--strict)");
     }
 
     Ok(())
@@ -594,20 +602,30 @@ fn print_file_migration(file: &claudius::config_migrate::FileMigration, dry_run:
     }
 }
 
-fn collect_config_validation_warnings(
+fn collect_config_diagnostics(
     config_dir: &std::path::Path,
     effective_agent: Option<claudius::app_config::Agent>,
+    claude_scope: Option<claudius::app_config::ClaudeCodeScope>,
     app_config: Option<&AppConfig>,
-) -> Result<Vec<String>> {
-    let mut warnings = app_config
-        .map(|config| claudius::validation::validate_app_config(config).warnings)
+) -> Result<Vec<claudius::validation::Diagnostic>> {
+    let mut diagnostics = app_config
+        .map(|config| claudius::validation::validate_app_config(config).diagnostics)
         .unwrap_or_default();
 
-    warnings.extend(validate_mcp_server_sources(config_dir)?);
-    warnings.extend(validate_agent_sources(config_dir, effective_agent)?);
-    warnings.extend(skills::validate_claudius_skill_sources(config_dir, effective_agent)?.warnings);
+    diagnostics.extend(
+        validate_mcp_server_sources(config_dir)?
+            .into_iter()
+            .map(claudius::validation::Diagnostic::warning),
+    );
+    diagnostics.extend(validate_agent_sources(config_dir, effective_agent, claude_scope)?);
+    diagnostics.extend(
+        skills::validate_claudius_skill_sources(config_dir, effective_agent)?
+            .warnings
+            .into_iter()
+            .map(claudius::validation::Diagnostic::warning),
+    );
 
-    Ok(warnings)
+    Ok(diagnostics)
 }
 
 fn validate_mcp_server_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
@@ -632,21 +650,26 @@ fn validate_mcp_server_sources(config_dir: &std::path::Path) -> Result<Vec<Strin
 fn validate_agent_sources(
     config_dir: &std::path::Path,
     effective_agent: Option<claudius::app_config::Agent>,
-) -> Result<Vec<String>> {
+    claude_scope: Option<claudius::app_config::ClaudeCodeScope>,
+) -> Result<Vec<claudius::validation::Diagnostic>> {
     use claudius::app_config::Agent;
 
     match effective_agent {
-        Some(Agent::Claude) => validate_claude_settings_sources(config_dir),
-        Some(Agent::ClaudeCode) => validate_claude_code_sources(config_dir),
-        Some(Agent::Codex) => validate_codex_sources(config_dir),
-        Some(Agent::Gemini) => validate_gemini_sources(config_dir),
+        Some(Agent::Claude) => validate_claude_settings_sources(config_dir, None),
+        Some(Agent::ClaudeCode) => validate_claude_code_sources(config_dir, claude_scope),
+        Some(Agent::Codex) => validate_codex_sources(config_dir).map(warning_diagnostics),
+        Some(Agent::Gemini) => validate_gemini_sources(config_dir).map(warning_diagnostics),
         None => {
-            let mut warnings = validate_claude_code_sources(config_dir)?;
-            warnings.extend(validate_codex_sources(config_dir)?);
-            warnings.extend(validate_gemini_sources(config_dir)?);
-            Ok(warnings)
+            let mut diagnostics = validate_claude_code_sources(config_dir, None)?;
+            diagnostics.extend(warning_diagnostics(validate_codex_sources(config_dir)?));
+            diagnostics.extend(warning_diagnostics(validate_gemini_sources(config_dir)?));
+            Ok(diagnostics)
         },
     }
+}
+
+fn warning_diagnostics(warnings: Vec<String>) -> Vec<claudius::validation::Diagnostic> {
+    warnings.into_iter().map(claudius::validation::Diagnostic::warning).collect()
 }
 
 fn run_config_doctor(args: cli::ConfigDoctorArgs) -> Result<()> {
@@ -655,13 +678,19 @@ fn run_config_doctor(args: cli::ConfigDoctorArgs) -> Result<()> {
     Ok(())
 }
 
-fn validate_claude_code_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
-    let mut warnings = validate_claude_settings_sources(config_dir)?;
-    warnings.extend(validate_claude_code_subagent_sources(config_dir)?);
-    Ok(warnings)
+fn validate_claude_code_sources(
+    config_dir: &std::path::Path,
+    scope: Option<claudius::app_config::ClaudeCodeScope>,
+) -> Result<Vec<claudius::validation::Diagnostic>> {
+    let mut diagnostics = validate_claude_settings_sources(config_dir, scope)?;
+    diagnostics.extend(warning_diagnostics(validate_claude_code_subagent_sources(config_dir)?));
+    Ok(diagnostics)
 }
 
-fn validate_claude_settings_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
+fn validate_claude_settings_sources(
+    config_dir: &std::path::Path,
+    scope: Option<claudius::app_config::ClaudeCodeScope>,
+) -> Result<Vec<claudius::validation::Diagnostic>> {
     let claude_settings_path = config_dir.join("claude.settings.json");
     let legacy_settings_path = config_dir.join("settings.json");
 
@@ -682,10 +711,18 @@ fn validate_claude_settings_sources(config_dir: &std::path::Path) -> Result<Vec<
     let json_value: serde_json::Value = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse JSON from {}", settings_path.display()))?;
 
-    let mut warnings = claudius::validation::validate_claude_settings(&json_value)
+    let mut diagnostics = claudius::validation::validate_claude_settings(&json_value)
         .into_iter()
-        .map(|w| format!("{}: {w}", settings_path.display()))
+        .map(|warning| claudius::validation::Diagnostic::warning(warning).with_path(&settings_path))
         .collect::<Vec<_>>();
+
+    if let Some(claude_scope) = scope {
+        diagnostics.extend(
+            claudius::claude_settings::validate_claude_settings_scope(&json_value, claude_scope)
+                .into_iter()
+                .map(|diagnostic| diagnostic.with_path(&settings_path)),
+        );
+    }
 
     // Ensure Settings struct deserialization succeeds (we preserve unknown fields via `extra`).
     let _: claudius::config::Settings = serde_json::from_value(json_value).with_context(|| {
@@ -694,13 +731,15 @@ fn validate_claude_settings_sources(config_dir: &std::path::Path) -> Result<Vec<
 
     // Legacy settings.json is not agent-specific, so annotate which file was used.
     if settings_path.file_name().and_then(|n| n.to_str()) == Some("settings.json") {
-        warnings.push(format!(
-            "{}: Using legacy settings.json (consider migrating to claude.settings.json)",
-            settings_path.display(),
-        ));
+        diagnostics.push(
+            claudius::validation::Diagnostic::info(
+                "Using legacy settings.json (consider migrating to claude.settings.json)",
+            )
+            .with_path(&settings_path),
+        );
     }
 
-    Ok(warnings)
+    Ok(diagnostics)
 }
 
 fn validate_codex_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
@@ -830,9 +869,9 @@ fn validate_gemini_command_sources(config_dir: &std::path::Path) -> Result<Vec<S
         let result = claudius::validation::validate_gemini_command_file(&command_file)?;
         warnings.extend(
             result
-                .warnings
+                .diagnostics
                 .into_iter()
-                .map(|warning| format!("{}: {warning}", command_file.display())),
+                .map(|diagnostic| format!("{}: {}", command_file.display(), diagnostic.message)),
         );
     }
 
@@ -849,9 +888,9 @@ fn validate_gemini_agent_sources(config_dir: &std::path::Path) -> Result<Vec<Str
         let result = claudius::validation::validate_gemini_agent_file(&agent_file)?;
         warnings.extend(
             result
-                .warnings
+                .diagnostics
                 .into_iter()
-                .map(|warning| format!("{}: {warning}", agent_file.display())),
+                .map(|diagnostic| format!("{}: {}", agent_file.display(), diagnostic.message)),
         );
     }
 
@@ -868,9 +907,9 @@ fn validate_claude_code_subagent_sources(config_dir: &std::path::Path) -> Result
         let result = claudius::validation::validate_claude_code_subagent_file(&agent_file)?;
         warnings.extend(
             result
-                .warnings
+                .diagnostics
                 .into_iter()
-                .map(|warning| format!("{}: {warning}", agent_file.display())),
+                .map(|diagnostic| format!("{}: {}", agent_file.display(), diagnostic.message)),
         );
     }
 

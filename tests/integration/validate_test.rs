@@ -104,7 +104,9 @@ mod tests {
             .stdout(predicate::str::contains(
                 "Legacy shared skill `shared-review` contains Claude-specific metadata that will be dropped when rendering for Codex.",
             ))
-            .stderr(predicate::str::contains("Validation failed due to warnings (--strict)"));
+            .stderr(predicate::str::contains(
+                "Validation failed due to warnings or errors (--strict)",
+            ));
     }
 
     #[test]
@@ -323,7 +325,9 @@ mod tests {
             .stdout(predicate::str::contains(
                 "mcpServers.aws-docs.autoApprove is not supported by Gemini settings.json; Gemini sync will translate it to `trust`",
             ))
-            .stderr(predicate::str::contains("Validation failed due to warnings (--strict)"));
+            .stderr(predicate::str::contains(
+                "Validation failed due to warnings or errors (--strict)",
+            ));
     }
 
     #[test]
@@ -459,5 +463,89 @@ mode = "service-account"
             .stdout(predicate::str::contains("[secret-manager.onepassword]"))
             .stderr(predicate::str::contains("Validation failed due to warnings"))
             .stderr(predicate::str::contains("[secret-manager.onepassword]").not());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_reports_documented_claude_scope_mismatch() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_claude_settings(
+                r#"{
+  "askUserQuestionTimeout": "5m",
+  "allowManagedHooksOnly": true,
+  "futureSetting": true
+}"#,
+            )
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "claude-code", "--scope", "project"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("[warning]"))
+            .stdout(predicate::str::contains("askUserQuestionTimeout is ignored"))
+            .stdout(predicate::str::contains("allowManagedHooksOnly is a managed-only"))
+            .stdout(predicate::str::contains("futureSetting").not());
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_allows_mcp_allowlist_in_user_scope() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fixture
+            .with_claude_settings(r#"{"allowedMcpServers": [{"serverName": "github"}]}"#)
+            .unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "claude-code", "--scope", "user", "--strict"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Configuration validation passed"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_strict_does_not_fail_on_info() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+        fixture.with_mcp_servers(r#"{"mcpServers": {}}"#).unwrap();
+        fs::write(fixture.config.join("settings.json"), r#"{"cleanupPeriodDays": 30}"#).unwrap();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "claude-code", "--strict"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("[info]"))
+            .stdout(predicate::str::contains("Using legacy settings.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_validate_rejects_scope_for_non_claude_agent() {
+        let fixture = TestFixture::new().unwrap();
+        fixture.setup_env();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
+        cmd.current_dir(&fixture.project)
+            .env("XDG_CONFIG_HOME", fixture.config_home())
+            .env("HOME", fixture.home_dir())
+            .args(["config", "validate", "--agent", "codex", "--scope", "user"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--scope is only supported with --agent claude-code"));
     }
 }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `claudius config migrate` now applies documented Codex key renames to managed defaults while leaving ambiguous approval-policy changes for explicit administrator review
+- Configuration validation diagnostics now carry info, warning, or error severity, with documented Claude Code scope checks available through `config validate --scope`
 
 ### Changed
 - Raised the minimum supported Rust version and reproducible Nix toolchain to Rust 1.97.1
