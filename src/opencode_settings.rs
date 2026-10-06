@@ -28,6 +28,18 @@ const PASSTHROUGH_MCP_SERVER_FIELDS: &[&str] = &["cwd", "codemode", "protocol"];
 /// MCP server fields that only apply to local (stdio) servers.
 const LOCAL_ONLY_MCP_SERVER_FIELDS: &[&str] = &["cwd"];
 
+/// Shared MCP server field holding an `OpenCode` timeout (number or object).
+const TIMEOUT_FIELD: &str = "timeout";
+
+/// Codex per-server timeouts in seconds and the `OpenCode` v2 timeout phase
+/// (milliseconds) each one maps to.
+const SECONDS_TIMEOUT_FIELDS: &[(&str, &str)] =
+    &[("startup_timeout_sec", "startup"), ("tool_timeout_sec", "execution")];
+
+/// Largest millisecond value `OpenCode` can read as an exact integer
+/// (`Number.MAX_SAFE_INTEGER`).
+const MAX_TIMEOUT_MILLIS: u64 = 9_007_199_254_740_991;
+
 /// V1 `OAuth` keys and their v2 snake-case equivalents.
 const OAUTH_KEY_RENAMES: &[(&str, &str)] = &[
     ("clientId", "client_id"),
@@ -171,9 +183,13 @@ pub fn convert_mcp_server(name: &str, server: &McpServerConfig) -> (Option<Value
     };
 
     let is_local = server.command.is_some();
-    let sorted_extra: BTreeMap<&String, &Value> = server.extra.iter().collect();
+    let sorted_extra: BTreeMap<&String, &Value> =
+        server.extra.iter().filter(|(key, _)| !is_timeout_field(key)).collect();
     for (key, value) in sorted_extra {
         apply_extra_field(name, key, value, is_local, &mut output, &mut warnings);
+    }
+    if let Some(timeout) = convert_timeouts(name, &server.extra, &mut warnings) {
+        output.insert(TIMEOUT_FIELD.to_string(), timeout);
     }
 
     (Some(Value::Object(output)), warnings)
@@ -239,14 +255,6 @@ fn apply_extra_field(
                 "mcpServers.{name}.enabled must be a boolean and will be dropped for OpenCode"
             )),
         },
-        "timeout" => match convert_timeout(value) {
-            Some(timeout) => {
-                output.insert("timeout".to_string(), timeout);
-            },
-            None => warnings.push(format!(
-                "mcpServers.{name}.timeout must be a positive integer (milliseconds) or an object with startup/catalog/execution and will be dropped for OpenCode"
-            )),
-        },
         "oauth" if !is_local => match convert_oauth(value) {
             Some(oauth) => {
                 output.insert("oauth".to_string(), oauth);
@@ -266,20 +274,113 @@ fn apply_extra_field(
     }
 }
 
+fn is_timeout_field(key: &str) -> bool {
+    key == TIMEOUT_FIELD || SECONDS_TIMEOUT_FIELDS.iter().any(|(field, _)| *field == key)
+}
+
+/// Combine `timeout` with the Codex second-based timeout fields into a single
+/// `OpenCode` v2 timeout object.
+///
+/// A phase set explicitly by `timeout` wins over the matching seconds field,
+/// so the result does not depend on the order in which fields are read.
+fn convert_timeouts<S: BuildHasher>(
+    name: &str,
+    extra: &HashMap<String, Value, S>,
+    warnings: &mut Vec<String>,
+) -> Option<Value> {
+    let mut timeout = extra.get(TIMEOUT_FIELD).and_then(|value| {
+        let converted = convert_timeout(value);
+        if converted.is_none() {
+            warnings.push(format!(
+                "mcpServers.{name}.timeout must be a positive integer (milliseconds) or an object with startup/catalog/execution and will be dropped for OpenCode"
+            ));
+        }
+        converted
+    });
+
+    for (field, phase) in SECONDS_TIMEOUT_FIELDS {
+        let Some(value) = extra.get(*field) else {
+            continue;
+        };
+        match seconds_to_millis(value) {
+            None => warnings.push(format!(
+                "mcpServers.{name}.{field} must be a positive number of seconds and will be dropped for OpenCode"
+            )),
+            Some(_) if timeout.as_ref().is_some_and(|phases| phases.contains_key(*phase)) => {
+                warnings.push(format!(
+                    "mcpServers.{name}.{field} is ignored for OpenCode because mcpServers.{name}.timeout already sets {phase}"
+                ));
+            },
+            Some(millis) => {
+                timeout.get_or_insert_with(Map::new).insert((*phase).to_string(), Value::from(millis));
+            },
+        }
+    }
+
+    timeout.map(Value::Object)
+}
+
 /// V1 used a single millisecond timeout; v2 splits it into phases. This mirrors
 /// `OpenCode`'s own V1 migration, which maps the number to `catalog` and
 /// `execution`.
-fn convert_timeout(value: &Value) -> Option<Value> {
+fn convert_timeout(value: &Value) -> Option<Map<String, Value>> {
     match value {
         Value::Number(number) if number.as_u64().is_some_and(|ms| ms > 0) => {
             let mut timeout = Map::new();
             timeout.insert("catalog".to_string(), value.clone());
             timeout.insert("execution".to_string(), value.clone());
-            Some(Value::Object(timeout))
+            Some(timeout)
         },
-        Value::Object(_) => Some(value.clone()),
+        Value::Object(map) => Some(map.clone()),
         _ => None,
     }
+}
+
+/// Convert a positive number of seconds into whole milliseconds, rejecting
+/// values that round below one millisecond or exceed what `OpenCode` can read.
+fn seconds_to_millis(value: &Value) -> Option<u64> {
+    let Value::Number(number) = value else {
+        return None;
+    };
+    let millis = number.as_u64().map_or_else(
+        || decimal_seconds_to_millis(&number.to_string()),
+        |seconds| seconds.checked_mul(1000),
+    )?;
+    (1..=MAX_TIMEOUT_MILLIS).contains(&millis).then_some(millis)
+}
+
+/// Round a non-integer number of seconds, as rendered by `serde_json` (for
+/// example `1.5`, `-2.25` or `1.5e-7`), half up to whole milliseconds.
+///
+/// Working on the decimal digits avoids float rounding error and casts.
+fn decimal_seconds_to_millis(text: &str) -> Option<u64> {
+    if text.starts_with('-') {
+        return None;
+    }
+    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+        Some((base, power)) => (base, power.parse::<i64>().ok()?),
+        None => (text, 0),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits: Vec<u32> = whole
+        .chars()
+        .chain(fraction.chars())
+        .map(|digit| digit.to_digit(10))
+        .collect::<Option<_>>()?;
+
+    // Index of the decimal point within `digits` once seconds become milliseconds.
+    let scaled_point = i64::try_from(whole.len()).ok()?.checked_add(exponent)?.checked_add(3)?;
+    let Ok(point) = usize::try_from(scaled_point) else {
+        return Some(0);
+    };
+    let millis = digits
+        .iter()
+        .copied()
+        .chain(std::iter::repeat(0))
+        .take(point)
+        .try_fold(0_u64, |acc, digit| acc.checked_mul(10)?.checked_add(u64::from(digit)))?;
+    let round_up = digits.get(point).is_some_and(|digit| *digit >= 5);
+    millis.checked_add(u64::from(round_up))
 }
 
 fn convert_oauth(value: &Value) -> Option<Value> {
@@ -460,6 +561,120 @@ mod tests {
         assert_eq!(converted, Some(json!({"type": "local", "command": ["srv"], "disabled": true})));
         assert_eq!(warnings.len(), 1);
         assert!(warnings.first().is_some_and(|w| w.contains("mcpServers.x.autoApprove")));
+    }
+
+    #[test]
+    fn maps_startup_timeout_sec_to_timeout_startup() {
+        let (converted, warnings) = convert_mcp_server(
+            "slow",
+            &server(json!({"command": "srv", "startup_timeout_sec": 300})),
+        );
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            converted,
+            Some(json!({"type": "local", "command": ["srv"], "timeout": {"startup": 300_000}}))
+        );
+    }
+
+    #[test]
+    fn combines_startup_timeout_sec_with_numeric_timeout() {
+        let (converted, warnings) = convert_mcp_server(
+            "slow",
+            &server(json!({"command": "srv", "timeout": 30000, "startup_timeout_sec": 300})),
+        );
+
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            converted.as_ref().and_then(|value| value.get("timeout")),
+            Some(&json!({"catalog": 30000, "execution": 30000, "startup": 300_000}))
+        );
+    }
+
+    #[test]
+    fn explicit_timeout_startup_wins_over_startup_timeout_sec() {
+        let (converted, warnings) = convert_mcp_server(
+            "slow",
+            &server(json!({
+                "command": "srv",
+                "timeout": {"startup": 5000, "catalog": 1000},
+                "startup_timeout_sec": 300
+            })),
+        );
+
+        assert_eq!(
+            converted.as_ref().and_then(|value| value.get("timeout")),
+            Some(&json!({"startup": 5000, "catalog": 1000}))
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings
+            .first()
+            .is_some_and(|w| w.contains("mcpServers.slow.startup_timeout_sec is ignored")));
+    }
+
+    #[test]
+    fn rounds_fractional_startup_timeout_sec_to_whole_milliseconds() {
+        for (seconds, millis) in [(json!(1.5), 1500), (json!(0.0015), 2)] {
+            let (converted, warnings) = convert_mcp_server(
+                "slow",
+                &server(json!({"command": "srv", "startup_timeout_sec": seconds})),
+            );
+
+            assert!(warnings.is_empty(), "{warnings:?}");
+            assert_eq!(
+                converted.as_ref().and_then(|value| value.pointer("/timeout/startup")),
+                Some(&json!(millis))
+            );
+        }
+    }
+
+    #[test]
+    fn drops_invalid_startup_timeout_sec_with_warning() {
+        for invalid in [
+            json!("300"),
+            json!(0),
+            json!(-1),
+            json!(-1.5),
+            json!(0.0004),
+            json!(1e-7),
+            json!(1e20),
+            json!(9_007_199_254_741_u64),
+            json!(true),
+        ] {
+            let (converted, warnings) = convert_mcp_server(
+                "slow",
+                &server(json!({"command": "srv", "startup_timeout_sec": invalid})),
+            );
+
+            assert_eq!(converted, Some(json!({"type": "local", "command": ["srv"]})));
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings.first().is_some_and(|w| w.contains(
+                "mcpServers.slow.startup_timeout_sec must be a positive number of seconds"
+            )));
+        }
+    }
+
+    #[test]
+    fn maps_tool_timeout_sec_to_execution_unless_timeout_sets_it() {
+        let (converted, warnings) = convert_mcp_server(
+            "slow",
+            &server(json!({"url": "https://mcp.example.com", "tool_timeout_sec": 120})),
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            converted.as_ref().and_then(|value| value.get("timeout")),
+            Some(&json!({"execution": 120_000}))
+        );
+
+        let (overridden, override_warnings) = convert_mcp_server(
+            "slow",
+            &server(json!({"command": "srv", "timeout": 30000, "tool_timeout_sec": 120})),
+        );
+        assert_eq!(
+            overridden.as_ref().and_then(|value| value.get("timeout")),
+            Some(&json!({"catalog": 30000, "execution": 30000}))
+        );
+        assert_eq!(override_warnings.len(), 1, "{override_warnings:?}");
     }
 
     #[test]

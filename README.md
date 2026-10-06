@@ -266,14 +266,19 @@ OpenCode v2 native layout under `mcp.servers.<name>`:
 | `url` + `headers` | `type: "remote"`, `url`, `headers` |
 | `enabled: false` / `disabled: true` | `disabled: true` |
 | `timeout` (milliseconds) | `timeout: {catalog, execution}` |
+| `startup_timeout_sec` (seconds) | `timeout.startup` (milliseconds) |
+| `tool_timeout_sec` (seconds) | `timeout.execution` (milliseconds) |
 | `oauth` (`clientId`, …) | `oauth` (`client_id`, …) |
 | `cwd`, `codemode`, `protocol` | passed through unchanged |
 
-Other fields (for example `autoApprove`) are dropped with a warning. Servers that
-already exist under `mcp.servers` but not in `mcpServers.json` are preserved. A V1
-flat entry `mcp.<name>` is removed only when a synced server with the same name
-replaces it. `opencode.settings.json` is deep-merged into `opencode.json` as-is,
-so write it in the OpenCode v2 format (for example `permissions` as a rule array).
+Second-based values are rounded to whole milliseconds. A phase that `timeout` already
+sets wins over the matching seconds field, which is then ignored with a warning; Codex
+output keeps the seconds fields unchanged. Other fields (for example `autoApprove`) are
+dropped with a warning. Servers that already exist under `mcp.servers` but not in
+`mcpServers.json` are preserved. A V1 flat entry `mcp.<name>` is removed only when a
+synced server with the same name replaces it. `opencode.settings.json` is deep-merged
+into `opencode.json` as-is, so write it in the OpenCode v2 format (for example
+`permissions` as a rule array).
 
 ```bash
 # Basic sync to project-local files
