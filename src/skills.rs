@@ -100,6 +100,8 @@ enum SkillTargetName {
     ClaudeCode,
     Codex,
     Gemini,
+    #[serde(rename = "opencode")]
+    OpenCode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -629,7 +631,7 @@ fn extract_target_overlay_from_legacy(
     skill_name: &str,
 ) -> Result<SkillTargetOverlay> {
     match agent {
-        Agent::Claude | Agent::ClaudeCode | Agent::Gemini => {
+        Agent::Claude | Agent::ClaudeCode | Agent::Gemini | Agent::OpenCode => {
             validate_supported_frontmatter_keys(
                 frontmatter,
                 skill_name,
@@ -981,7 +983,7 @@ fn prune_empty_agent_override_dirs(skills_root: &Path) -> Result<()> {
 
 fn validation_agents(agent_filter: Option<Agent>) -> Vec<Agent> {
     agent_filter.map_or_else(
-        || vec![Agent::Claude, Agent::ClaudeCode, Agent::Codex, Agent::Gemini],
+        || vec![Agent::Claude, Agent::ClaudeCode, Agent::Codex, Agent::Gemini, Agent::OpenCode],
         |selected| vec![selected],
     )
 }
@@ -992,6 +994,7 @@ fn agent_label(agent: Agent) -> &'static str {
         Agent::ClaudeCode => "claude-code",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
+        Agent::OpenCode => "opencode",
     }
 }
 
@@ -1005,6 +1008,7 @@ fn canonical_target_for_agent(agent: Agent) -> SkillTargetName {
         Agent::ClaudeCode => SkillTargetName::ClaudeCode,
         Agent::Codex => SkillTargetName::Codex,
         Agent::Gemini => SkillTargetName::Gemini,
+        Agent::OpenCode => SkillTargetName::OpenCode,
     }
 }
 
@@ -1202,7 +1206,23 @@ fn render_canonical_skill_bundle(
                 ));
             }
         },
-        SkillTargetName::Claude | SkillTargetName::ClaudeCode | SkillTargetName::Gemini => {
+        SkillTargetName::Claude
+        | SkillTargetName::ClaudeCode
+        | SkillTargetName::Gemini
+        | SkillTargetName::OpenCode => {
+            if target_name == SkillTargetName::OpenCode
+                && (target_overlay.user_invocable.is_some()
+                    || target_overlay.allowed_tools.is_some()
+                    || target_overlay.arguments.is_some()
+                    || target_overlay.argument_hint.is_some()
+                    || target_overlay.context.is_some()
+                    || target_overlay.agent.is_some())
+            {
+                warnings.insert(format!(
+                    "OpenCode target overlay for skill `{}` contains Claude-specific fields that OpenCode ignores; only `name`, `description`, and `disable-model-invocation` affect OpenCode skills.",
+                    definition.name
+                ));
+            }
             if target_overlay.allow_implicit_invocation.is_some()
                 || target_overlay.interface.is_some()
                 || target_overlay.dependencies.is_some()
@@ -1223,7 +1243,10 @@ fn render_canonical_skill_bundle(
             &instructions,
             &target_overlay,
         )?,
-        SkillTargetName::Claude | SkillTargetName::ClaudeCode | SkillTargetName::Gemini => {
+        SkillTargetName::Claude
+        | SkillTargetName::ClaudeCode
+        | SkillTargetName::Gemini
+        | SkillTargetName::OpenCode => {
             vec![RenderedTextFile {
                 relative_path: SKILL_FILE_NAME.to_string(),
                 content: render_claude_family_skill_markdown(
@@ -1405,6 +1428,7 @@ fn collect_canonical_target_entry_warnings(
             SkillTargetName::ClaudeCode,
             SkillTargetName::Codex,
             SkillTargetName::Gemini,
+            SkillTargetName::OpenCode,
         ]
         .into_iter()
         .filter_map(|target| {
@@ -1442,6 +1466,7 @@ fn allowed_canonical_target_entries() -> BTreeSet<String> {
         SkillTargetName::ClaudeCode,
         SkillTargetName::Codex,
         SkillTargetName::Gemini,
+        SkillTargetName::OpenCode,
     ]
     .into_iter()
     .flat_map(|target| {
@@ -1886,6 +1911,7 @@ fn target_name_label(target: SkillTargetName) -> &'static str {
         SkillTargetName::ClaudeCode => "claude-code",
         SkillTargetName::Codex => "codex",
         SkillTargetName::Gemini => "gemini",
+        SkillTargetName::OpenCode => "opencode",
     }
 }
 
@@ -2167,11 +2193,12 @@ fn agent_skill_subdir(agent: Agent) -> &'static str {
         Agent::ClaudeCode => "claude-code",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
+        Agent::OpenCode => "opencode",
     }
 }
 
 pub fn is_agent_skill_subdir(name: &str) -> bool {
-    matches!(name, "claude" | "claude-code" | "codex" | "gemini")
+    matches!(name, "claude" | "claude-code" | "codex" | "gemini" | "opencode")
 }
 
 fn normalize_skill_relative_path(skill_name: &str, suffix: &str) -> String {

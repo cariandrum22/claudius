@@ -1,6 +1,7 @@
 #![allow(clippy::self_named_module_files)]
 
 use crate::app_config::{AppConfig, CodexSkillTargetMode};
+use crate::opencode_settings::{OPENCODE_CONFIG_FILE, OPENCODE_SETTINGS_SOURCE_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -190,6 +191,11 @@ impl Config {
                 let codex_input = config_dir.join("codex.settings.toml");
                 (home_dir.join(".codex").join("config.toml"), None, codex_input)
             },
+            Some(crate::app_config::Agent::OpenCode) => (
+                crate::agent_paths::opencode_config_dir(home_dir).join(OPENCODE_CONFIG_FILE),
+                None,
+                config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE),
+            ),
             _ => (claude_code_path, None, claude_settings_input),
         }
     }
@@ -213,6 +219,11 @@ impl Config {
                 let settings_path = current_dir.join(".codex").join("config.toml");
                 Ok((mcp_path, Some(settings_path), config_dir.join("codex.settings.toml")))
             },
+            Some(crate::app_config::Agent::OpenCode) => Ok((
+                current_dir.join(OPENCODE_CONFIG_FILE),
+                None,
+                config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE),
+            )),
             _ => {
                 let settings_path = current_dir.join(".claude").join("settings.json");
                 Ok((mcp_path, Some(settings_path), claude_settings_input))
@@ -244,6 +255,12 @@ impl Config {
         let base_dir = if use_global { home_dir } else { current_dir.unwrap_or(home_dir) };
 
         Ok(match agent {
+            // OpenCode reads global skills from its config directory
+            // (~/.config/opencode/skills) and project skills from .opencode/skills.
+            Some(crate::app_config::Agent::OpenCode) if use_global => {
+                crate::agent_paths::opencode_config_dir(home_dir).join("skills")
+            },
+            Some(crate::app_config::Agent::OpenCode) => base_dir.join(".opencode").join("skills"),
             Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
             Some(crate::app_config::Agent::Codex) => match Self::load_codex_skill_target_mode()? {
                 CodexSkillTargetMode::Codex => base_dir.join(".codex").join("skills"),
@@ -468,6 +485,11 @@ impl Config {
         // Check for Gemini settings
         if config_dir.join("gemini.settings.json").exists() {
             agents.push(crate::app_config::Agent::Gemini);
+        }
+
+        // Check for OpenCode settings
+        if config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE).exists() {
+            agents.push(crate::app_config::Agent::OpenCode);
         }
 
         Ok(agents)

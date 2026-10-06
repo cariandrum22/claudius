@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- OpenCode v2 agent (`--agent opencode`): `config sync` writes shared MCP servers to
+  `opencode.json` in the v2-native `mcp.servers` layout (project root or
+  `$XDG_CONFIG_HOME/opencode/`, honoring `OPENCODE_CONFIG_DIR`) and deep-merges
+  `opencode.settings.json`; same-named V1 flat `mcp.<name>` entries are replaced and other
+  existing servers are preserved
+- Skills render and sync for OpenCode into `.opencode/skills` / `~/.config/opencode/skills`,
+  with `targets.opencode` overlays in canonical `skill.yaml`
+- `context append` / `context install` use `AGENTS.md` for OpenCode; `config validate`,
+  `config doctor`, and `config init` cover OpenCode sources
+
 ## [0.3.0] - 2026-08-04
 
 ### Added

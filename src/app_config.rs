@@ -36,6 +36,9 @@ pub enum Agent {
     ClaudeCode,
     Codex,
     Gemini,
+    #[serde(rename = "opencode")]
+    #[value(name = "opencode")]
+    OpenCode,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
@@ -179,6 +182,10 @@ mod tests {
             serde_json::to_string(&Agent::Gemini).expect("Failed to serialize Agent::Gemini"),
             "\"gemini\""
         );
+        assert_eq!(
+            serde_json::to_string(&Agent::OpenCode).expect("Failed to serialize Agent::OpenCode"),
+            "\"opencode\""
+        );
     }
 
     #[test]
@@ -201,6 +208,11 @@ mod tests {
             serde_json::from_str::<Agent>("\"gemini\"")
                 .expect("Failed to deserialize Agent::Gemini"),
             Agent::Gemini
+        );
+        assert_eq!(
+            serde_json::from_str::<Agent>("\"opencode\"")
+                .expect("Failed to deserialize Agent::OpenCode"),
+            Agent::OpenCode
         );
     }
 

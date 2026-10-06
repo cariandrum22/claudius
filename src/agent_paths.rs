@@ -1,10 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const CLAUDE_CODE_MANAGED_DIR_ENV: &str = "CLAUDIUS_CLAUDE_CODE_MANAGED_DIR";
 const CODEX_REQUIREMENTS_PATH_ENV: &str = "CLAUDIUS_CODEX_REQUIREMENTS_PATH";
 const CODEX_MANAGED_CONFIG_PATH_ENV: &str = "CLAUDIUS_CODEX_MANAGED_CONFIG_PATH";
 const GEMINI_CLI_SYSTEM_SETTINGS_PATH_ENV: &str = "GEMINI_CLI_SYSTEM_SETTINGS_PATH";
 const GEMINI_CLI_SYSTEM_DEFAULTS_PATH_ENV: &str = "GEMINI_CLI_SYSTEM_DEFAULTS_PATH";
+const OPENCODE_CONFIG_DIR_ENV: &str = "OPENCODE_CONFIG_DIR";
+const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
 
 #[must_use]
 pub fn claude_code_managed_dir() -> PathBuf {
@@ -59,6 +61,28 @@ pub fn gemini_cli_system_defaults_path() -> PathBuf {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .map_or_else(default_gemini_cli_system_defaults_path, PathBuf::from)
+}
+
+/// Resolve `OpenCode`'s global config directory the way `OpenCode` does:
+/// `OPENCODE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/opencode`, then
+/// `~/.config/opencode` (XDG is used on macOS too).
+#[must_use]
+pub fn opencode_config_dir(home_dir: &Path) -> PathBuf {
+    non_empty_env(OPENCODE_CONFIG_DIR_ENV).map_or_else(
+        || {
+            non_empty_env(XDG_CONFIG_HOME_ENV)
+                .map_or_else(|| home_dir.join(".config"), PathBuf::from)
+                .join("opencode")
+        },
+        PathBuf::from,
+    )
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 #[cfg(target_os = "macos")]
@@ -214,6 +238,33 @@ mod tests {
         assert_eq!(gemini_cli_system_settings_path(), path);
 
         std::env::remove_var(GEMINI_CLI_SYSTEM_SETTINGS_PATH_ENV);
+    }
+
+    #[test]
+    #[serial]
+    fn test_opencode_config_dir_resolution_order() {
+        let home = TempDir::new().expect("temp dir should be created for test");
+        let original_xdg = std::env::var_os(XDG_CONFIG_HOME_ENV);
+        let original_opencode = std::env::var_os(OPENCODE_CONFIG_DIR_ENV);
+
+        std::env::remove_var(OPENCODE_CONFIG_DIR_ENV);
+        std::env::remove_var(XDG_CONFIG_HOME_ENV);
+        assert_eq!(opencode_config_dir(home.path()), home.path().join(".config").join("opencode"));
+
+        std::env::set_var(XDG_CONFIG_HOME_ENV, home.path().join("xdg"));
+        assert_eq!(opencode_config_dir(home.path()), home.path().join("xdg").join("opencode"));
+
+        std::env::set_var(OPENCODE_CONFIG_DIR_ENV, home.path().join("custom"));
+        assert_eq!(opencode_config_dir(home.path()), home.path().join("custom"));
+
+        match original_xdg {
+            Some(value) => std::env::set_var(XDG_CONFIG_HOME_ENV, value),
+            None => std::env::remove_var(XDG_CONFIG_HOME_ENV),
+        }
+        match original_opencode {
+            Some(value) => std::env::set_var(OPENCODE_CONFIG_DIR_ENV, value),
+            None => std::env::remove_var(OPENCODE_CONFIG_DIR_ENV),
+        }
     }
 
     #[test]

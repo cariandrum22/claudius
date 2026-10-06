@@ -8,6 +8,7 @@ use crate::config::{reader, writer, ClaudeConfig, Config, McpServersConfig, Sett
 use crate::gemini_settings::sanitize_claude_config_for_gemini;
 use crate::json_merge::deep_merge_json_maps;
 use crate::merge::{merge_configs, merge_settings, strategy::MergeStrategy};
+use crate::opencode_settings;
 use crate::skills;
 use crate::validation::{pre_validate_settings, prompt_continue};
 use anyhow::{Context, Result};
@@ -35,6 +36,9 @@ pub struct ReadConfigResult {
     pub mcp_servers: McpServersConfig,
     pub settings: Option<Settings>,
     pub codex_settings: Option<CodexSettings>,
+    /// Raw `OpenCode` settings (`opencode.settings.json`), kept untyped because
+    /// `OpenCode` v2 shapes do not fit Claude's `Settings` model.
+    pub opencode_settings: Option<serde_json::Map<String, Value>>,
 }
 
 /// Optional extra files for Codex in global mode
@@ -84,6 +88,7 @@ pub struct AgentContext {
     pub claude_code_scope: Option<ClaudeCodeScope>,
     pub is_codex: bool,
     pub is_gemini: bool,
+    pub is_opencode: bool,
     pub is_claude: bool,
     pub is_claude_desktop: bool,
     pub is_claude_code: bool,
@@ -94,6 +99,7 @@ impl AgentContext {
     pub fn new(agent: Option<Agent>, claude_code_scope: Option<ClaudeCodeScope>) -> Self {
         let is_codex = matches!(agent, Some(Agent::Codex));
         let is_gemini = matches!(agent, Some(Agent::Gemini));
+        let is_opencode = matches!(agent, Some(Agent::OpenCode));
         let is_claude_desktop = matches!(agent, Some(Agent::Claude)) || agent.is_none();
         let is_claude_code = matches!(agent, Some(Agent::ClaudeCode));
         let is_claude = is_claude_desktop || is_claude_code;
@@ -105,6 +111,7 @@ impl AgentContext {
             claude_code_scope: effective_claude_code_scope,
             is_codex,
             is_gemini,
+            is_opencode,
             is_claude,
             is_claude_desktop,
             is_claude_code,
@@ -146,6 +153,16 @@ pub fn read_configurations(
         debug!("  - {name}");
     }
 
+    if agent_context.is_opencode {
+        let opencode_settings = read_opencode_settings(&config.settings_path)?;
+        return Ok(ReadConfigResult {
+            mcp_servers,
+            settings: None,
+            codex_settings: None,
+            opencode_settings,
+        });
+    }
+
     // Read settings based on agent type
     let (settings, codex_settings) = if agent_context.is_codex {
         read_codex_settings(&config.settings_path)?
@@ -155,7 +172,22 @@ pub fn read_configurations(
         read_regular_settings(&config.settings_path)?
     };
 
-    Ok(ReadConfigResult { mcp_servers, settings, codex_settings })
+    Ok(ReadConfigResult { mcp_servers, settings, codex_settings, opencode_settings: None })
+}
+
+/// Read `OpenCode` settings and surface V1-key diagnostics.
+fn read_opencode_settings(settings_path: &Path) -> Result<Option<serde_json::Map<String, Value>>> {
+    let settings = opencode_settings::read_opencode_settings(settings_path)
+        .context("Failed to read OpenCode settings")?;
+
+    if let Some(map) = settings.as_ref() {
+        debug!("Found {} to sync", opencode_settings::OPENCODE_SETTINGS_SOURCE_FILE);
+        for warning in opencode_settings::validate_opencode_settings(&Value::Object(map.clone())) {
+            warn!("{warning}");
+        }
+    }
+
+    Ok(settings)
 }
 
 /// Read Codex-specific settings
@@ -377,6 +409,13 @@ pub fn merge_all_configs(
         debug!("Merged configuration: {} -> {} server(s)", original_count, new_count);
     }
 
+    if agent_context.is_opencode {
+        if let Some(settings) = read_result.opencode_settings.as_ref() {
+            debug!("Merging OpenCode settings");
+            opencode_settings::merge_opencode_settings_into_config(claude_config, settings);
+        }
+    }
+
     if agent_context.is_gemini {
         if let Some(settings) = read_result.settings.as_ref() {
             debug!("Merging Gemini settings");
@@ -390,6 +429,7 @@ pub fn merge_all_configs(
     // settings separately in ~/.claude/settings.json. Codex stores settings in ~/.codex/config.toml.
     if global
         && !agent_context.is_codex
+        && !agent_context.is_opencode
         && !agent_context.is_claude
         && !agent_context.is_claude_code
         && !agent_context.is_claude_desktop
@@ -586,6 +626,10 @@ fn print_global_dry_run(
         return Ok(());
     }
 
+    if agent_context.is_opencode {
+        return print_opencode_dry_run(target_config_path, claude_config);
+    }
+
     println!("\n--- Result (dry run): {} ---", target_config_path.display());
     println!("{}", serde_json::to_string_pretty(&claude_config)?);
     Ok(())
@@ -601,9 +645,21 @@ fn print_project_local_dry_run(
         print_codex_dry_run(claude_config, read_result.codex_settings.as_ref())?;
     } else if agent_context.is_gemini {
         print_gemini_dry_run(claude_config)?;
+    } else if agent_context.is_opencode {
+        print_opencode_dry_run(Path::new(opencode_settings::OPENCODE_CONFIG_FILE), claude_config)?;
     } else {
         print_other_agent_dry_run(claude_config, read_result.settings.as_ref())?;
     }
+    Ok(())
+}
+
+fn print_opencode_dry_run(target_config_path: &Path, claude_config: &ClaudeConfig) -> Result<()> {
+    let (document, warnings) = opencode_settings::render_opencode_config(claude_config)?;
+    for warning in &warnings {
+        warn!("{warning}");
+    }
+    println!("\n--- OpenCode config (dry run): {} ---", target_config_path.display());
+    print!("{}", opencode_settings::to_pretty_json(&document)?);
     Ok(())
 }
 
@@ -1067,6 +1123,8 @@ fn write_global_configurations(
         info!("Writing updated configuration");
         writer::write_claude_config(target_config_path, &gemini_config)
             .context("Failed to write Gemini configuration")?;
+    } else if agent_context.is_opencode {
+        write_opencode_config(target_config_path, claude_config)?;
     } else {
         info!("Writing updated configuration");
         writer::write_claude_config(target_config_path, claude_config)
@@ -1248,6 +1306,8 @@ fn write_project_local_configurations(
         write_gemini_project_local(target_config_path, claude_config)?;
     } else if agent_context.is_codex {
         write_codex_project_local(config, claude_config, read_result.codex_settings.as_ref())?;
+    } else if agent_context.is_opencode {
+        write_opencode_config(target_config_path, claude_config)?;
     } else {
         write_other_agent_project_local(
             config,
@@ -1257,6 +1317,36 @@ fn write_project_local_configurations(
         )?;
     }
     Ok(())
+}
+
+/// Write the merged config to an `OpenCode` v2 `opencode.json`.
+fn write_opencode_config(target_config_path: &Path, claude_config: &ClaudeConfig) -> Result<()> {
+    let (document, warnings) = opencode_settings::render_opencode_config(claude_config)?;
+    for warning in &warnings {
+        warn!("{warning}");
+    }
+
+    let jsonc_sibling = target_config_path.with_extension("jsonc");
+    if jsonc_sibling.exists() {
+        warn!(
+            "{} also exists; OpenCode loads both files, so settings in it are merged with the synced {}",
+            jsonc_sibling.display(),
+            target_config_path.display()
+        );
+    }
+
+    let content = opencode_settings::to_pretty_json(&document)?;
+    info!("Writing OpenCode config to {}", target_config_path.display());
+    if target_config_path.exists() {
+        writer::atomic_write_preserving_permissions(target_config_path, content.as_bytes())
+    } else {
+        if let Some(parent) = target_config_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+        std::fs::write(target_config_path, content).map_err(Into::into)
+    }
+    .with_context(|| format!("Failed to write {}", target_config_path.display()))
 }
 
 fn write_gemini_project_local(

@@ -112,6 +112,7 @@ impl ValidationResult {
 pub enum JsonConfigKind {
     Claude,
     Gemini,
+    OpenCode,
 }
 
 /// Validates Claudius app configuration and returns semantic warnings.
@@ -206,6 +207,9 @@ fn parse_and_validate_json_file<P: AsRef<Path>>(
     let warnings = match kind {
         Some(JsonConfigKind::Claude) => validate_claude_settings(&json_value),
         Some(JsonConfigKind::Gemini) => validate_gemini_settings(&json_value),
+        Some(JsonConfigKind::OpenCode) => {
+            crate::opencode_settings::validate_opencode_settings(&json_value)
+        },
         None => Vec::new(),
     };
 
@@ -219,6 +223,8 @@ fn infer_json_config_kind(path: &Path) -> Option<JsonConfigKind> {
     let file_name = path.file_name()?.to_string_lossy();
     if file_name.contains("gemini") {
         Some(JsonConfigKind::Gemini)
+    } else if file_name.contains("opencode") {
+        Some(JsonConfigKind::OpenCode)
     } else if file_name.contains("claude") || file_name.contains("codex") {
         Some(JsonConfigKind::Claude)
     } else {

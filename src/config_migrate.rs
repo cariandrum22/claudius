@@ -72,6 +72,9 @@ pub fn plan_migration(config_dir: &Path, agent: Option<Agent>) -> Result<Migrati
         Some(Agent::Gemini) => plan
             .notes
             .push("No migration rules are defined for Gemini settings yet".to_string()),
+        Some(Agent::OpenCode) => plan
+            .notes
+            .push("No migration rules are defined for OpenCode settings yet".to_string()),
         None => {
             plan_claude(config_dir, &mut plan)?;
             plan_codex(config_dir, &mut plan)?;
