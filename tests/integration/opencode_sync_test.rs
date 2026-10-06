@@ -251,6 +251,35 @@ mod tests {
     }
 
     #[test]
+    fn test_opencode_sync_maps_codex_timeouts_without_warnings() {
+        let fixture = OpenCodeFixture::new();
+        fixture.source(
+            "mcpServers.json",
+            r#"{"mcpServers": {"slow": {"command": "srv", "startup_timeout_sec": 300, "tool_timeout_sec": 120}}}"#,
+        );
+
+        let output = fixture
+            .claudius()
+            .args(["config", "sync", "--agent", "opencode"])
+            .output()
+            .expect("sync should run");
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(output.status.success(), "{combined}");
+        let config = read_json(&fixture.project.join("opencode.json"));
+        assert_eq!(
+            *at(&config, "/mcp/servers/slow/timeout"),
+            json!({"startup": 300_000, "execution": 120_000})
+        );
+        assert!(!combined.contains("startup_timeout_sec"), "{combined}");
+        assert!(!combined.contains("tool_timeout_sec"), "{combined}");
+    }
+
+    #[test]
     fn test_opencode_validate_reports_unsupported_mcp_fields() {
         let fixture = OpenCodeFixture::new();
         fixture.source(
