@@ -94,6 +94,7 @@ struct SourceSurfaceState {
     claude_code_skills: Vec<SourceFileMapping>,
     gemini_skills: Vec<SourceFileMapping>,
     codex_skills: Vec<SourceFileMapping>,
+    opencode_skills: Vec<SourceFileMapping>,
     gemini_commands: Vec<SourceFileMapping>,
     gemini_agents: Vec<SourceFileMapping>,
     claude_code_agents: Vec<SourceFileMapping>,
@@ -186,6 +187,10 @@ fn load_source_surface_state(config_dir: &Path) -> Result<SourceSurfaceState> {
             &config_dir.join("skills"),
             Agent::Codex,
         )?,
+        opencode_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::OpenCode,
+        )?,
         gemini_commands: collect_tree_if_exists(&config_dir.join("commands").join("gemini"))?,
         gemini_agents: collect_tree_if_exists(&config_dir.join("agents").join("gemini"))?,
         claude_code_agents: collect_tree_if_exists(&config_dir.join("agents").join("claude-code"))?,
@@ -203,6 +208,7 @@ fn collect_findings(
     inspect_claude_sources(config_dir, options.agent_filter, &mut findings);
     inspect_codex_sources(config_dir, options.agent_filter, &mut findings);
     inspect_gemini_sources(config_dir, options.agent_filter, &mut findings);
+    inspect_opencode_sources(config_dir, options.agent_filter, &mut findings);
     inspect_skill_sources(
         config_dir,
         options.agent_filter,
@@ -211,6 +217,7 @@ fn collect_findings(
         &source_state.claude_code_skills,
         &source_state.gemini_skills,
         &source_state.codex_skills,
+        &source_state.opencode_skills,
         &source_state.legacy_commands,
         &mut findings,
     );
@@ -322,6 +329,28 @@ fn inspect_codex_sources(
     }
 }
 
+fn inspect_opencode_sources(
+    config_dir: &Path,
+    agent_filter: Option<Agent>,
+    findings: &mut Vec<DoctorFinding>,
+) {
+    if !matches_filter(agent_filter, Agent::OpenCode) {
+        return;
+    }
+
+    let settings = config_dir.join("opencode.settings.json");
+    if settings.exists() {
+        findings.push(DoctorFinding {
+            status: DoctorStatus::Supported,
+            summary: "OpenCode settings source is present.".to_string(),
+            path: Some(settings),
+            detail: None,
+            recommendation: "Keep it in sync with `claudius config sync --agent opencode`."
+                .to_string(),
+        });
+    }
+}
+
 fn inspect_gemini_sources(
     config_dir: &Path,
     agent_filter: Option<Agent>,
@@ -366,6 +395,7 @@ fn inspect_skill_sources(
     claude_code_skill_mappings: &[SourceFileMapping],
     gemini_skill_mappings: &[SourceFileMapping],
     codex_skill_mappings: &[SourceFileMapping],
+    opencode_skill_mappings: &[SourceFileMapping],
     legacy_command_mappings: &[SourceFileMapping],
     findings: &mut Vec<DoctorFinding>,
 ) {
@@ -415,6 +445,14 @@ fn inspect_skill_sources(
         codex_skill_mappings,
         "Codex-specific skills source is present.",
     );
+    push_agent_skill_finding(
+        findings,
+        agent_filter,
+        Agent::OpenCode,
+        config_dir.join("skills").join("opencode"),
+        opencode_skill_mappings,
+        "OpenCode-specific skills source is present.",
+    );
     inspect_deprecated_agent_skill_overrides(
         config_dir,
         agent_filter,
@@ -422,6 +460,7 @@ fn inspect_skill_sources(
         claude_code_skill_mappings,
         gemini_skill_mappings,
         codex_skill_mappings,
+        opencode_skill_mappings,
         findings,
     );
     inspect_shared_legacy_skill_metadata_leakage(config_dir, agent_filter, findings);
@@ -450,6 +489,7 @@ fn inspect_deprecated_agent_skill_overrides(
     claude_code_skill_mappings: &[SourceFileMapping],
     gemini_skill_mappings: &[SourceFileMapping],
     codex_skill_mappings: &[SourceFileMapping],
+    opencode_skill_mappings: &[SourceFileMapping],
     findings: &mut Vec<DoctorFinding>,
 ) {
     push_deprecated_override_finding(
@@ -479,6 +519,13 @@ fn inspect_deprecated_agent_skill_overrides(
         Agent::Codex,
         config_dir.join("skills").join("codex"),
         codex_skill_mappings,
+    );
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::OpenCode,
+        config_dir.join("skills").join("opencode"),
+        opencode_skill_mappings,
     );
 }
 
@@ -608,6 +655,7 @@ fn doctor_agent_label(agent: Agent) -> &'static str {
         Agent::ClaudeCode => "Claude Code",
         Agent::Codex => "Codex",
         Agent::Gemini => "Gemini",
+        Agent::OpenCode => "OpenCode",
     }
 }
 
@@ -617,6 +665,7 @@ fn doctor_agent_subdir(agent: Agent) -> &'static str {
         Agent::ClaudeCode => "claude-code",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
+        Agent::OpenCode => "opencode",
     }
 }
 
@@ -682,6 +731,29 @@ fn inspect_target_surfaces(
     inspect_gemini_targets(options, config_dir, deployment_base_dir, source_state, findings)?;
     inspect_claude_code_targets(options, deployment_base_dir, source_state, findings)?;
     inspect_codex_targets(options, config_dir, findings)?;
+    inspect_opencode_targets(options, config_dir, findings)?;
+
+    Ok(())
+}
+
+fn inspect_opencode_targets(
+    options: DoctorOptions,
+    config_dir: &Path,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    if !matches_filter(options.agent_filter, Agent::OpenCode) {
+        return Ok(());
+    }
+
+    let opencode_skill_source_mappings =
+        collect_rendered_skill_mappings(config_dir, Agent::OpenCode)?;
+    let opencode_config = Config::new_with_agent(options.global, Some(Agent::OpenCode))?;
+    push_stale_finding(
+        findings,
+        inspect_managed_tree(&opencode_config.skills_target_dir, &opencode_skill_source_mappings)?,
+        "Claudius-managed OpenCode skills target has stale deployed files.",
+        skill_prune_command(options.global, Some(Agent::OpenCode)),
+    );
 
     Ok(())
 }
@@ -1019,5 +1091,6 @@ fn agent_cli_name(agent: Agent) -> &'static str {
         Agent::ClaudeCode => "claude-code",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
+        Agent::OpenCode => "opencode",
     }
 }

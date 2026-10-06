@@ -13,6 +13,7 @@ pub mod doctor;
 pub mod gemini_settings;
 pub(crate) mod json_merge;
 pub mod merge;
+pub mod opencode_settings;
 pub mod profiling;
 pub mod secrets;
 pub mod skills;

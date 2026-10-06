@@ -86,6 +86,7 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 ├── codex.managed_config.toml  # Codex managed defaults (optional)
 ├── gemini.settings.json       # Gemini settings (optional)
 ├── gemini.system_defaults.json # Gemini system defaults (optional)
+├── opencode.settings.json     # OpenCode v2 settings (optional)
 ├── settings.json              # General Claude settings (optional)
 ├── commands/
 │   └── gemini/                # Gemini custom commands (*.toml)
@@ -104,7 +105,7 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 │   │   │   ├── <agent>.prepend.md
 │   │   │   └── <agent>.append.md
 │   │   └── SKILL.md           # Legacy passthrough format (supported)
-│   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex)
+│   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex, opencode)
 │       └── <skill>/           # Agent-specific skill
 │           └── SKILL.md       # Deprecated full override compatibility path
 └── rules/                     # CLAUDE.md templates
@@ -128,6 +129,9 @@ Project Directory (default):
 │   ├── commands/              # Project-local Gemini commands
 │   ├── agents/                # Project-local Gemini agents
 │   └── skills/                # Project-local skills (Gemini)
+├── .opencode/
+│   └── skills/                # Project-local skills (OpenCode)
+├── opencode.json              # Project-local OpenCode v2 settings + MCP servers (mcp.servers)
 └── CLAUDE.md                  # Project-specific instructions
 
 Global targets (--global):
@@ -135,7 +139,8 @@ Global targets (--global):
 ├── Claude Code: ~/.claude.json + ~/.claude/settings.json
 ├── Codex: ~/.codex/config.toml
 ├── Gemini: ~/.gemini/settings.json + /etc/gemini-cli/settings.json + /etc/gemini-cli/system-defaults.json
-└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.agents/skills (Codex, default), ~/.codex/skills (Codex compatibility)
+├── OpenCode: $OPENCODE_CONFIG_DIR or $XDG_CONFIG_HOME/opencode (default ~/.config/opencode)/opencode.json
+└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.agents/skills (Codex, default), ~/.codex/skills (Codex compatibility), ~/.config/opencode/skills (OpenCode)
 ```
 
 ### Data Flow
@@ -154,6 +159,7 @@ Global targets (--global):
 - Claude Code: MCP servers → `~/.claude.json`, settings → `~/.claude/settings.json`
 - Codex: settings + MCP servers → `~/.codex/config.toml`
 - Gemini: settings + MCP servers → `~/.gemini/settings.json`
+- OpenCode: settings + MCP servers (v2 `mcp.servers`) → `~/.config/opencode/opencode.json`
 - Gemini system settings: `claudius config sync --global --agent gemini --gemini-system` → `/etc/gemini-cli/settings.json`
 - Gemini system defaults: `claudius config sync --global --agent gemini --gemini-system-defaults` → `/etc/gemini-cli/system-defaults.json`
 
@@ -191,6 +197,7 @@ Creates default:
 - `codex.managed_config.toml` with Codex managed defaults template
 - `gemini.settings.json` with Gemini settings template
 - `gemini.system_defaults.json` with Gemini system defaults template
+- `opencode.settings.json` with an empty OpenCode v2 settings object
 - `config.toml` with commented configuration options
 - `commands/gemini/` for Gemini custom commands
 - `agents/gemini/` for Gemini custom agents
@@ -212,15 +219,17 @@ Codex surfaces the same warning via `claudius skills sync --agent codex`.
 - Claude Code (`--agent claude-code`): MCP servers → `./.mcp.json`, settings → `./.claude/settings.json`, skills → `./.claude/skills/`
 - Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
 - Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`, commands → `./.gemini/commands/`, agents → `./.gemini/agents/`, skills → `./.gemini/skills/`
+- OpenCode (`--agent opencode`): settings + MCP servers → `./opencode.json` (MCP under `mcp.servers` in the v2 format), skills → `./.opencode/skills/`
 
 **Global mode (--global):**
 - Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
 - Claude Code (`--agent claude-code`) → `~/.claude.json` + `~/.claude/settings.json`
 - Codex (`--agent codex`) → `~/.codex/config.toml`
 - Gemini (`--agent gemini`) → `~/.gemini/settings.json`
+- OpenCode (`--agent opencode`) → `$XDG_CONFIG_HOME/opencode/opencode.json` (honors `OPENCODE_CONFIG_DIR`)
 - Gemini system settings (`--gemini-system`) → `/etc/gemini-cli/settings.json`
 - Gemini system defaults (`--gemini-system-defaults`) → `/etc/gemini-cli/system-defaults.json`
-- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.agents/skills/` (Codex, default), `~/.codex/skills/` (Codex compatibility)
+- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.agents/skills/` (Codex, default), `~/.codex/skills/` (Codex compatibility), `~/.config/opencode/skills/` (OpenCode)
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
@@ -353,7 +362,7 @@ claudius skills render --agent codex --output /tmp/codex-skills --prune
 
 ### `claudius context append`
 Append instructions or rules to the agent's context file (CLAUDE.md for
-Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex).
+Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex and OpenCode).
 
 ```bash
 # Use predefined rule
@@ -471,7 +480,7 @@ Claudius supports its own configuration file at `$XDG_CONFIG_HOME/claudius/confi
 ```toml
 # Default agent configuration (optional)
 [default]
-agent = "claude"  # or "claude-code" or "codex" or "gemini"
+agent = "claude"  # or "claude-code" or "codex" or "gemini" or "opencode"
 context-file = "CLAUDE.md"  # optional custom filename
 
 # Secret Manager Configuration (optional)

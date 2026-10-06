@@ -12,6 +12,7 @@ mod init_test;
 mod install_context_test;
 mod merge_interactive_test;
 mod multi_agent_sync_test;
+mod opencode_sync_test;
 mod parallel_performance_test;
 mod run_command_test;
 mod secrets_fixture_test;

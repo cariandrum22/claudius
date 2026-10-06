@@ -346,6 +346,7 @@ fn run_render_skills(args: &cli::SkillsRenderArgs, app_config: Option<&AppConfig
             claudius::app_config::Agent::ClaudeCode => "claude-code",
             claudius::app_config::Agent::Codex => "codex",
             claudius::app_config::Agent::Gemini => "gemini",
+            claudius::app_config::Agent::OpenCode => "opencode",
         }),
         report.target_dir.display(),
     );
@@ -659,10 +660,14 @@ fn validate_agent_sources(
         Some(Agent::ClaudeCode) => validate_claude_code_sources(config_dir, claude_scope),
         Some(Agent::Codex) => validate_codex_sources(config_dir).map(warning_diagnostics),
         Some(Agent::Gemini) => validate_gemini_sources(config_dir).map(warning_diagnostics),
+        Some(Agent::OpenCode) => {
+            validate_opencode_sources(config_dir, true).map(warning_diagnostics)
+        },
         None => {
             let mut diagnostics = validate_claude_code_sources(config_dir, None)?;
             diagnostics.extend(warning_diagnostics(validate_codex_sources(config_dir)?));
             diagnostics.extend(warning_diagnostics(validate_gemini_sources(config_dir)?));
+            diagnostics.extend(warning_diagnostics(validate_opencode_sources(config_dir, false)?));
             Ok(diagnostics)
         },
     }
@@ -810,6 +815,41 @@ fn select_codex_managed_config_source(
     legacy_managed_config_path
         .exists()
         .then_some((legacy_managed_config_path, true))
+}
+
+/// Validate `OpenCode` sources. When `explicit` is false (validating every
+/// agent), shared MCP servers are only checked against the `OpenCode` schema if
+/// an `OpenCode` settings source exists, to avoid noise for non-users.
+fn validate_opencode_sources(config_dir: &std::path::Path, explicit: bool) -> Result<Vec<String>> {
+    use claudius::opencode_settings;
+
+    let settings_path = config_dir.join(opencode_settings::OPENCODE_SETTINGS_SOURCE_FILE);
+    let settings = opencode_settings::read_opencode_settings(&settings_path)?;
+    if settings.is_none() && !explicit {
+        return Ok(Vec::new());
+    }
+
+    let mut warnings: Vec<String> = settings
+        .map(|map| opencode_settings::validate_opencode_settings(&serde_json::Value::Object(map)))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|warning| format!("{}: {warning}", settings_path.display()))
+        .collect();
+
+    let mcp_servers_path = config_dir.join("mcpServers.json");
+    if mcp_servers_path.exists() {
+        let mcp_servers =
+            reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
+                format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
+            })?;
+        warnings.extend(
+            opencode_settings::validate_opencode_mcp_server_configs(&mcp_servers.mcp_servers)
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", mcp_servers_path.display())),
+        );
+    }
+
+    Ok(warnings)
 }
 
 fn validate_gemini_sources(config_dir: &std::path::Path) -> Result<Vec<String>> {
@@ -1109,7 +1149,9 @@ fn get_agent_context_filename(agent: claudius::app_config::Agent) -> String {
             "CLAUDE.md".to_string()
         },
         claudius::app_config::Agent::Gemini => "GEMINI.md".to_string(),
-        claudius::app_config::Agent::Codex => "AGENTS.md".to_string(),
+        claudius::app_config::Agent::Codex | claudius::app_config::Agent::OpenCode => {
+            "AGENTS.md".to_string()
+        },
     }
 }
 
@@ -1206,6 +1248,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
             claudius::app_config::Agent::ClaudeCode => "Claude Code",
             claudius::app_config::Agent::Codex => "Codex",
             claudius::app_config::Agent::Gemini => "Gemini",
+            claudius::app_config::Agent::OpenCode => "OpenCode",
         };
         println!("\nSyncing agent: {agent_name}");
         println!("===============================================");
