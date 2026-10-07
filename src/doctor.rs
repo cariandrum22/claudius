@@ -95,9 +95,11 @@ struct SourceSurfaceState {
     gemini_skills: Vec<SourceFileMapping>,
     codex_skills: Vec<SourceFileMapping>,
     opencode_skills: Vec<SourceFileMapping>,
+    antigravity_skills: Vec<SourceFileMapping>,
     gemini_commands: Vec<SourceFileMapping>,
     gemini_agents: Vec<SourceFileMapping>,
     claude_code_agents: Vec<SourceFileMapping>,
+    antigravity_agents: Vec<SourceFileMapping>,
 }
 
 /// Build a configuration health report for the selected deployment context.
@@ -191,9 +193,14 @@ fn load_source_surface_state(config_dir: &Path) -> Result<SourceSurfaceState> {
             &config_dir.join("skills"),
             Agent::OpenCode,
         )?,
+        antigravity_skills: skills::collect_agent_skill_mappings(
+            &config_dir.join("skills"),
+            Agent::Antigravity,
+        )?,
         gemini_commands: collect_tree_if_exists(&config_dir.join("commands").join("gemini"))?,
         gemini_agents: collect_tree_if_exists(&config_dir.join("agents").join("gemini"))?,
         claude_code_agents: collect_tree_if_exists(&config_dir.join("agents").join("claude-code"))?,
+        antigravity_agents: collect_tree_if_exists(&config_dir.join("agents").join("antigravity"))?,
     })
 }
 
@@ -209,6 +216,12 @@ fn collect_findings(
     inspect_codex_sources(config_dir, options.agent_filter, &mut findings);
     inspect_gemini_sources(config_dir, options.agent_filter, &mut findings);
     inspect_opencode_sources(config_dir, options.agent_filter, &mut findings);
+    inspect_antigravity_sources(
+        config_dir,
+        options.agent_filter,
+        &source_state.antigravity_agents,
+        &mut findings,
+    );
     inspect_skill_sources(
         config_dir,
         options.agent_filter,
@@ -218,6 +231,7 @@ fn collect_findings(
         &source_state.gemini_skills,
         &source_state.codex_skills,
         &source_state.opencode_skills,
+        &source_state.antigravity_skills,
         &source_state.legacy_commands,
         &mut findings,
     );
@@ -351,6 +365,44 @@ fn inspect_opencode_sources(
     }
 }
 
+fn inspect_antigravity_sources(
+    config_dir: &Path,
+    agent_filter: Option<Agent>,
+    agent_mappings: &[SourceFileMapping],
+    findings: &mut Vec<DoctorFinding>,
+) {
+    if !matches_filter(agent_filter, Agent::Antigravity) {
+        return;
+    }
+
+    let settings = config_dir.join("antigravity.settings.json");
+    if settings.exists() {
+        findings.push(DoctorFinding {
+            status: DoctorStatus::Supported,
+            summary: "Antigravity CLI settings source is present.".to_string(),
+            path: Some(settings),
+            detail: None,
+            recommendation:
+                "Keep it in sync with `claudius config sync --global --agent antigravity`."
+                    .to_string(),
+        });
+    }
+
+    if !agent_mappings.is_empty() {
+        findings.push(DoctorFinding {
+            status: DoctorStatus::Supported,
+            summary: "Antigravity agent source is present.".to_string(),
+            path: Some(config_dir.join("agents").join("antigravity")),
+            detail: Some(format!(
+                "{} Antigravity agent file(s) are ready to sync.",
+                agent_mappings.len()
+            )),
+            recommendation: "Deploy them with `claudius config sync --agent antigravity`."
+                .to_string(),
+        });
+    }
+}
+
 fn inspect_gemini_sources(
     config_dir: &Path,
     agent_filter: Option<Agent>,
@@ -396,6 +448,7 @@ fn inspect_skill_sources(
     gemini_skill_mappings: &[SourceFileMapping],
     codex_skill_mappings: &[SourceFileMapping],
     opencode_skill_mappings: &[SourceFileMapping],
+    antigravity_skill_mappings: &[SourceFileMapping],
     legacy_command_mappings: &[SourceFileMapping],
     findings: &mut Vec<DoctorFinding>,
 ) {
@@ -453,6 +506,14 @@ fn inspect_skill_sources(
         opencode_skill_mappings,
         "OpenCode-specific skills source is present.",
     );
+    push_agent_skill_finding(
+        findings,
+        agent_filter,
+        Agent::Antigravity,
+        config_dir.join("skills").join("antigravity"),
+        antigravity_skill_mappings,
+        "Antigravity-specific skills source is present.",
+    );
     inspect_deprecated_agent_skill_overrides(
         config_dir,
         agent_filter,
@@ -461,6 +522,7 @@ fn inspect_skill_sources(
         gemini_skill_mappings,
         codex_skill_mappings,
         opencode_skill_mappings,
+        antigravity_skill_mappings,
         findings,
     );
     inspect_shared_legacy_skill_metadata_leakage(config_dir, agent_filter, findings);
@@ -490,6 +552,7 @@ fn inspect_deprecated_agent_skill_overrides(
     gemini_skill_mappings: &[SourceFileMapping],
     codex_skill_mappings: &[SourceFileMapping],
     opencode_skill_mappings: &[SourceFileMapping],
+    antigravity_skill_mappings: &[SourceFileMapping],
     findings: &mut Vec<DoctorFinding>,
 ) {
     push_deprecated_override_finding(
@@ -526,6 +589,13 @@ fn inspect_deprecated_agent_skill_overrides(
         Agent::OpenCode,
         config_dir.join("skills").join("opencode"),
         opencode_skill_mappings,
+    );
+    push_deprecated_override_finding(
+        findings,
+        agent_filter,
+        Agent::Antigravity,
+        config_dir.join("skills").join("antigravity"),
+        antigravity_skill_mappings,
     );
 }
 
@@ -656,6 +726,7 @@ fn doctor_agent_label(agent: Agent) -> &'static str {
         Agent::Codex => "Codex",
         Agent::Gemini => "Gemini",
         Agent::OpenCode => "OpenCode",
+        Agent::Antigravity => "Antigravity",
     }
 }
 
@@ -666,6 +737,7 @@ fn doctor_agent_subdir(agent: Agent) -> &'static str {
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
         Agent::OpenCode => "opencode",
+        Agent::Antigravity => "antigravity",
     }
 }
 
@@ -732,6 +804,38 @@ fn inspect_target_surfaces(
     inspect_claude_code_targets(options, deployment_base_dir, source_state, findings)?;
     inspect_codex_targets(options, config_dir, findings)?;
     inspect_opencode_targets(options, config_dir, findings)?;
+    inspect_antigravity_targets(options, config_dir, source_state, findings)?;
+
+    Ok(())
+}
+
+fn inspect_antigravity_targets(
+    options: DoctorOptions,
+    config_dir: &Path,
+    source_state: &SourceSurfaceState,
+    findings: &mut Vec<DoctorFinding>,
+) -> Result<()> {
+    if !matches_filter(options.agent_filter, Agent::Antigravity) {
+        return Ok(());
+    }
+
+    let skill_source_mappings = collect_rendered_skill_mappings(config_dir, Agent::Antigravity)?;
+    let antigravity_config = Config::new_with_agent(options.global, Some(Agent::Antigravity))?;
+    push_stale_finding(
+        findings,
+        inspect_managed_tree(&antigravity_config.skills_target_dir, &skill_source_mappings)?,
+        "Claudius-managed Antigravity skills target has stale deployed files.",
+        skill_prune_command(options.global, Some(Agent::Antigravity)),
+    );
+
+    if let Some(agent_target) = antigravity_config.antigravity_agents_target_dir()? {
+        push_stale_finding(
+            findings,
+            inspect_managed_tree(&agent_target, &source_state.antigravity_agents)?,
+            "Claudius-managed Antigravity agents target has stale deployed files.",
+            config_prune_command(options.global, Agent::Antigravity),
+        );
+    }
 
     Ok(())
 }
@@ -1092,5 +1196,6 @@ fn agent_cli_name(agent: Agent) -> &'static str {
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
         Agent::OpenCode => "opencode",
+        Agent::Antigravity => "antigravity",
     }
 }

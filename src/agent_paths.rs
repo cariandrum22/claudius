@@ -78,6 +78,20 @@ pub fn opencode_config_dir(home_dir: &Path) -> PathBuf {
     )
 }
 
+/// Antigravity's shared configuration directory (`~/.gemini/config`), read by
+/// the CLI, Antigravity 2.0, and the IDE for MCP servers, skills, and agents.
+#[must_use]
+pub fn antigravity_shared_config_dir(home_dir: &Path) -> PathBuf {
+    home_dir.join(".gemini").join("config")
+}
+
+/// Antigravity CLI's private directory (`~/.gemini/antigravity-cli`), which
+/// holds its `settings.json`.
+#[must_use]
+pub fn antigravity_cli_dir(home_dir: &Path) -> PathBuf {
+    home_dir.join(".gemini").join("antigravity-cli")
+}
+
 fn non_empty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()

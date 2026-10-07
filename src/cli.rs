@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "claudius",
     about = "AI agent configuration management tool - Manage MCP servers, settings, skills, and project instructions",
-    long_about = "Claudius is a configuration management tool for Claude Code, Codex, Gemini, OpenCode, and legacy Claude Desktop targets.
+    long_about = "Claudius is a configuration management tool for Claude Code, Codex, Antigravity, OpenCode, Gemini (deprecated), and legacy Claude Desktop targets.
 
 It helps you:
   • Manage MCP (Model Context Protocol) server configurations
@@ -14,7 +14,9 @@ It helps you:
   • Define project-specific instructions via agent-specific context files
 
 Claude Desktop support is retained as a legacy / best-effort MCP target.
-Prefer Claude Code, Codex, Gemini, or OpenCode when you need actively managed surfaces.
+Prefer Claude Code, Codex, Antigravity, or OpenCode when you need actively managed surfaces.
+Gemini support is deprecated: Google retired Gemini CLI for consumer accounts on 2026-06-18
+in favor of Antigravity CLI (`--agent antigravity`).
 
     Configuration files are stored in:
       • $XDG_CONFIG_HOME/claudius/ (or ~/.config/claudius/)
@@ -26,10 +28,12 @@ Prefer Claude Code, Codex, Gemini, or OpenCode when you need actively managed su
         - gemini.settings.json: Gemini settings (optional)
         - gemini.system_defaults.json: Gemini CLI system defaults (optional)
         - opencode.settings.json: OpenCode v2 settings (optional)
+        - antigravity.settings.json: Antigravity CLI settings (optional)
         - settings.json: Legacy Claude settings (backward compatible)
         - skills/: Shared skills plus deprecated agent override compatibility paths (preferred: skill.yaml + instructions.md; legacy SKILL.md still supported)
         - commands/gemini/: Gemini custom commands (*.toml)
         - agents/gemini/: Gemini custom agents (*.md)
+        - agents/antigravity/: Antigravity custom agents (*.md)
         - agents/claude-code/: Claude Code subagents (*.md)
         - rules/: Agent context templates (*.md)
 
@@ -38,6 +42,7 @@ Target files:
   • ./.claude/settings.json (Claude Code settings in project-local mode)
   • ./.gemini/settings.json (Gemini project-local config)
   • ./opencode.json (OpenCode v2 project-local config)
+  • ./.agents/mcp_config.json (Antigravity project-local MCP servers)
   • $XDG_CONFIG_HOME/Claude/claude_desktop_config.json (Claude Desktop legacy/best-effort global MCP target)
   • ~/.claude.json + ~/.claude/settings.json (Claude Code global config)
   • System-level managed-settings.json / managed-mcp.json (Claude Code managed scope)
@@ -48,6 +53,7 @@ Target files:
       • /etc/gemini-cli/settings.json (Gemini CLI system settings)
       • /etc/gemini-cli/system-defaults.json (Gemini CLI system defaults)
       • $XDG_CONFIG_HOME/opencode/opencode.json (OpenCode v2 global config; honors OPENCODE_CONFIG_DIR)
+      • ~/.gemini/config/mcp_config.json + ~/.gemini/antigravity-cli/settings.json (Antigravity global config)
       • ./CLAUDE.md / ./GEMINI.md / ./AGENTS.md (project instructions)",
     version,
     author
@@ -106,6 +112,7 @@ pub enum ConfigCommands {
       • gemini.settings.json - Gemini settings template
       • gemini.system_defaults.json - Gemini CLI system defaults template
       • opencode.settings.json - OpenCode v2 settings template
+      • antigravity.settings.json - Antigravity CLI settings template
       • settings.json - Legacy Claude settings (backward compatible)
       • skills/ - Directory for shared skills and deprecated agent override compatibility paths
       • commands/gemini/ - Gemini custom commands (*.toml)
@@ -136,6 +143,7 @@ This command:
         - gemini.settings.json
         - gemini.system_defaults.json (optional; used with --gemini-system-defaults)
         - opencode.settings.json
+        - antigravity.settings.json (applied in global mode only)
   3. Writes configurations to:
      - Project-local mode (default):
        • Claude (`--agent claude`): ./.mcp.json (legacy / best-effort Desktop-compatible MCP target)
@@ -144,6 +152,7 @@ This command:
        • Codex: ./.codex/config.toml
        • Gemini: ./.gemini/settings.json
        • OpenCode: ./opencode.json (MCP servers under mcp.servers, v2 format)
+       • Antigravity: ./.agents/mcp_config.json (MCP servers only)
      - Global mode (--global):
        • Claude Desktop (`--agent claude`, legacy / best-effort): $XDG_CONFIG_HOME/Claude/claude_desktop_config.json
        • Claude Code: ~/.claude.json + ~/.claude/settings.json
@@ -153,11 +162,13 @@ This command:
        • Gemini system settings (--gemini-system): /etc/gemini-cli/settings.json
        • Gemini system defaults (--gemini-system-defaults): /etc/gemini-cli/system-defaults.json
        • OpenCode: $XDG_CONFIG_HOME/opencode/opencode.json (or $OPENCODE_CONFIG_DIR/opencode.json)
+       • Antigravity: ~/.gemini/config/mcp_config.json + ~/.gemini/antigravity-cli/settings.json
      4. Syncs auxiliary agent content when present:
        - skills/ -> agent skills directories
        - commands/gemini/ -> .gemini/commands
        - agents/gemini/ -> .gemini/agents
        - agents/claude-code/ -> .claude/agents
+       - agents/antigravity/ -> .agents/agents (project) or ~/.gemini/config/agents (global)
        - Codex skills stay explicit via `claudius skills sync --agent codex`
 
 Deprecated full override directories under `skills/<agent>/<skill>/` still sync for
@@ -165,7 +176,8 @@ compatibility, but Claudius warns during sync and recommends canonical target ov
 in `skill.yaml` instead.
 
 Note: `--agent claude` is retained for legacy Claude Desktop JSON workflows.
-For actively managed CLI surfaces, prefer `claude-code`, `codex`, `gemini`, or `opencode`.
+For actively managed CLI surfaces, prefer `claude-code`, `codex`, `antigravity`, or `opencode`.
+`--agent gemini` is deprecated; migrate to `--agent antigravity`.
 
 Examples:
   # Basic sync to project-local files
@@ -197,9 +209,11 @@ Examples:
       • gemini.settings.json (optional) - Gemini settings
       • gemini.system_defaults.json (optional) - Gemini CLI system defaults
       • opencode.settings.json (optional) - OpenCode v2 settings
+      • antigravity.settings.json (optional) - Antigravity CLI settings
       • commands/gemini/*.toml (optional) - Gemini custom commands
       • agents/gemini/*.md (optional) - Gemini custom agents
       • agents/claude-code/*.md (optional) - Claude Code subagent definitions
+      • agents/antigravity/*.md (optional) - Antigravity custom agent definitions
 
 Use --agent to validate a specific agent's settings.
 Use --scope with --agent claude-code to check documented scope restrictions.
@@ -342,7 +356,7 @@ pub enum ContextCommands {
 	Each agent uses a different context file:
 	  • Claude / Claude Code: CLAUDE.md
 	  • Gemini: GEMINI.md
-	  • Codex / OpenCode: AGENTS.md
+	  • Codex / OpenCode / Antigravity: AGENTS.md
 
 This command can:
   • Append predefined rules from your rules directory
@@ -490,7 +504,7 @@ pub struct ConfigSyncArgs {
         short,
         long,
         value_enum,
-        help = "Agent to use: claude (legacy/best-effort Desktop target), claude-code, codex, gemini, or opencode"
+        help = "Agent to use: claude (legacy/best-effort Desktop target), claude-code, codex, antigravity, opencode, or gemini (deprecated)"
     )]
     pub agent: Option<crate::app_config::Agent>,
 
@@ -587,7 +601,7 @@ pub struct SkillsSyncArgs {
         short,
         long,
         value_enum,
-        help = "Agent to use: claude, claude-code, codex, gemini, or opencode"
+        help = "Agent to use: claude, claude-code, codex, antigravity, opencode, or gemini (deprecated)"
     )]
     pub agent: Option<crate::app_config::Agent>,
 
@@ -668,7 +682,12 @@ pub struct AppendContextArgs {
     pub global: bool,
 
     /// Specify the agent (overrides config file)
-    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, gemini, or opencode")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "Agent to use: claude, codex, antigravity, opencode, or gemini (deprecated)"
+    )]
     pub agent: Option<crate::app_config::Agent>,
 }
 
@@ -687,7 +706,12 @@ pub struct InstallContextArgs {
     pub path: Option<PathBuf>,
 
     /// Specify the agent (overrides config file)
-    #[arg(short, long, value_enum, help = "Agent to use: claude, codex, gemini, or opencode")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "Agent to use: claude, codex, antigravity, opencode, or gemini (deprecated)"
+    )]
     pub agent: Option<crate::app_config::Agent>,
 
     /// Custom install directory (defaults to .agents/rules)

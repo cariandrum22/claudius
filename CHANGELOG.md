@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `targets.opencode` overlays in canonical `skill.yaml`
 - `context append` / `context install` use `AGENTS.md` for OpenCode; `config validate`,
   `config doctor`, and `config init` cover OpenCode sources
+- Antigravity CLI agent (`--agent antigravity`): `config sync` writes shared MCP servers to
+  `mcp_config.json` (`~/.gemini/config/` globally, `.agents/` per project) with `url` mapped to
+  `serverUrl`, preserving servers and keys Claudius does not manage, and deep-merges
+  `antigravity.settings.json` into `~/.gemini/antigravity-cli/settings.json` in global mode;
+  files that are not plain JSON (comments or trailing commas) are refused rather than rewritten
+- Skills, custom agents (`agents/antigravity/`), and `AGENTS.md` context for Antigravity, using
+  `.agents/skills` / `.agents/agents` per project and `~/.gemini/config/skills` /
+  `~/.gemini/config/agents` globally; `config validate`, `config doctor`, and `config init`
+  cover Antigravity sources
+
+### Deprecated
+- `--agent gemini`: Google retired Gemini CLI for consumer accounts on 2026-06-18 in favor of
+  Antigravity CLI. The Gemini target keeps working for Gemini Code Assist Standard/Enterprise
+  and paid API key users; migrate to `--agent antigravity`
 
 ## [0.3.0] - 2026-08-04
 

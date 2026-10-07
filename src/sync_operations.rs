@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use crate::agent_paths;
+use crate::antigravity_settings;
 use crate::app_config::{Agent, AppConfig, ClaudeCodeScope};
 use crate::asset_sync::{self, SyncBehavior};
 use crate::codex_settings::{convert_mcp_to_toml, CodexSettings, ModelProvider};
@@ -39,6 +40,9 @@ pub struct ReadConfigResult {
     /// Raw `OpenCode` settings (`opencode.settings.json`), kept untyped because
     /// `OpenCode` v2 shapes do not fit Claude's `Settings` model.
     pub opencode_settings: Option<serde_json::Map<String, Value>>,
+    /// Raw Antigravity CLI settings (`antigravity.settings.json`), deep-merged
+    /// into `~/.gemini/antigravity-cli/settings.json` in global mode.
+    pub antigravity_settings: Option<serde_json::Map<String, Value>>,
 }
 
 /// Optional extra files for Codex in global mode
@@ -89,6 +93,7 @@ pub struct AgentContext {
     pub is_codex: bool,
     pub is_gemini: bool,
     pub is_opencode: bool,
+    pub is_antigravity: bool,
     pub is_claude: bool,
     pub is_claude_desktop: bool,
     pub is_claude_code: bool,
@@ -100,6 +105,7 @@ impl AgentContext {
         let is_codex = matches!(agent, Some(Agent::Codex));
         let is_gemini = matches!(agent, Some(Agent::Gemini));
         let is_opencode = matches!(agent, Some(Agent::OpenCode));
+        let is_antigravity = matches!(agent, Some(Agent::Antigravity));
         let is_claude_desktop = matches!(agent, Some(Agent::Claude)) || agent.is_none();
         let is_claude_code = matches!(agent, Some(Agent::ClaudeCode));
         let is_claude = is_claude_desktop || is_claude_code;
@@ -112,6 +118,7 @@ impl AgentContext {
             is_codex,
             is_gemini,
             is_opencode,
+            is_antigravity,
             is_claude,
             is_claude_desktop,
             is_claude_code,
@@ -160,6 +167,18 @@ pub fn read_configurations(
             settings: None,
             codex_settings: None,
             opencode_settings,
+            antigravity_settings: None,
+        });
+    }
+
+    if agent_context.is_antigravity {
+        let antigravity_settings = read_antigravity_settings(&config.settings_path)?;
+        return Ok(ReadConfigResult {
+            mcp_servers,
+            settings: None,
+            codex_settings: None,
+            opencode_settings: None,
+            antigravity_settings,
         });
     }
 
@@ -172,7 +191,32 @@ pub fn read_configurations(
         read_regular_settings(&config.settings_path)?
     };
 
-    Ok(ReadConfigResult { mcp_servers, settings, codex_settings, opencode_settings: None })
+    Ok(ReadConfigResult {
+        mcp_servers,
+        settings,
+        codex_settings,
+        opencode_settings: None,
+        antigravity_settings: None,
+    })
+}
+
+/// Read Antigravity CLI settings and surface diagnostics.
+fn read_antigravity_settings(
+    settings_path: &Path,
+) -> Result<Option<serde_json::Map<String, Value>>> {
+    let settings = antigravity_settings::read_json_object(settings_path)
+        .context("Failed to read Antigravity settings")?;
+
+    if let Some(map) = settings.as_ref() {
+        debug!("Found {} to sync", antigravity_settings::ANTIGRAVITY_SETTINGS_SOURCE_FILE);
+        for warning in
+            antigravity_settings::validate_antigravity_settings(&Value::Object(map.clone()))
+        {
+            warn!("{warning}");
+        }
+    }
+
+    Ok(settings)
 }
 
 /// Read `OpenCode` settings and surface V1-key diagnostics.
@@ -337,6 +381,10 @@ fn collect_backup_paths(
 
     if codex_global.managed_config && agent_context.is_codex && config.is_global {
         paths.push(agent_paths::codex_managed_config_path());
+    }
+
+    if agent_context.is_antigravity && config.is_global {
+        paths.push(antigravity_cli_settings_path()?);
     }
 
     if agent_context.is_claude_code && config.is_global {
@@ -566,6 +614,10 @@ pub fn handle_dry_run(
 ) -> Result<()> {
     info!("Dry run mode - not writing changes");
 
+    if agent_context.is_antigravity {
+        return print_antigravity_dry_run(config, target_config_path, claude_config, read_result);
+    }
+
     if config.is_global {
         print_global_dry_run(
             target_config_path,
@@ -649,6 +701,21 @@ fn print_project_local_dry_run(
         print_opencode_dry_run(Path::new(opencode_settings::OPENCODE_CONFIG_FILE), claude_config)?;
     } else {
         print_other_agent_dry_run(claude_config, read_result.settings.as_ref())?;
+    }
+    Ok(())
+}
+
+fn print_antigravity_dry_run(
+    config: &Config,
+    target_config_path: &Path,
+    claude_config: &ClaudeConfig,
+    read_result: &ReadConfigResult,
+) -> Result<()> {
+    for (path, document) in
+        render_antigravity_documents(config, target_config_path, claude_config, read_result)?
+    {
+        println!("\n--- Antigravity config (dry run): {} ---", path.display());
+        print!("{}", antigravity_settings::to_pretty_json(&document)?);
     }
     Ok(())
 }
@@ -1071,7 +1138,9 @@ pub fn write_configurations(
     agent_context: AgentContext,
     codex_global: CodexGlobalSyncOptions,
 ) -> Result<()> {
-    if config.is_global {
+    if agent_context.is_antigravity {
+        write_antigravity_configurations(config, claude_config, target_config_path, read_result)?;
+    } else if config.is_global {
         write_global_configurations(
             claude_config,
             target_config_path,
@@ -1317,6 +1386,78 @@ fn write_project_local_configurations(
         )?;
     }
     Ok(())
+}
+
+fn antigravity_cli_settings_path() -> Result<PathBuf> {
+    let base_dirs = directories::BaseDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    Ok(agent_paths::antigravity_cli_dir(base_dirs.home_dir())
+        .join(antigravity_settings::ANTIGRAVITY_CLI_SETTINGS_FILE))
+}
+
+/// Render the Antigravity documents to write: `mcp_config.json`, plus the CLI
+/// `settings.json` in global mode when a settings source exists.
+fn render_antigravity_documents(
+    config: &Config,
+    target_config_path: &Path,
+    claude_config: &ClaudeConfig,
+    read_result: &ReadConfigResult,
+) -> Result<Vec<(PathBuf, Value)>> {
+    let no_servers = HashMap::new();
+    let existing = antigravity_settings::read_json_object(target_config_path)?;
+    let (mcp_document, warnings) = antigravity_settings::render_mcp_config(
+        existing,
+        claude_config.mcp_servers.as_ref().unwrap_or(&no_servers),
+    )?;
+    for warning in &warnings {
+        warn!("{warning}");
+    }
+    let mut documents = vec![(target_config_path.to_path_buf(), mcp_document)];
+
+    match read_result.antigravity_settings.as_ref() {
+        Some(source) if config.is_global => {
+            let settings_path = antigravity_cli_settings_path()?;
+            let existing_settings = antigravity_settings::read_json_object(&settings_path)?;
+            documents.push((
+                settings_path,
+                antigravity_settings::render_cli_settings(existing_settings, source),
+            ));
+        },
+        Some(source) if !source.is_empty() => info!(
+            "Antigravity CLI settings are global only; {} is applied with --global",
+            antigravity_settings::ANTIGRAVITY_SETTINGS_SOURCE_FILE
+        ),
+        _ => {},
+    }
+
+    Ok(documents)
+}
+
+/// Write `mcp_config.json` and, in global mode, the Antigravity CLI settings.
+fn write_antigravity_configurations(
+    config: &Config,
+    claude_config: &ClaudeConfig,
+    target_config_path: &Path,
+    read_result: &ReadConfigResult,
+) -> Result<()> {
+    for (path, document) in
+        render_antigravity_documents(config, target_config_path, claude_config, read_result)?
+    {
+        info!("Writing Antigravity config to {}", path.display());
+        write_json_document(&path, &antigravity_settings::to_pretty_json(&document)?)?;
+    }
+    Ok(())
+}
+
+/// Replace an existing file atomically (keeping its permissions) or create it.
+fn write_json_document(path: &Path, content: &str) -> Result<()> {
+    if path.exists() {
+        writer::atomic_write_preserving_permissions(path, content.as_bytes())
+    } else {
+        ensure_parent_directory_exists(path)?;
+        std::fs::write(path, content).map_err(Into::into)
+    }
+    .with_context(|| format!("Failed to write {}", path.display()))
 }
 
 /// Write the merged config to an `OpenCode` v2 `opencode.json`.
@@ -1627,6 +1768,9 @@ pub fn sync_supporting_assets(
     if let Some(asset) = sync_claude_code_agents_if_exists(config, agent_context, behavior) {
         report.push(asset);
     }
+    if let Some(asset) = sync_antigravity_agents_if_exists(config, behavior) {
+        report.push(asset);
+    }
 
     report
 }
@@ -1760,6 +1904,29 @@ fn sync_gemini_agents_if_exists(
     sync_directory_tree_if_exists(
         "Gemini agent",
         "Gemini agents",
+        source_dir.as_deref(),
+        &target_dir,
+        behavior,
+    )
+}
+
+fn sync_antigravity_agents_if_exists(
+    config: &Config,
+    behavior: SyncBehavior,
+) -> Option<SupportingAssetReport> {
+    let source_dir = config.resolve_antigravity_agents_source_dir();
+    let target_dir = match config.antigravity_agents_target_dir() {
+        Ok(Some(path)) => path,
+        Ok(None) => return None,
+        Err(e) => {
+            warn!("Failed to determine Antigravity agents target directory: {}", e);
+            return None;
+        },
+    };
+
+    sync_directory_tree_if_exists(
+        "Antigravity agent",
+        "Antigravity agents",
         source_dir.as_deref(),
         &target_dir,
         behavior,

@@ -1,5 +1,6 @@
 #![allow(clippy::self_named_module_files)]
 
+use crate::antigravity_settings::{ANTIGRAVITY_MCP_CONFIG_FILE, ANTIGRAVITY_SETTINGS_SOURCE_FILE};
 use crate::app_config::{AppConfig, CodexSkillTargetMode};
 use crate::opencode_settings::{OPENCODE_CONFIG_FILE, OPENCODE_SETTINGS_SOURCE_FILE};
 use serde::{Deserialize, Serialize};
@@ -196,6 +197,12 @@ impl Config {
                 None,
                 config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE),
             ),
+            Some(crate::app_config::Agent::Antigravity) => (
+                crate::agent_paths::antigravity_shared_config_dir(home_dir)
+                    .join(ANTIGRAVITY_MCP_CONFIG_FILE),
+                None,
+                config_dir.join(ANTIGRAVITY_SETTINGS_SOURCE_FILE),
+            ),
             _ => (claude_code_path, None, claude_settings_input),
         }
     }
@@ -223,6 +230,11 @@ impl Config {
                 current_dir.join(OPENCODE_CONFIG_FILE),
                 None,
                 config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE),
+            )),
+            Some(crate::app_config::Agent::Antigravity) => Ok((
+                current_dir.join(".agents").join(ANTIGRAVITY_MCP_CONFIG_FILE),
+                None,
+                config_dir.join(ANTIGRAVITY_SETTINGS_SOURCE_FILE),
             )),
             _ => {
                 let settings_path = current_dir.join(".claude").join("settings.json");
@@ -261,6 +273,12 @@ impl Config {
                 crate::agent_paths::opencode_config_dir(home_dir).join("skills")
             },
             Some(crate::app_config::Agent::OpenCode) => base_dir.join(".opencode").join("skills"),
+            // Antigravity shares global skills with Antigravity 2.0 and the IDE
+            // in ~/.gemini/config/skills and reads project skills from .agents/skills.
+            Some(crate::app_config::Agent::Antigravity) if use_global => {
+                crate::agent_paths::antigravity_shared_config_dir(home_dir).join("skills")
+            },
+            Some(crate::app_config::Agent::Antigravity) => base_dir.join(".agents").join("skills"),
             Some(crate::app_config::Agent::Gemini) => base_dir.join(".gemini").join("skills"),
             Some(crate::app_config::Agent::Codex) => match Self::load_codex_skill_target_mode()? {
                 CodexSkillTargetMode::Codex => base_dir.join(".codex").join("skills"),
@@ -309,6 +327,16 @@ impl Config {
         }
 
         let candidate = self.skills_dir.parent()?.join("agents").join("claude-code");
+        (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
+    }
+
+    #[must_use]
+    pub fn resolve_antigravity_agents_source_dir(&self) -> Option<PathBuf> {
+        if self.agent != Some(crate::app_config::Agent::Antigravity) {
+            return None;
+        }
+
+        let candidate = self.skills_dir.parent()?.join("agents").join("antigravity");
         (candidate.exists() && Self::skills_dir_has_entries(&candidate)).then_some(candidate)
     }
 
@@ -377,6 +405,27 @@ impl Config {
         }
 
         Ok(Some(self.deployment_base_dir()?.join(".claude").join("agents")))
+    }
+
+    /// Determine the Antigravity custom agents target directory.
+    ///
+    /// Global agents live in the shared `~/.gemini/config/agents`; project
+    /// agents live in `.agents/agents`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment base directory cannot be determined.
+    pub fn antigravity_agents_target_dir(&self) -> anyhow::Result<Option<PathBuf>> {
+        if self.agent != Some(crate::app_config::Agent::Antigravity) {
+            return Ok(None);
+        }
+
+        let base_dir = self.deployment_base_dir()?;
+        Ok(Some(if self.is_global {
+            crate::agent_paths::antigravity_shared_config_dir(&base_dir).join("agents")
+        } else {
+            base_dir.join(".agents").join("agents")
+        }))
     }
 
     /// Determine the Codex compatibility skills target directory.
@@ -490,6 +539,11 @@ impl Config {
         // Check for OpenCode settings
         if config_dir.join(OPENCODE_SETTINGS_SOURCE_FILE).exists() {
             agents.push(crate::app_config::Agent::OpenCode);
+        }
+
+        // Check for Antigravity settings
+        if config_dir.join(ANTIGRAVITY_SETTINGS_SOURCE_FILE).exists() {
+            agents.push(crate::app_config::Agent::Antigravity);
         }
 
         Ok(agents)

@@ -87,6 +87,7 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 ├── gemini.settings.json       # Gemini settings (optional)
 ├── gemini.system_defaults.json # Gemini system defaults (optional)
 ├── opencode.settings.json     # OpenCode v2 settings (optional)
+├── antigravity.settings.json  # Antigravity CLI settings (optional, global only)
 ├── settings.json              # General Claude settings (optional)
 ├── commands/
 │   └── gemini/                # Gemini custom commands (*.toml)
@@ -105,7 +106,7 @@ $XDG_CONFIG_HOME/claudius/     # or ~/.config/claudius/
 │   │   │   ├── <agent>.prepend.md
 │   │   │   └── <agent>.append.md
 │   │   └── SKILL.md           # Legacy passthrough format (supported)
-│   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex, opencode)
+│   └── <agent>/               # Optional agent override (claude, claude-code, gemini, codex, opencode, antigravity)
 │       └── <skill>/           # Agent-specific skill
 │           └── SKILL.md       # Deprecated full override compatibility path
 └── rules/                     # CLAUDE.md templates
@@ -132,6 +133,10 @@ Project Directory (default):
 ├── .opencode/
 │   └── skills/                # Project-local skills (OpenCode)
 ├── opencode.json              # Project-local OpenCode v2 settings + MCP servers (mcp.servers)
+├── .agents/
+│   ├── mcp_config.json        # Project-local Antigravity MCP servers
+│   ├── skills/                # Project-local skills (Antigravity; also Codex's default)
+│   └── agents/                # Project-local Antigravity agents
 └── CLAUDE.md                  # Project-specific instructions
 
 Global targets (--global):
@@ -140,7 +145,8 @@ Global targets (--global):
 ├── Codex: ~/.codex/config.toml
 ├── Gemini: ~/.gemini/settings.json + /etc/gemini-cli/settings.json + /etc/gemini-cli/system-defaults.json
 ├── OpenCode: $OPENCODE_CONFIG_DIR or $XDG_CONFIG_HOME/opencode (default ~/.config/opencode)/opencode.json
-└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.agents/skills (Codex, default), ~/.codex/skills (Codex compatibility), ~/.config/opencode/skills (OpenCode)
+├── Antigravity: ~/.gemini/config/mcp_config.json + ~/.gemini/antigravity-cli/settings.json (agents: ~/.gemini/config/agents)
+└── Skills: ~/.claude/skills (Claude), ~/.gemini/skills (Gemini), ~/.agents/skills (Codex, default), ~/.codex/skills (Codex compatibility), ~/.config/opencode/skills (OpenCode), ~/.gemini/config/skills (Antigravity)
 ```
 
 ### Data Flow
@@ -160,6 +166,7 @@ Global targets (--global):
 - Codex: settings + MCP servers → `~/.codex/config.toml`
 - Gemini: settings + MCP servers → `~/.gemini/settings.json`
 - OpenCode: settings + MCP servers (v2 `mcp.servers`) → `~/.config/opencode/opencode.json`
+- Antigravity: MCP servers → `~/.gemini/config/mcp_config.json`, settings → `~/.gemini/antigravity-cli/settings.json`
 - Gemini system settings: `claudius config sync --global --agent gemini --gemini-system` → `/etc/gemini-cli/settings.json`
 - Gemini system defaults: `claudius config sync --global --agent gemini --gemini-system-defaults` → `/etc/gemini-cli/system-defaults.json`
 
@@ -198,10 +205,12 @@ Creates default:
 - `gemini.settings.json` with Gemini settings template
 - `gemini.system_defaults.json` with Gemini system defaults template
 - `opencode.settings.json` with an empty OpenCode v2 settings object
+- `antigravity.settings.json` with an empty Antigravity CLI settings object
 - `config.toml` with commented configuration options
 - `commands/gemini/` for Gemini custom commands
 - `agents/gemini/` for Gemini custom agents
 - `agents/claude-code/` for Claude Code subagents
+- `agents/antigravity/` for Antigravity custom agents
 - `skills/example/skill.yaml` - Example canonical skill metadata
 - `skills/example/instructions.md` - Example canonical skill instructions
 - `rules/example.md` - Example CLAUDE.md rule
@@ -220,6 +229,7 @@ Codex surfaces the same warning via `claudius skills sync --agent codex`.
 - Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
 - Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`, commands → `./.gemini/commands/`, agents → `./.gemini/agents/`, skills → `./.gemini/skills/`
 - OpenCode (`--agent opencode`): settings + MCP servers → `./opencode.json` (MCP under `mcp.servers` in the v2 format), skills → `./.opencode/skills/`
+- Antigravity (`--agent antigravity`): MCP servers → `./.agents/mcp_config.json`, skills → `./.agents/skills/`, agents → `./.agents/agents/`
 
 **Global mode (--global):**
 - Claude Desktop (`--agent claude`) → `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
@@ -227,9 +237,10 @@ Codex surfaces the same warning via `claudius skills sync --agent codex`.
 - Codex (`--agent codex`) → `~/.codex/config.toml`
 - Gemini (`--agent gemini`) → `~/.gemini/settings.json`
 - OpenCode (`--agent opencode`) → `$XDG_CONFIG_HOME/opencode/opencode.json` (honors `OPENCODE_CONFIG_DIR`)
+- Antigravity (`--agent antigravity`) → `~/.gemini/config/mcp_config.json` + `~/.gemini/antigravity-cli/settings.json`, agents → `~/.gemini/config/agents/`
 - Gemini system settings (`--gemini-system`) → `/etc/gemini-cli/settings.json`
 - Gemini system defaults (`--gemini-system-defaults`) → `/etc/gemini-cli/system-defaults.json`
-- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.agents/skills/` (Codex, default), `~/.codex/skills/` (Codex compatibility), `~/.config/opencode/skills/` (OpenCode)
+- Skills → `~/.claude/skills/` (Claude), `~/.gemini/skills/` (Gemini), `~/.agents/skills/` (Codex, default), `~/.codex/skills/` (Codex compatibility), `~/.config/opencode/skills/` (OpenCode), `~/.gemini/config/skills/` (Antigravity)
 
 ```bash
 # Basic sync (project-local: .mcp.json + .claude/settings.json)
@@ -362,7 +373,7 @@ claudius skills render --agent codex --output /tmp/codex-skills --prune
 
 ### `claudius context append`
 Append instructions or rules to the agent's context file (CLAUDE.md for
-Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex and OpenCode).
+Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex, OpenCode, and Antigravity).
 
 ```bash
 # Use predefined rule
@@ -480,7 +491,7 @@ Claudius supports its own configuration file at `$XDG_CONFIG_HOME/claudius/confi
 ```toml
 # Default agent configuration (optional)
 [default]
-agent = "claude"  # or "claude-code" or "codex" or "gemini" or "opencode"
+agent = "claude"  # or "claude-code" or "codex" or "antigravity" or "opencode" or "gemini" (deprecated)
 context-file = "CLAUDE.md"  # optional custom filename
 
 # Secret Manager Configuration (optional)
