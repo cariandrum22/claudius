@@ -113,6 +113,7 @@ pub enum JsonConfigKind {
     Claude,
     Gemini,
     OpenCode,
+    Antigravity,
 }
 
 /// Validates Claudius app configuration and returns semantic warnings.
@@ -210,6 +211,9 @@ fn parse_and_validate_json_file<P: AsRef<Path>>(
         Some(JsonConfigKind::OpenCode) => {
             crate::opencode_settings::validate_opencode_settings(&json_value)
         },
+        Some(JsonConfigKind::Antigravity) => {
+            crate::antigravity_settings::validate_antigravity_settings(&json_value)
+        },
         None => Vec::new(),
     };
 
@@ -225,6 +229,8 @@ fn infer_json_config_kind(path: &Path) -> Option<JsonConfigKind> {
         Some(JsonConfigKind::Gemini)
     } else if file_name.contains("opencode") {
         Some(JsonConfigKind::OpenCode)
+    } else if file_name.contains("antigravity") {
+        Some(JsonConfigKind::Antigravity)
     } else if file_name.contains("claude") || file_name.contains("codex") {
         Some(JsonConfigKind::Claude)
     } else {

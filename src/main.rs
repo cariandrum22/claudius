@@ -347,6 +347,7 @@ fn run_render_skills(args: &cli::SkillsRenderArgs, app_config: Option<&AppConfig
             claudius::app_config::Agent::Codex => "codex",
             claudius::app_config::Agent::Gemini => "gemini",
             claudius::app_config::Agent::OpenCode => "opencode",
+            claudius::app_config::Agent::Antigravity => "antigravity",
         }),
         report.target_dir.display(),
     );
@@ -663,11 +664,16 @@ fn validate_agent_sources(
         Some(Agent::OpenCode) => {
             validate_opencode_sources(config_dir, true).map(warning_diagnostics)
         },
+        Some(Agent::Antigravity) => {
+            validate_antigravity_sources(config_dir, true).map(warning_diagnostics)
+        },
         None => {
             let mut diagnostics = validate_claude_code_sources(config_dir, None)?;
             diagnostics.extend(warning_diagnostics(validate_codex_sources(config_dir)?));
             diagnostics.extend(warning_diagnostics(validate_gemini_sources(config_dir)?));
             diagnostics.extend(warning_diagnostics(validate_opencode_sources(config_dir, false)?));
+            diagnostics
+                .extend(warning_diagnostics(validate_antigravity_sources(config_dir, false)?));
             Ok(diagnostics)
         },
     }
@@ -844,6 +850,46 @@ fn validate_opencode_sources(config_dir: &std::path::Path, explicit: bool) -> Re
             })?;
         warnings.extend(
             opencode_settings::validate_opencode_mcp_server_configs(&mcp_servers.mcp_servers)
+                .into_iter()
+                .map(|warning| format!("{}: {warning}", mcp_servers_path.display())),
+        );
+    }
+
+    Ok(warnings)
+}
+
+/// Validate Antigravity sources. When `explicit` is false (validating every
+/// agent), shared MCP servers are only checked against Antigravity if an
+/// Antigravity settings source exists, to avoid noise for non-users.
+fn validate_antigravity_sources(
+    config_dir: &std::path::Path,
+    explicit: bool,
+) -> Result<Vec<String>> {
+    use claudius::antigravity_settings;
+
+    let settings_path = config_dir.join(antigravity_settings::ANTIGRAVITY_SETTINGS_SOURCE_FILE);
+    let settings = antigravity_settings::read_json_object(&settings_path)?;
+    if settings.is_none() && !explicit {
+        return Ok(Vec::new());
+    }
+
+    let mut warnings: Vec<String> = settings
+        .map(|map| {
+            antigravity_settings::validate_antigravity_settings(&serde_json::Value::Object(map))
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|warning| format!("{}: {warning}", settings_path.display()))
+        .collect();
+
+    let mcp_servers_path = config_dir.join("mcpServers.json");
+    if mcp_servers_path.exists() {
+        let mcp_servers =
+            reader::read_mcp_servers_config(&mcp_servers_path).with_context(|| {
+                format!("Failed to read MCP servers config: {}", mcp_servers_path.display())
+            })?;
+        warnings.extend(
+            antigravity_settings::validate_antigravity_mcp_server_configs(&mcp_servers.mcp_servers)
                 .into_iter()
                 .map(|warning| format!("{}: {warning}", mcp_servers_path.display())),
         );
@@ -1149,9 +1195,9 @@ fn get_agent_context_filename(agent: claudius::app_config::Agent) -> String {
             "CLAUDE.md".to_string()
         },
         claudius::app_config::Agent::Gemini => "GEMINI.md".to_string(),
-        claudius::app_config::Agent::Codex | claudius::app_config::Agent::OpenCode => {
-            "AGENTS.md".to_string()
-        },
+        claudius::app_config::Agent::Codex
+        | claudius::app_config::Agent::OpenCode
+        | claudius::app_config::Agent::Antigravity => "AGENTS.md".to_string(),
     }
 }
 
@@ -1249,6 +1295,7 @@ fn sync_all_available_agents(options: &SyncOptions, app_config: Option<&AppConfi
             claudius::app_config::Agent::Codex => "Codex",
             claudius::app_config::Agent::Gemini => "Gemini",
             claudius::app_config::Agent::OpenCode => "OpenCode",
+            claudius::app_config::Agent::Antigravity => "Antigravity",
         };
         println!("\nSyncing agent: {agent_name}");
         println!("===============================================");
@@ -1300,6 +1347,11 @@ fn setup_sync_context(
     }
 
     let agent_context = AgentContext::new(agent, request.claude_code_scope);
+    if agent_context.is_gemini {
+        warn!(
+            "--agent gemini is deprecated: Gemini CLI was retired for consumer accounts on 2026-06-18; migrate to --agent antigravity"
+        );
+    }
     let mut config = Config::new_with_agent(request.global, agent)?;
 
     if request.gemini_system_defaults && agent_context.is_gemini {
@@ -1398,7 +1450,9 @@ fn load_target_claude_config(
 ) -> Result<claudius::config::ClaudeConfig> {
     debug!("Reading target configuration");
 
-    if config.is_global && agent_context.is_codex {
+    // Antigravity re-reads its mcp_config.json at write time so that servers it
+    // manages itself (for example via `agy mcp add`) are preserved untouched.
+    if (config.is_global && agent_context.is_codex) || agent_context.is_antigravity {
         return Ok(claudius::config::ClaudeConfig { mcp_servers: None, other: HashMap::new() });
     }
 

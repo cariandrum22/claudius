@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 pub mod agent_paths;
+pub mod antigravity_settings;
 pub mod app_config;
 pub mod asset_sync;
 pub mod bootstrap;

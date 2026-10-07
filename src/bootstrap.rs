@@ -84,7 +84,7 @@ const EXAMPLE_CONFIG: &str = r#"# Claudius Configuration File
 
 # [default]
 # Default settings that can be overridden by command-line arguments
-# agent = "claude"  # Options: "claude", "claude-code", "codex", "gemini", "opencode"
+# agent = "claude"  # Options: "claude", "claude-code", "codex", "antigravity", "opencode", "gemini" (deprecated)
 # context-file = "CONTEXT.md"  # Custom context file name (overrides agent defaults)
 
 # [codex]
@@ -157,6 +157,12 @@ const DEFAULT_GEMINI_SYSTEM_DEFAULTS: &str = r#"{
 /// No `$schema` is set because the published schema still describes V1 and
 /// flags valid V2 fields such as `mcp.servers` and `permissions`.
 const DEFAULT_OPENCODE_SETTINGS: &str = "{}\n";
+
+/// Default Antigravity CLI settings content.
+///
+/// Intentionally empty: Antigravity persists only values that differ from its
+/// defaults, and no settings schema is published.
+const DEFAULT_ANTIGRAVITY_SETTINGS: &str = "{}\n";
 
 /// Default Codex TOML settings content
 const DEFAULT_CODEX_SETTINGS: &str = r#"# Codex Settings
@@ -357,6 +363,7 @@ fn init_agent_settings(config_dir: &Path, force: bool) -> Result<()> {
         ("gemini.settings.json", DEFAULT_GEMINI_SETTINGS),
         ("gemini.system_defaults.json", DEFAULT_GEMINI_SYSTEM_DEFAULTS),
         ("opencode.settings.json", DEFAULT_OPENCODE_SETTINGS),
+        ("antigravity.settings.json", DEFAULT_ANTIGRAVITY_SETTINGS),
     ];
 
     agent_settings.into_iter().try_for_each(|(filename, content)| {
@@ -426,6 +433,7 @@ fn init_auxiliary_source_directories(config_dir: &Path, force: bool) -> Result<(
         config_dir.join("commands").join("gemini"),
         config_dir.join("agents").join("gemini"),
         config_dir.join("agents").join("claude-code"),
+        config_dir.join("agents").join("antigravity"),
     ]
     .into_iter()
     .try_for_each(|path| create_directory(&path, force))
@@ -574,6 +582,7 @@ mod tests {
                 "codex.managed_config.toml",
                 "gemini.settings.json",
                 "gemini.system_defaults.json",
+                "antigravity.settings.json",
                 "settings.json",
                 "config.toml",
                 "skills",
@@ -582,6 +591,7 @@ mod tests {
                 "commands/gemini",
                 "agents/gemini",
                 "agents/claude-code",
+                "agents/antigravity",
                 "rules",
                 "rules/example.md",
             ],

@@ -9,7 +9,7 @@ Multi-agent configuration management tool for AI assistants
 
 ## Overview
 
-Claudius is a configuration management tool for file-based AI agent surfaces. It actively manages Claude Code, Codex, Gemini CLI, and OpenCode v2 configurations, and retains legacy / best-effort support for Claude Desktop's JSON MCP target. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, skills, and project-specific context instructions.
+Claudius is a configuration management tool for file-based AI agent surfaces. It actively manages Claude Code, Codex, Antigravity CLI, OpenCode v2, and Gemini CLI (deprecated) configurations, and retains legacy / best-effort support for Claude Desktop's JSON MCP target. It provides a structured approach to managing MCP (Model Context Protocol) servers, agent-specific settings, skills, and project-specific context instructions.
 
 ## Key Features
 
@@ -174,10 +174,16 @@ Claudius does not treat every target surface equally. Current support levels are
 | Claude Desktop | Global `claude_desktop_config.json` MCP sync, project-local `.mcp.json` MCP sync | Entire Claude Desktop target is legacy / best-effort | Extensions, Connectors, and other UI-managed app surfaces |
 | Claude Code | Project, local, user, and managed MCP/settings files; `.claude/agents`; skills; context files | Legacy `settings.json` source alias | Slash commands in `.claude/commands`; non-file-based product features |
 | Codex | User and admin TOML config files; context files; skills via `.agents/skills` | Optional compatibility copies to `.codex/skills` | Cloud-managed enterprise policies, macOS MDM payloads, and other non-file-based product features |
-| Gemini | User, system, and system-default settings; `.gemini/commands`; `.gemini/agents`; skills; context files | OS-specific system path handling | Gemini extensions and custom sandbox profiles |
+| Antigravity CLI | Shared `~/.gemini/config/mcp_config.json` and project `.agents/mcp_config.json` (MCP servers); global CLI `settings.json`; skills; `.agents/agents` / `~/.gemini/config/agents`; `AGENTS.md` | MCP servers and keys Claudius does not manage are preserved | Hooks, plugins, `rules/` directories, workflows, and project permission files under `~/.gemini/config/projects/` |
+| Gemini (deprecated) | User, system, and system-default settings; `.gemini/commands`; `.gemini/agents`; skills; context files | OS-specific system path handling | Gemini extensions and custom sandbox profiles |
 | OpenCode (v2) | Project `opencode.json` and global `opencode.json` (MCP servers + settings); skills via `.opencode/skills`; `AGENTS.md` | Existing V1 flat `mcp.<name>` entries are preserved unless a synced server replaces them | `.opencode/agents`, `.opencode/commands`, plugins, and the terminal client's `cli.json` |
 
-Prefer `--agent claude-code`, `--agent codex`, `--agent gemini`, or `--agent opencode` for actively managed surfaces. Use `--agent claude` only when you specifically need the legacy Claude Desktop JSON target.
+Prefer `--agent claude-code`, `--agent codex`, `--agent antigravity`, or `--agent opencode` for actively managed surfaces. Use `--agent claude` only when you specifically need the legacy Claude Desktop JSON target.
+
+`--agent gemini` is deprecated. Google stopped serving Gemini CLI for consumer accounts
+(free, Google AI Pro, and Ultra) on 2026-06-18 in favor of Antigravity CLI; it remains
+available with Gemini Code Assist Standard/Enterprise licenses and paid API keys, so
+Claudius keeps the Gemini target for now. Migrate to `--agent antigravity`.
 
 ## Command Reference
 
@@ -214,10 +220,12 @@ This creates:
 - `gemini.settings.json` with default Gemini settings
 - `gemini.system_defaults.json` with default Gemini system defaults
 - `opencode.settings.json` with an empty OpenCode v2 settings object
+- `antigravity.settings.json` with an empty Antigravity CLI settings object
 - `config.toml` with Claudius application settings (optional)
 - `commands/gemini/` for Gemini custom commands
 - `agents/gemini/` for Gemini custom agents
 - `agents/claude-code/` for Claude Code subagents
+- `agents/antigravity/` for Antigravity custom agents
 - `skills/example/skill.yaml` - Example canonical skill metadata
 - `skills/example/instructions.md` - Example canonical skill instructions
 - `rules/example.md` - Example context file rule template
@@ -225,7 +233,7 @@ This creates:
 ### `claudius config sync`
 
 Synchronize all agent configurations to target files.
-When present, Claudius also syncs Gemini custom commands, Gemini custom agents, and Claude Code subagents.
+When present, Claudius also syncs Gemini custom commands, Gemini custom agents, Claude Code subagents, and Antigravity custom agents.
 Claude Desktop sync is retained as a legacy / best-effort path for JSON-based workflows. Claudius does not manage Claude Desktop Extensions or Connectors.
 Deprecated full override skill directories under `skills/<agent>/<skill>/` still sync for
 Claude Code and Gemini compatibility, but Claudius emits migration warnings during sync and
@@ -240,6 +248,7 @@ Codex surfaces the same warning via `claudius skills sync --agent codex`.
 - Codex (`--agent codex`): settings + MCP servers → `./.codex/config.toml`
 - Gemini (`--agent gemini`): settings + MCP servers → `./.gemini/settings.json`
 - OpenCode (`--agent opencode`): settings + MCP servers → `./opencode.json`
+- Antigravity (`--agent antigravity`): MCP servers → `./.agents/mcp_config.json`, skills → `./.agents/skills/`, agents → `./.agents/agents/` (Antigravity has no project CLI settings file)
 
 **Global mode (`--global`):**
 - Claude Desktop (`--agent claude`, legacy / best-effort): `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`)
@@ -255,6 +264,7 @@ Codex surfaces the same warning via `claudius skills sync --agent codex`.
   - System settings: `/etc/gemini-cli/settings.json` (`--gemini-system`, path varies by OS)
   - System defaults: `/etc/gemini-cli/system-defaults.json` (`--gemini-system-defaults`, path varies by OS)
 - OpenCode (`--agent opencode`): `$OPENCODE_CONFIG_DIR/opencode.json`, else `$XDG_CONFIG_HOME/opencode/opencode.json` (default `~/.config/opencode/opencode.json`, also on macOS)
+- Antigravity (`--agent antigravity`): MCP servers → `~/.gemini/config/mcp_config.json`, settings → `~/.gemini/antigravity-cli/settings.json`, skills → `~/.gemini/config/skills/`, agents → `~/.gemini/config/agents/` (shared with Antigravity 2.0 and the IDE)
 
 **OpenCode v2 MCP mapping:** shared `mcpServers.json` entries are written in the
 OpenCode v2 native layout under `mcp.servers.<name>`:
@@ -279,6 +289,27 @@ dropped with a warning. Servers that already exist under `mcp.servers` but not i
 synced server with the same name replaces it. `opencode.settings.json` is deep-merged
 into `opencode.json` as-is, so write it in the OpenCode v2 format (for example
 `permissions` as a rule array).
+
+**Antigravity MCP mapping:** shared `mcpServers.json` entries are written to
+`mcp_config.json` under `mcpServers.<name>`:
+
+| `mcpServers.json` | `mcp_config.json` (`mcpServers.<name>`) |
+| --- | --- |
+| `command` + `args` + `env` | `command`, `args`, `env` |
+| `url` (or `serverUrl`) + `headers` | `serverUrl`, `headers` (the Antigravity MCP reference documents only `serverUrl`) |
+| `enabled: false` / `disabled: true` | `disabled: true` |
+| `cwd` (stdio only), `disabledTools`, `authProviderType`, `oauth` | passed through unchanged |
+
+Other fields (for example Gemini `trust`, `timeout`, or Codex `startup_timeout_sec`) are
+dropped with a warning; Antigravity approves MCP tools through `permissions` rules such as
+`mcp(server/tool)` instead. Synced servers replace same-named entries, while servers and
+keys Claudius does not manage (for example ones added with `agy mcp add`) are preserved.
+Claudius refuses to rewrite an existing `mcp_config.json` or `settings.json` that is not
+plain JSON (Antigravity also accepts comments and trailing commas), so such files are never
+silently reformatted. `antigravity.settings.json` is deep-merged into
+`~/.gemini/antigravity-cli/settings.json` in global mode only. Project skills go to
+`.agents/skills/`, the same directory Codex uses by default; sync only one of the two agents
+there with `--prune`, because they share a managed-files manifest.
 
 ```bash
 # Basic sync to project-local files
@@ -308,6 +339,7 @@ claudius config sync --agent claude-code
 claudius config sync --agent codex
 claudius config sync --agent gemini
 claudius config sync --agent opencode
+claudius config sync --agent antigravity
 
 # Claude Code scope selection
 claudius config sync --agent claude-code --scope managed
@@ -439,6 +471,9 @@ claudius skills sync --global --agent gemini
 # Sync skills to project-local .opencode/skills/ (global: ~/.config/opencode/skills/)
 claudius skills sync --agent opencode
 
+# Sync skills to project-local .agents/skills/ (global: ~/.gemini/config/skills/)
+claudius skills sync --agent antigravity
+
 # Preview skill changes and stale-file removals
 claudius skills sync --dry-run --prune
 
@@ -512,7 +547,7 @@ claudius skills render --agent codex --output /tmp/codex-skills --prune
 
 ### `claudius context append`
 
-Append instructions or rules to the agent's context file (CLAUDE.md for Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex and OpenCode).
+Append instructions or rules to the agent's context file (CLAUDE.md for Claude/Claude Code, GEMINI.md for Gemini, AGENTS.md for Codex, OpenCode, and Antigravity).
 
 ```bash
 # Append a predefined rule
@@ -638,6 +673,7 @@ Features:
 ├── gemini.settings.json # Gemini settings (optional)
 ├── gemini.system_defaults.json # Gemini system defaults (optional)
 ├── opencode.settings.json # OpenCode v2 settings (optional)
+├── antigravity.settings.json # Antigravity CLI settings (optional)
 ├── settings.json      # Legacy alias for claude.settings.json (backward compatible)
 ├── skills/            # Skills (shared + agent-specific)
 │   ├── <skill>/       # Shared skill
@@ -651,7 +687,7 @@ Features:
 │   │   │   ├── <agent>.prepend.md
 │   │   │   └── <agent>.append.md
 │   │   └── SKILL.md   # Legacy passthrough format (supported)
-│   └── <agent>/       # Optional agent override (claude, claude-code, gemini, codex, opencode)
+│   └── <agent>/       # Optional agent override (claude, claude-code, gemini, codex, opencode, antigravity)
 │       └── <skill>/   # Agent-specific skill
 │           └── SKILL.md # Deprecated full override compatibility path
 ├── commands/
@@ -660,7 +696,9 @@ Features:
 ├── agents/
 │   ├── gemini/       # Gemini custom agents
 │   │   └── *.md
-│   └── claude-code/  # Claude Code subagents
+│   ├── claude-code/  # Claude Code subagents
+│   │   └── *.md
+│   └── antigravity/  # Antigravity custom agents
 │       └── *.md
 └── rules/             # Context file templates
     └── *.md           # Rule files

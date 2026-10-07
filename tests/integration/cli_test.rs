@@ -34,7 +34,7 @@ mod tests {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_claudius"));
         cmd.arg("--help").assert().success().stdout(
             predicate::str::contains(
-                "Claudius is a configuration management tool for Claude Code, Codex, Gemini, OpenCode, and legacy Claude Desktop targets.",
+                "Claudius is a configuration management tool for Claude Code, Codex, Antigravity, OpenCode, Gemini (deprecated), and legacy Claude Desktop targets.",
             )
             .and(predicate::str::contains(
                 "Claude Desktop support is retained as a legacy / best-effort MCP target.",

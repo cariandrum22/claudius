@@ -1,4 +1,5 @@
 mod agent_assets_test;
+mod antigravity_sync_test;
 mod app_config_test;
 mod cli_test;
 mod codex_model_providers_test;
